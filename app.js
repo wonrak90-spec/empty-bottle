@@ -10,6 +10,7 @@ function showTab(tab) {
   stopScanner();
   stopLiveOcr('single');
   stopLiveOcr('multi');
+  stopLiveOcr('prod');
 }
 
 function setStatus(id, text, type) {
@@ -73,8 +74,14 @@ async function lookupMaster(key) {
 /* ============ 라벨 사진 OCR ============ */
 
 let ocrWorker = null;
-let lastPhotoDataUrl = { single: '', multi: '' };
-let lastOcrText = { single: '', multi: '' };
+let lastPhotoDataUrl = { single: '', multi: '', prod: '' };
+let lastOcrText = { single: '', multi: '', prod: '' };
+
+const MODE_UI = {
+  single: { preview: 'singlePreview', status: 'singleStatus', progress: 'ocrProgressSingle', box: 'ocrBoxSingle', video: 'liveVideoSingle', wrap: 'liveWrapSingle' },
+  multi: { preview: 'multiPreview', status: 'multiBaseStatus', progress: 'ocrProgressMulti', box: 'ocrBoxMulti', video: 'liveVideoMulti', wrap: 'liveWrapMulti' },
+  prod: { preview: 'prodPreview', status: 'prodOcrStatus', progress: 'ocrProgressProd', box: 'ocrBoxProd', video: 'liveVideoProd', wrap: 'liveWrapProd' }
+};
 
 async function getOcrWorker(progressId) {
   if (ocrWorker) return ocrWorker;
@@ -89,6 +96,29 @@ async function getOcrWorker(progressId) {
   return ocrWorker;
 }
 
+function applyOcrToMode(mode, parsed) {
+  if (mode === 'single') {
+    applyParsed(parsed);
+    return '라벨 자동인식 완료 · 아래 내용을 확인하세요.';
+  }
+  if (mode === 'multi') {
+    if (parsed.product) document.getElementById('mProduct').value = parsed.product;
+    if (parsed.itemCode) document.getElementById('mItemCode').value = parsed.itemCode;
+    if (parsed.supplier) document.getElementById('mSupplier').value = parsed.supplier;
+    if (parsed.displayQty) document.getElementById('mQty').value = parsed.displayQty;
+    if (parsed.inboundNo) document.getElementById('mInboundNo').value = parsed.inboundNo;
+    return '기준정보 설정 완료 · 이제 코드 스캔 또는 수동 추가를 진행하세요.';
+  }
+  if (mode === 'prod') {
+    const p = parseProductionText(lastOcrText.prod);
+    if (p.productName) document.getElementById('prodProductName').value = p.productName;
+    if (p.lotNo) document.getElementById('prodLotNo').value = p.lotNo;
+    if (p.prodDate) document.getElementById('prodDate').value = p.prodDate;
+    if (p.prodQty) document.getElementById('prodQty').value = p.prodQty;
+    return '자동인식 완료 · 아래 생산 정보를 확인하세요.';
+  }
+}
+
 async function labelPhotoSelected(event, mode) {
   const file = event.target.files && event.target.files[0];
   if (!file) return;
@@ -96,36 +126,24 @@ async function labelPhotoSelected(event, mode) {
   const dataUrl = await fileToDataUrl(file);
   lastPhotoDataUrl[mode] = dataUrl;
 
-  const preview = document.getElementById(mode === 'single' ? 'singlePreview' : 'multiPreview');
+  const ui = MODE_UI[mode];
+  const preview = document.getElementById(ui.preview);
   preview.src = dataUrl;
   preview.classList.remove('hidden');
 
-  const statusId = mode === 'single' ? 'singleStatus' : 'multiBaseStatus';
-  const progressId = mode === 'single' ? 'ocrProgressSingle' : 'ocrProgressMulti';
-  const boxId = mode === 'single' ? 'ocrBoxSingle' : 'ocrBoxMulti';
-  document.getElementById(boxId).classList.remove('hidden');
-  setStatus(statusId, '라벨 자동인식 중... (처음 실행 시 몇 초 걸릴 수 있어요)', 'warn');
+  document.getElementById(ui.box).classList.remove('hidden');
+  setStatus(ui.status, '자동인식 중... (처음 실행 시 몇 초 걸릴 수 있어요)', 'warn');
 
   try {
-    const worker = await getOcrWorker(progressId);
+    const worker = await getOcrWorker(ui.progress);
     const ret = await worker.recognize(dataUrl);
     const raw = ret.data.text || '';
     lastOcrText[mode] = raw;
-    const parsed = parseLabelText(raw);
-
-    if (mode === 'single') {
-      applyParsed(parsed);
-      setStatus(statusId, '라벨 자동인식 완료 · 아래 내용을 확인하세요.', 'ok');
-    } else {
-      if (parsed.product) document.getElementById('mProduct').value = parsed.product;
-      if (parsed.itemCode) document.getElementById('mItemCode').value = parsed.itemCode;
-      if (parsed.supplier) document.getElementById('mSupplier').value = parsed.supplier;
-      if (parsed.displayQty) document.getElementById('mQty').value = parsed.displayQty;
-      if (parsed.inboundNo) document.getElementById('mInboundNo').value = parsed.inboundNo;
-      setStatus(statusId, '기준정보 설정 완료 · 이제 코드 스캔 또는 수동 추가를 진행하세요.', 'ok');
-    }
+    const parsed = mode === 'prod' ? {} : parseLabelText(raw);
+    const msg = applyOcrToMode(mode, parsed);
+    setStatus(ui.status, msg, 'ok');
   } catch (e) {
-    setStatus(statusId, '라벨 자동인식 실패: ' + e + ' (필드에 직접 입력해주세요)', 'bad');
+    setStatus(ui.status, '자동인식 실패: ' + e + ' (필드에 직접 입력해주세요)', 'bad');
   }
 }
 
@@ -154,6 +172,28 @@ function parseLabelText(raw) {
 
   if (out.product) {
     out.product = out.product.replace(/\s+(품목\s*코드|수\s*량|제\s*조\s*원|공급\s*업체).*$/i, '').trim();
+  }
+  return out;
+}
+
+function parseProductionText(raw) {
+  const t = String(raw || '').replace(/\r/g, '\n').replace(/：/g, ':').replace(/\n+/g, '\n');
+  const out = {};
+  const one = re => { const m = t.match(re); return m ? m[1].trim() : ''; };
+
+  out.productName = one(/제\s*품\s*명\s*[:\-]?\s*([^\n]+)/i) || one(/품\s*명\s*[:\-]?\s*([^\n]+)/i);
+  out.lotNo = one(/제\s*조\s*번\s*호\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
+    one(/lot\s*(?:no\.?)?\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
+    one(/로트\s*번호\s*[:\-]?\s*([A-Za-z0-9\-]+)/i);
+  out.prodDate = normalizeDate(
+    one(/제\s*조\s*일\s*자?\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i) ||
+    one(/생\s*산\s*일\s*자?\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i)
+  );
+  const q = t.match(/(?:생\s*산\s*수\s*량|수\s*량)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)/i);
+  if (q) out.prodQty = q[1];
+
+  if (out.productName) {
+    out.productName = out.productName.replace(/\s+(제조\s*번호|lot|로트\s*번호|제조\s*일자?|생산\s*일자?|수\s*량).*$/i, '').trim();
   }
   return out;
 }
@@ -205,16 +245,14 @@ function removeItemPhoto(mode, index) {
 
 /* ============ 실시간 카메라 인식 ============ */
 
-let liveOcr = { single: { stream: null, running: false }, multi: { stream: null, running: false } };
+let liveOcr = { single: { stream: null, running: false }, multi: { stream: null, running: false }, prod: { stream: null, running: false } };
 
 async function startLiveOcr(mode) {
   if (liveOcr[mode].running) return;
   await stopScanner(); // 코드 스캔 중이면 먼저 정지
 
-  const statusId = mode === 'single' ? 'singleStatus' : 'multiBaseStatus';
-  const videoId = mode === 'single' ? 'liveVideoSingle' : 'liveVideoMulti';
-  const wrapId = mode === 'single' ? 'liveWrapSingle' : 'liveWrapMulti';
-  const video = document.getElementById(videoId);
+  const ui = MODE_UI[mode];
+  const video = document.getElementById(ui.video);
 
   try {
     const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false });
@@ -222,22 +260,20 @@ async function startLiveOcr(mode) {
     video.srcObject = stream;
     await video.play();
   } catch (e) {
-    setStatus(statusId, '카메라 실행 실패: ' + e, 'bad');
+    setStatus(ui.status, '카메라 실행 실패: ' + e, 'bad');
     return;
   }
 
-  document.getElementById(wrapId).classList.remove('hidden');
+  document.getElementById(ui.wrap).classList.remove('hidden');
   liveOcr[mode].running = true;
-  setStatus(statusId, '실시간 인식 중... 라벨을 화면에 비춰주세요.', 'warn');
+  setStatus(ui.status, '실시간 인식 중... 라벨을 화면에 비춰주세요.', 'warn');
   liveOcrTick(mode);
 }
 
 async function liveOcrTick(mode) {
   if (!liveOcr[mode].running) return;
-  const videoId = mode === 'single' ? 'liveVideoSingle' : 'liveVideoMulti';
-  const statusId = mode === 'single' ? 'singleStatus' : 'multiBaseStatus';
-  const progressId = mode === 'single' ? 'ocrProgressSingle' : 'ocrProgressMulti';
-  const video = document.getElementById(videoId);
+  const ui = MODE_UI[mode];
+  const video = document.getElementById(ui.video);
 
   try {
     if (video.videoWidth > 0) {
@@ -247,25 +283,16 @@ async function liveOcrTick(mode) {
       canvas.getContext('2d').drawImage(video, 0, 0);
       const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
 
-      const worker = await getOcrWorker(progressId);
+      const worker = await getOcrWorker(ui.progress);
       const ret = await worker.recognize(dataUrl);
       const raw = ret.data.text || '';
 
       if (liveOcr[mode].running && raw.trim()) {
         lastPhotoDataUrl[mode] = dataUrl;
         lastOcrText[mode] = raw;
-        const parsed = parseLabelText(raw);
-
-        if (mode === 'single') {
-          applyParsed(parsed);
-        } else {
-          if (parsed.product) document.getElementById('mProduct').value = parsed.product;
-          if (parsed.itemCode) document.getElementById('mItemCode').value = parsed.itemCode;
-          if (parsed.supplier) document.getElementById('mSupplier').value = parsed.supplier;
-          if (parsed.displayQty) document.getElementById('mQty').value = parsed.displayQty;
-          if (parsed.inboundNo) document.getElementById('mInboundNo').value = parsed.inboundNo;
-        }
-        setStatus(statusId, '실시간 인식 중 · 마지막 업데이트 ' + new Date().toLocaleTimeString('ko-KR'), 'ok');
+        const parsed = mode === 'prod' ? {} : parseLabelText(raw);
+        applyOcrToMode(mode, parsed);
+        setStatus(ui.status, '실시간 인식 중 · 마지막 업데이트 ' + new Date().toLocaleTimeString('ko-KR'), 'ok');
       }
     }
   } catch (e) {
@@ -283,9 +310,9 @@ function stopLiveOcr(mode) {
     liveOcr[mode].stream.getTracks().forEach(t => t.stop());
     liveOcr[mode].stream = null;
   }
-  document.getElementById(mode === 'single' ? 'liveWrapSingle' : 'liveWrapMulti').classList.add('hidden');
-  const statusId = mode === 'single' ? 'singleStatus' : 'multiBaseStatus';
-  setStatus(statusId, '실시간 인식 중지됨 · 내용을 확인하세요.', 'ok');
+  const ui = MODE_UI[mode];
+  document.getElementById(ui.wrap).classList.add('hidden');
+  setStatus(ui.status, '실시간 인식 중지됨 · 내용을 확인하세요.', 'ok');
 }
 
 /* ============ QR/바코드 스캔 (코드가 있는 경우만) ============ */
@@ -659,7 +686,8 @@ async function saveProduction() {
   const payload = {
     productName, lotNo: get('prodLotNo'), prodDate: get('prodDate'), prodQty: get('prodQty'),
     note: get('prodNote'), registrant: get('prodRegistrant'),
-    linkedRecords: prodSelectedRecords
+    linkedRecords: prodSelectedRecords,
+    photo: lastPhotoDataUrl.prod, ocrRaw: lastOcrText.prod
   };
 
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
@@ -681,11 +709,17 @@ async function saveProduction() {
 }
 
 function clearProduction() {
+  stopLiveOcr('prod');
   prodSelectedRecords = [];
   ['prodSearchKw', 'prodProductName', 'prodLotNo', 'prodDate', 'prodQty', 'prodRegistrant', 'prodNote']
     .forEach(id => document.getElementById(id).value = '');
   document.getElementById('prodSearchResults').innerHTML = '';
+  document.getElementById('prodPreview').classList.add('hidden');
+  document.getElementById('ocrBoxProd').classList.add('hidden');
+  document.getElementById('ocrProgressProd').style.width = '0%';
+  lastPhotoDataUrl.prod = ''; lastOcrText.prod = '';
   renderProdSelected();
+  setStatus('prodOcrStatus', '제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.', '');
   setStatus('prodSearchStatus', '입고번호나 품명으로 검색해서 사용한 공병 입고건을 선택하세요.', '');
   setStatus('saveProdStatus', '연결할 입고건 선택 후 생산 정보를 입력하세요.', '');
 }

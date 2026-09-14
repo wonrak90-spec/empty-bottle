@@ -278,7 +278,21 @@
 <section id="prod" class="panel">
 
   <div class="card">
-    <p class="step-title"><span class="step-num">1</span>사용한 공병 입고건 연결</p>
+    <p class="step-title"><span class="step-num">1</span>완제품 라벨/박스 촬영으로 자동입력</p>
+    <input id="prodPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'prod')">
+    <button class="btn primary" onclick="document.getElementById('prodPhoto').click()">📷 사진 촬영 (OCR 자동입력)</button>
+    <button class="btn outline" onclick="startLiveOcr('prod')">🎥 카메라로 실시간 인식</button>
+    <div id="liveWrapProd" class="hidden" style="margin-top:10px;">
+      <video id="liveVideoProd" playsinline muted class="preview"></video>
+      <button class="btn outline" onclick="stopLiveOcr('prod')">인식 완료 / 카메라 닫기</button>
+    </div>
+    <img id="prodPreview" class="preview hidden">
+    <div class="progress hidden" id="ocrBoxProd"><div id="ocrProgressProd"></div></div>
+    <div id="prodOcrStatus" class="status">제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.</div>
+  </div>
+
+  <div class="card">
+    <p class="step-title"><span class="step-num">2</span>사용한 공병 입고건 연결</p>
     <div class="field"><label>검색 (입고번호 / 품명 / 품목코드)</label>
       <div style="display:flex; gap:8px;">
         <input id="prodSearchKw" style="flex:1;" placeholder="예: 26003973 또는 100ML 유리병" onkeydown="if(event.key==='Enter')searchRecordsForProd()">
@@ -292,7 +306,7 @@
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">2</span>생산 정보</p>
+    <p class="step-title"><span class="step-num">3</span>생산 정보</p>
     <div class="field"><label>제품명 (완제품명)</label><input id="prodProductName"></div>
     <div class="row2">
       <div class="field"><label>제조번호</label><input id="prodLotNo"></div>
