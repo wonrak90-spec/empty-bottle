@@ -1,12 +1,10 @@
 /* ============ 공통 ============ */
 
 function showTab(tab) {
-  document.getElementById('single').classList.toggle('active', tab === 'single');
-  document.getElementById('multi').classList.toggle('active', tab === 'multi');
-  document.getElementById('prod').classList.toggle('active', tab === 'prod');
-  document.getElementById('tabSingle').classList.toggle('active', tab === 'single');
-  document.getElementById('tabMulti').classList.toggle('active', tab === 'multi');
-  document.getElementById('tabProd').classList.toggle('active', tab === 'prod');
+  ['single', 'multi', 'prod', 'view'].forEach(t => {
+    document.getElementById(t).classList.toggle('active', t === tab);
+    document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
+  });
   stopScanner();
   stopLiveOcr('single');
   stopLiveOcr('multi');
@@ -358,8 +356,26 @@ async function stopScanner() {
 
 let multiPallets = [];
 
+function captureScannerFrame(mode) {
+  try {
+    const readerId = mode === 'single' ? 'reader' : 'readerMulti';
+    const video = document.querySelector('#' + readerId + ' video');
+    if (!video || !video.videoWidth) return;
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    canvas.getContext('2d').drawImage(video, 0, 0);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.85);
+    lastPhotoDataUrl[mode] = dataUrl;
+    const preview = document.getElementById(MODE_UI[mode].preview);
+    preview.src = dataUrl;
+    preview.classList.remove('hidden');
+  } catch (e) { /* 캡처 실패해도 스캔 자체는 계속 진행 */ }
+}
+
 async function onCode(text) {
   if (scanMode === 'single') {
+    captureScannerFrame('single'); // 스캔 순간의 화면을 라벨 사진으로 자동 저장
     await stopScanner();
     applyParsed(parseCode(text));
     document.getElementById('codeRaw').value = text;
@@ -376,6 +392,7 @@ async function onCode(text) {
   // 다중 팔레트 모드: 연속 스캔, 중복 제외
   if (multiPallets.some(x => x.code === text)) return;
   if (navigator.vibrate) navigator.vibrate(80);
+  captureScannerFrame('multi'); // 가장 최근 스캔 화면을 대표 사진으로 저장
 
   const fallback = parseCode(text);
   const baseItemCode = document.getElementById('mItemCode').value.trim();
@@ -531,6 +548,18 @@ async function saveSingleRecord() {
     const res = await apiPost('saveSingle', payload);
     if (res.ok) {
       setStatus('saveSingleStatus', '저장 완료 (ID: ' + res.id + ')', 'ok');
+      lastSavedRecord.single = {
+        record: {
+          id: res.id, regDate: new Date().toLocaleString('ko-KR'), mode: '단건',
+          inboundNo: payload.inboundNo, inboundDate: payload.inboundDate, product: payload.product,
+          itemCode: payload.itemCode, manufacturer: payload.manufacturer, supplier: payload.supplier,
+          displayQty: payload.displayQty, unit: payload.unit, expiryDate: payload.expiryDate,
+          infoMatch: payload.infoMatch, mixed: payload.mixed, actualQty: payload.actualQty,
+          finalResult: payload.finalResult, note: payload.note, inspector: payload.inspector
+        },
+        pallets: []
+      };
+      document.getElementById('btnPrintSingle').classList.remove('hidden');
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -565,6 +594,20 @@ async function saveMultiRecord() {
     const res = await apiPost('saveMulti', payload);
     if (res.ok) {
       setStatus('saveMultiStatus', '저장 완료 · 총 ' + res.total + (res.mixedCount ? (', 이종 ' + res.mixedCount + '건') : '') + ' (ID: ' + res.id + ')', 'ok');
+      lastSavedRecord.multi = {
+        record: {
+          id: res.id, regDate: new Date().toLocaleString('ko-KR'), mode: '다중팔레트',
+          inboundNo: payload.inboundNo, product: payload.product, itemCode: payload.itemCode,
+          supplier: payload.supplier, displayQty: payload.displayQty, unit: payload.unit,
+          palletCount: multiPallets.length, totalQty: res.total, mixedCount: res.mixedCount,
+          finalResult: payload.finalResult, note: payload.note, inspector: payload.inspector
+        },
+        pallets: multiPallets.map((p, i) => ({
+          seq: i + 1, code: p.code, containerNo: p.containerNo, product: p.product,
+          qty: p.qty, unit: p.unit, result: p.mismatch ? '이종' : '정상'
+        }))
+      };
+      document.getElementById('btnPrintMulti').classList.remove('hidden');
     } else {
       setStatus('saveMultiStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -575,6 +618,8 @@ async function saveMultiRecord() {
 
 function clearSingle() {
   stopLiveOcr('single');
+  document.getElementById('btnPrintSingle').classList.add('hidden');
+  lastSavedRecord.single = null;
   ['inboundNo', 'inboundDate', 'product', 'itemCode', 'manufacturer', 'supplier', 'displayQty',
     'expiryDate', 'containerFrom', 'containerTo', 'codeRaw', 'actualQty', 'note', 'inspector']
     .forEach(id => document.getElementById(id).value = '');
@@ -592,6 +637,8 @@ function clearSingle() {
 
 function clearMulti() {
   stopLiveOcr('multi');
+  document.getElementById('btnPrintMulti').classList.add('hidden');
+  lastSavedRecord.multi = null;
   multiPallets = [];
   ['mProduct', 'mItemCode', 'mSupplier', 'mQty', 'mInboundNo', 'mNote', 'mInspector']
     .forEach(id => document.getElementById(id).value = '');
@@ -722,6 +769,145 @@ function clearProduction() {
   setStatus('prodOcrStatus', '제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.', '');
   setStatus('prodSearchStatus', '입고번호나 품명으로 검색해서 사용한 공병 입고건을 선택하세요.', '');
   setStatus('saveProdStatus', '연결할 입고건 선택 후 생산 정보를 입력하세요.', '');
+}
+
+/* ============ 보고서 출력 (A4) ============ */
+
+let lastSavedRecord = { single: null, multi: null };
+let currentViewRecord = null;
+let viewSearchResultsList = [];
+
+function esc2(s) { return esc(s); } // alias for clarity in templates
+
+function buildPrintHtml(record, pallets) {
+  const rows = (label, value) => `<tr><th>${esc(label)}</th><td>${esc(value == null ? '' : value)}</td></tr>`;
+  const palletRows = (pallets || []).map(p => `
+    <tr>
+      <td>${esc(p.seq || '')}</td><td>${esc(p.containerNo || p.code || '')}</td>
+      <td>${esc(p.product || '')}</td><td>${esc(p.qty || '')}${esc(p.unit || '')}</td>
+      <td>${p.result === '이종' ? '⚠ 이종' : '정상'}</td>
+    </tr>`).join('');
+
+  return `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>공병 입고 확인 기록서</title>
+<style>
+  body{font-family:'Malgun Gothic',sans-serif; padding:24px; color:#1C1B19;}
+  h1{font-size:1.3rem; border-bottom:2px solid #1F4B5F; padding-bottom:8px;}
+  table{width:100%; border-collapse:collapse; margin:12px 0; font-size:0.85rem;}
+  th,td{border:1px solid #ccc; padding:6px 8px; text-align:left;}
+  th{background:#F0EFE9; width:120px;}
+  .meta{color:#666; font-size:0.8rem; margin-bottom:8px;}
+  .sign{display:flex; justify-content:flex-end; gap:40px; margin-top:40px; font-size:0.85rem;}
+  .sign div{border-top:1px solid #333; padding-top:6px; width:140px; text-align:center;}
+  @media print{ .noprint{display:none;} }
+</style></head><body>
+  <h1>공병 입고 확인 기록서</h1>
+  <div class="meta">기록 ID: ${esc(record.id)} · 등록일시: ${esc(record.regDate)} · 모드: ${esc(record.mode)}</div>
+  <table>
+    ${rows('입고번호', record.inboundNo)}
+    ${rows('입고일자', record.inboundDate)}
+    ${rows('품명', record.product)}
+    ${rows('품목코드', record.itemCode)}
+    ${rows('제조원', record.manufacturer)}
+    ${rows('공급업체', record.supplier)}
+    ${rows('표시수량', (record.displayQty || '') + (record.unit || ''))}
+    ${rows('사용기한', record.expiryDate)}
+    ${record.mode === '단건' ? rows('입고정보 일치', record.infoMatch) : ''}
+    ${record.mode === '단건' ? rows('혼입 여부', record.mixed) : ''}
+    ${record.mode === '단건' ? rows('실제 확인수량', record.actualQty) : ''}
+    ${record.mode === '다중팔레트' ? rows('팔레트 수', record.palletCount) : ''}
+    ${record.mode === '다중팔레트' ? rows('총 수량', record.totalQty) : ''}
+    ${record.mode === '다중팔레트' ? rows('이종 수', record.mixedCount) : ''}
+    ${rows('최종 결과', record.finalResult)}
+    ${rows('검수자', record.inspector)}
+    ${rows('특이사항', record.note)}
+  </table>
+  ${pallets && pallets.length ? `
+  <table>
+    <tr><th>#</th><th>용기번호</th><th>품명</th><th>수량</th><th>판정</th></tr>
+    ${palletRows}
+  </table>` : ''}
+  <div class="sign">
+    <div>검수자</div>
+    <div>확인자</div>
+  </div>
+  <div class="noprint" style="margin-top:20px;">
+    <button onclick="window.print()">인쇄</button>
+  </div>
+  <script>window.onload=()=>window.print();</script>
+</body></html>`;
+}
+
+function openPrintWindow(record, pallets) {
+  const html = buildPrintHtml(record, pallets);
+  const w = window.open('', '_blank');
+  if (!w) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+  w.document.open();
+  w.document.write(html);
+  w.document.close();
+}
+
+function printLastSaved(mode) {
+  const rec = lastSavedRecord[mode];
+  if (!rec) return;
+  openPrintWindow(rec.record, rec.pallets);
+}
+
+async function searchViewRecords() {
+  const kw = document.getElementById('viewSearchKw').value.trim();
+  if (!kw) { setStatus('viewSearchStatus', '검색어를 입력하세요.', 'bad'); return; }
+  setStatus('viewSearchStatus', '검색 중...', 'warn');
+  document.getElementById('viewDetailCard').classList.add('hidden');
+  try {
+    const res = await apiGet('searchRecords', { keyword: kw });
+    if (!res.ok) { setStatus('viewSearchStatus', '검색 실패: ' + res.message, 'bad'); return; }
+    viewSearchResultsList = res.items || [];
+    const box = document.getElementById('viewSearchResults');
+    if (viewSearchResultsList.length === 0) {
+      box.innerHTML = '';
+      setStatus('viewSearchStatus', '일치하는 기록이 없습니다.', 'bad');
+      return;
+    }
+    setStatus('viewSearchStatus', viewSearchResultsList.length + '건 검색됨 · 선택하면 상세/출력이 가능합니다.', 'ok');
+    box.innerHTML = viewSearchResultsList.map((it, i) => `
+      <div class="result-item" onclick="openRecordDetail(${i})">
+        <div>
+          <div>${esc(it.product)} · ${esc(String(it.qty))}${esc(it.unit || '')}</div>
+          <div class="meta">입고번호 ${esc(it.inboundNo)} · ${esc(it.mode)} · ${esc(it.regDate)}</div>
+        </div>
+        <div>›</div>
+      </div>
+    `).join('');
+  } catch (e) {
+    setStatus('viewSearchStatus', '검색 실패: ' + e, 'bad');
+  }
+}
+
+async function openRecordDetail(index) {
+  const it = viewSearchResultsList[index];
+  if (!it) return;
+  setStatus('viewSearchStatus', '상세 불러오는 중...', 'warn');
+  try {
+    const res = await apiGet('getRecord', { id: it.id });
+    if (!res.ok) { setStatus('viewSearchStatus', '조회 실패: ' + res.message, 'bad'); return; }
+    currentViewRecord = res;
+    const r = res.record;
+    document.getElementById('viewDetailCard').classList.remove('hidden');
+    document.getElementById('viewDetailBox').innerHTML = `
+      <div><b>${esc(r.product)}</b> · ${esc(r.mode)}</div>
+      <div style="color:var(--muted);margin:6px 0;">입고번호 ${esc(r.inboundNo)} · 등록 ${esc(r.regDate)}</div>
+      <div>최종 결과: <b>${esc(r.finalResult)}</b> · 검수자: ${esc(r.inspector || '-')}</div>
+      ${res.pallets && res.pallets.length ? `<div style="margin-top:6px;color:var(--muted);">팔레트 ${res.pallets.length}건 포함</div>` : ''}
+    `;
+    setStatus('viewSearchStatus', viewSearchResultsList.length + '건 검색됨 · 선택하면 상세/출력이 가능합니다.', 'ok');
+  } catch (e) {
+    setStatus('viewSearchStatus', '조회 실패: ' + e, 'bad');
+  }
+}
+
+function printCurrentViewRecord() {
+  if (!currentViewRecord) return;
+  openPrintWindow(currentViewRecord.record, currentViewRecord.pallets);
 }
 
 /* ============ PWA 설치 ============ */
