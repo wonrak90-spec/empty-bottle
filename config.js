@@ -5,6 +5,6 @@
 // (이미 backend/Code.gs에 무작위 문자열이 들어가 있으니, 그대로 복사해서 아래에 붙여넣으면 됩니다.
 //  더 안전하게 하려면 두 곳 모두 본인만 아는 새 문자열로 바꿔도 됩니다.)
 const CONFIG = {
-  API_URL: 'PUT_YOUR_APPS_SCRIPT_EXEC_URL_HERE',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzMqvwx8iePBJczW4zssn5UNY9iawM91a2qHr09AlU6cjR-EXvR_KpmArSn3uh1UPOS2w/exec',
   API_TOKEN: 'lkC4e4hdWJIu2MOAckRurQC94hyc1cB-'
 };
