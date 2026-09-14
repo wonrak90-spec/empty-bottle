@@ -125,6 +125,7 @@
     <button id="tabSingle" class="active" onclick="showTab('single')">단건 확인</button>
     <button id="tabMulti" onclick="showTab('multi')">다중 팔레트</button>
     <button id="tabProd" onclick="showTab('prod')">생산 등록</button>
+    <button id="tabView" onclick="showTab('view')">조회/출력</button>
   </nav>
 </header>
 
@@ -209,6 +210,7 @@
     <div class="field"><label>검수자</label><input id="inspector"></div>
     <div class="field"><label>특이사항</label><textarea id="note"></textarea></div>
     <button class="btn primary" onclick="saveSingleRecord()">저장</button>
+    <button class="btn outline hidden" id="btnPrintSingle" onclick="printLastSaved('single')">🖨 방금 저장한 건 A4 출력</button>
     <button class="btn ghost" onclick="clearSingle()">초기화</button>
     <div id="saveSingleStatus" class="status">저장 전 자동입력 내용을 확인하세요.</div>
   </div>
@@ -269,6 +271,7 @@
     <div class="field"><label>검수자</label><input id="mInspector"></div>
     <div class="field"><label>특이사항</label><textarea id="mNote"></textarea></div>
     <button class="btn primary" onclick="saveMultiRecord()">팔레트 일괄 저장</button>
+    <button class="btn outline hidden" id="btnPrintMulti" onclick="printLastSaved('multi')">🖨 방금 저장한 건 A4 출력</button>
     <button class="btn ghost" onclick="clearMulti()">초기화</button>
     <div id="saveMultiStatus" class="status">팔레트 스캔 후 저장하세요.</div>
   </div>
@@ -318,6 +321,28 @@
     <button class="btn primary" onclick="saveProduction()">생산 등록 저장</button>
     <button class="btn ghost" onclick="clearProduction()">초기화</button>
     <div id="saveProdStatus" class="status">연결할 입고건 선택 후 생산 정보를 입력하세요.</div>
+  </div>
+</section>
+
+<!-- ===================== 조회 / 출력 ===================== -->
+<section id="view" class="panel">
+
+  <div class="card">
+    <p class="step-title"><span class="step-num">1</span>기록 검색</p>
+    <div class="field"><label>검색 (입고번호 / 품명 / 품목코드)</label>
+      <div style="display:flex; gap:8px;">
+        <input id="viewSearchKw" style="flex:1;" placeholder="예: 26003973" onkeydown="if(event.key==='Enter')searchViewRecords()">
+        <button class="btn primary" style="width:auto; padding:10px 16px;" onclick="searchViewRecords()">검색</button>
+      </div>
+    </div>
+    <div id="viewSearchStatus" class="status">입고번호나 품명으로 검색해서 기록을 확인·출력하세요.</div>
+    <div id="viewSearchResults"></div>
+  </div>
+
+  <div class="card hidden" id="viewDetailCard">
+    <p class="step-title"><span class="step-num">2</span>기록 상세</p>
+    <div id="viewDetailBox" style="font-size:0.85rem;"></div>
+    <button class="btn primary" onclick="printCurrentViewRecord()">🖨 A4 출력</button>
   </div>
 
 </section>
