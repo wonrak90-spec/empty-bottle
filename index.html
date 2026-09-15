@@ -355,26 +355,12 @@
 <section id="prod" class="panel">
 
   <div class="card">
-    <p class="step-title"><span class="step-num">1</span>완제품 라벨/박스 촬영으로 자동입력</p>
-    <input id="prodPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'prod')">
-    <input id="prodPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'prod')">
-    <button class="btn primary" onclick="document.getElementById('prodPhoto').click()">📷 사진 촬영 (OCR 자동입력)</button>
-    <button class="btn outline" onclick="document.getElementById('prodPhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
-    <button class="btn outline" onclick="startLiveOcr('prod')">🎥 카메라로 실시간 인식</button>
-    <div id="liveWrapProd" class="hidden" style="margin-top:10px;">
-      <video id="liveVideoProd" playsinline muted class="preview"></video>
-      <button class="btn outline" onclick="stopLiveOcr('prod')">인식 완료 / 카메라 닫기</button>
-    </div>
-    <img id="prodPreview" class="preview hidden">
-    <div class="progress hidden" id="ocrBoxProd"><div id="ocrProgressProd"></div></div>
-    <div id="prodOcrStatus" class="status">제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.</div>
-    <details id="ocrRawProd" class="ocr-raw hidden"><summary>인식된 글자 보기</summary><pre></pre></details>
-  </div>
-
-  <div class="card">
-    <p class="step-title"><span class="step-num">2</span>생산 정보</p>
-    <div class="field"><label>제품명 (완제품명)</label><input id="prodProductName"></div>
-    <div class="field"><label>제조번호</label><input id="prodLotNo"></div>
+    <p class="step-title"><span class="step-num">1</span>생산 정보</p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0 0 10px;">
+      검수한 파레트가 어느 제품·제조번호에 투입됐는지 기록합니다.
+    </p>
+    <div class="field"><label>제품명 (완제품)</label><input id="prodProductName" placeholder="예: 까스활명수 75ml"></div>
+    <div class="field"><label>제조번호 (Lot No.)</label><input id="prodLotNo"></div>
     <details class="optional">
       <summary>추가 정보 입력 (선택)</summary>
       <div class="row2" style="margin-top:10px;">
@@ -384,23 +370,39 @@
       <div class="field"><label>비고</label><textarea id="prodNote"></textarea></div>
     </details>
     <div class="field" style="margin-top:10px;"><label>등록자</label><input id="prodRegistrant"></div>
-    <button class="btn primary" onclick="saveProduction()">생산 등록 저장</button>
-    <button class="btn ghost" onclick="clearProduction()">초기화</button>
-    <div id="saveProdStatus" class="status">제품명과 제조번호만 입력하면 저장할 수 있습니다.</div>
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">3</span>사용한 공병 입고건 연결 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택)</span></p>
-    <div class="field"><label>검색 (입고번호 / 품명 / 품목코드)</label>
+    <p class="step-title"><span class="step-num">2</span>투입한 파레트 선택</p>
+    <button class="btn primary" onclick="startProdScan()">📊 파레트 바코드 스캔해서 추가</button>
+    <div id="readerWrapProd" class="hidden" style="margin-top:10px;">
+      <div id="readerProd"></div>
+      <button class="btn outline" onclick="stopScanner()">카메라 닫기</button>
+    </div>
+    <div class="field" style="margin-top:10px;"><label>또는 검색 (입고번호 / 용기번호 / 품명)</label>
       <div style="display:flex; gap:8px;">
-        <input id="prodSearchKw" style="flex:1;" placeholder="예: 26003973 또는 100ML 유리병" onkeydown="if(event.key==='Enter')searchRecordsForProd()">
-        <button class="btn primary" style="width:auto; padding:10px 16px;" onclick="searchRecordsForProd()">검색</button>
+        <input id="prodSearchKw" style="flex:1;" placeholder="예: 26003973" onkeydown="if(event.key==='Enter')searchPalletsForProd()">
+        <button class="btn primary" style="width:auto; padding:10px 16px;" onclick="searchPalletsForProd()">검색</button>
       </div>
     </div>
-    <div id="prodSearchStatus" class="status">필요한 경우에만 연결하세요. 연결하면 어떤 공병이 쓰였는지 추적됩니다.</div>
+    <div id="prodSearchStatus" class="status">검수 완료된 파레트를 스캔하거나 검색해서 추가하세요.</div>
     <div id="prodSearchResults"></div>
-    <div id="prodSelected" style="margin-top:10px;"></div>
+    <button class="btn outline hidden" id="btnAddAll" onclick="addAllSearchResults()">검색결과 전체 추가</button>
+
+    <div class="kpis" style="margin-top:12px;">
+      <div class="kpi"><small>투입 파레트</small><b id="prodPalletCount">0</b></div>
+      <div class="kpi"><small>투입 총수량</small><b id="prodPalletTotal">0</b></div>
+    </div>
+    <div id="prodSelected"></div>
   </div>
+
+  <div class="card">
+    <p class="step-title"><span class="step-num">3</span>저장</p>
+    <button class="btn primary" onclick="saveProduction()">생산 기록 저장</button>
+    <button class="btn ghost" onclick="clearProduction()">초기화</button>
+    <div id="saveProdStatus" class="status">제품명·제조번호와 투입 파레트를 입력하면 저장할 수 있습니다.</div>
+  </div>
+
 </section>
 
 <!-- ===================== 조회 / 출력 ===================== -->

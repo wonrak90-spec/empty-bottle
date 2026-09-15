@@ -8,7 +8,6 @@ function showTab(tab) {
   stopScanner();
   stopLiveOcr('single');
   stopLiveOcr('multi');
-  stopLiveOcr('prod');
 }
 
 function setStatus(id, text, type) {
@@ -109,15 +108,14 @@ async function lookupMaster(key) {
 /* ============ 라벨 사진 OCR ============ */
 
 let ocrWorker = null;
-let lastPhotoDataUrl = { single: '', multi: '', prod: '', wms: '', vendor: '' };
-let lastOcrText = { single: '', multi: '', prod: '', wms: '', vendor: '' };
+let lastPhotoDataUrl = { single: '', multi: '', wms: '', vendor: '' };
+let lastOcrText = { single: '', multi: '', wms: '', vendor: '' };
 
 const MODE_UI = {
   single: { preview: 'wmsPreview', status: 'wmsStatus', progress: 'ocrProgressWms', box: 'ocrBoxWms', video: 'liveVideoSingle', wrap: 'liveWrapSingle' },
   wms: { preview: 'wmsPreview', status: 'wmsStatus', progress: 'ocrProgressWms', box: 'ocrBoxWms', video: 'liveVideoSingle', wrap: 'liveWrapSingle' },
   vendor: { preview: 'vendorPreview', status: 'vendorStatus', progress: 'ocrProgressVendor', box: 'ocrBoxVendor', video: 'liveVideoSingle', wrap: 'liveWrapSingle' },
   multi: { preview: 'multiPreview', status: 'multiBaseStatus', progress: 'ocrProgressMulti', box: 'ocrBoxMulti', video: 'liveVideoMulti', wrap: 'liveWrapMulti' },
-  prod: { preview: 'prodPreview', status: 'prodOcrStatus', progress: 'ocrProgressProd', box: 'ocrBoxProd', video: 'liveVideoProd', wrap: 'liveWrapProd' }
 };
 
 async function getOcrWorker(progressId) {
@@ -164,12 +162,6 @@ function applyOcrToMode(mode, parsed) {
     if (parsed.supplier) { document.getElementById('mSupplier').value = parsed.supplier; filled++; }
     if (parsed.displayQty) { document.getElementById('mQty').value = parsed.displayQty; filled++; }
     if (parsed.inboundNo) { document.getElementById('mInboundNo').value = parsed.inboundNo; filled++; }
-  } else if (mode === 'prod') {
-    const p = parseProductionText(lastOcrText.prod);
-    if (p.productName) { document.getElementById('prodProductName').value = p.productName; filled++; }
-    if (p.lotNo) { document.getElementById('prodLotNo').value = p.lotNo; filled++; }
-    if (p.prodDate) { document.getElementById('prodDate').value = p.prodDate; filled++; }
-    if (p.prodQty) { document.getElementById('prodQty').value = p.prodQty; filled++; }
   }
 
   showOcrRaw(mode);
@@ -216,7 +208,7 @@ async function labelPhotoSelected(event, mode) {
     const raw = await runOcr(dataUrl, ui.progress);
     lastOcrText[mode] = raw;
     if (mode === 'wms') lastOcrText.single = raw;
-    const parsed = (mode === 'prod' || mode === 'vendor') ? {} : parseLabelText(raw);
+    const parsed = (mode === 'vendor') ? {} : parseLabelText(raw);
     const msg = applyOcrToMode(mode, parsed);
     setStatus(ui.status, msg, 'ok');
   } catch (e) {
@@ -301,46 +293,6 @@ function parseLabelText(raw) {
   return out;
 }
 
-function parseProductionText(raw) {
-  const t = String(raw || '')
-    .replace(/\r/g, '\n').replace(/[：﹕]/g, ':').replace(/[|｜]/g, ' ').replace(/[ \t]+/g, ' ');
-  const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
-  const out = {};
-
-  function grab(labelRe, valueRe) {
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(new RegExp(labelRe.source + '\\s*[:\\-]?\\s*(.*)$', 'i'));
-      if (!m) continue;
-      const rest = (m[1] || '').trim();
-      if (rest) {
-        const v = valueRe ? rest.match(valueRe) : [rest];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
-      }
-      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-        const nxt = lines[j].trim();
-        if (!nxt) continue;
-        const v = valueRe ? nxt.match(valueRe) : [nxt];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
-      }
-    }
-    return '';
-  }
-
-  const DATE = /([0-9]{4}\s*[-.\/년]\s*[0-9]{1,2}\s*[-.\/월]\s*[0-9]{1,2}|[0-9]{8})/;
-
-  out.productName = grab(/제\s*품\s*명|품\s*명/);
-  out.lotNo = grab(/제\s*조\s*번\s*호|로\s*트\s*번\s*호|lot\s*(?:no\.?)?|batch\s*(?:no\.?)?/, /([A-Za-z0-9\-]{2,})/);
-  out.prodDate = normalizeDate(grab(/제\s*조\s*일\s*자?|생\s*산\s*일\s*자?/, DATE));
-  out.prodQty = grab(/생\s*산\s*수\s*량|수\s*량/, /([0-9][0-9,]*)/);
-  if (out.prodQty) out.prodQty = out.prodQty.replace(/,/g, '');
-
-  if (out.productName) {
-    out.productName = out.productName
-      .replace(/\s*(제\s*조\s*번\s*호|로\s*트|lot|batch|제\s*조\s*일\s*자?|생\s*산\s*일\s*자?|수\s*량).*$/i, '')
-      .replace(/[:\-]\s*$/, '').trim();
-  }
-  return out;
-}
 
 // 업체 라벨: 회사마다 항목명이 달라서 별도 사전으로 처리
 // (KC Glass: 제품명/규격/1PT 수량/라인·Lot No. · 동아에코팩: 품명/P/L No./포장사양 · 동화지앤피: 품명/P-번호/수량)
@@ -505,7 +457,7 @@ function removeItemPhoto(mode, index) {
 
 /* ============ 실시간 카메라 인식 ============ */
 
-let liveOcr = { single: { stream: null, running: false }, multi: { stream: null, running: false }, prod: { stream: null, running: false } };
+let liveOcr = { single: { stream: null, running: false }, multi: { stream: null, running: false } };
 
 async function startLiveOcr(mode) {
   if (liveOcr[mode].running) return;
@@ -550,7 +502,7 @@ async function liveOcrTick(mode) {
       if (liveOcr[mode].running && raw.trim()) {
         lastPhotoDataUrl[mode] = dataUrl;
         lastOcrText[mode] = raw;
-        const parsed = mode === 'prod' ? {} : parseLabelText(raw);
+        const parsed = parseLabelText(raw);
         applyOcrToMode(mode, parsed);
         setStatus(ui.status, '실시간 인식 중 · 마지막 업데이트 ' + new Date().toLocaleTimeString('ko-KR'), 'ok');
       }
@@ -565,13 +517,16 @@ async function liveOcrTick(mode) {
 }
 
 function stopLiveOcr(mode) {
+  if (!liveOcr[mode]) return;
   liveOcr[mode].running = false;
   if (liveOcr[mode].stream) {
     liveOcr[mode].stream.getTracks().forEach(t => t.stop());
     liveOcr[mode].stream = null;
   }
   const ui = MODE_UI[mode];
-  document.getElementById(ui.wrap).classList.add('hidden');
+  if (!ui) return;
+  const w = document.getElementById(ui.wrap);
+  if (w) w.classList.add('hidden');
   setStatus(ui.status, '실시간 인식 중지됨 · 내용을 확인하세요.', 'ok');
 }
 
@@ -586,7 +541,8 @@ async function startScanner(mode) {
   const map = {
     single: { wrap: 'readerWrapSingle', reader: 'reader' },
     base: { wrap: 'readerWrapMulti', reader: 'readerMulti' },
-    loop: { wrap: 'readerWrapLoop', reader: 'readerLoop' }
+    loop: { wrap: 'readerWrapLoop', reader: 'readerLoop' },
+    prodpick: { wrap: 'readerWrapProd', reader: 'readerProd' }
   };
   const cfg = map[mode] || map.single;
   document.getElementById(cfg.wrap).classList.remove('hidden');
@@ -607,7 +563,9 @@ async function startScanner(mode) {
       text => onCode(text)
     );
   } catch (e) {
-    const sid = mode === 'single' ? 'wmsStatus' : (mode === 'base' ? 'multiBaseStatus' : 'loopStatus');
+    const sid = mode === 'single' ? 'wmsStatus'
+      : (mode === 'base' ? 'multiBaseStatus'
+      : (mode === 'prodpick' ? 'prodSearchStatus' : 'loopStatus'));
     setStatus(sid, '카메라 실행 실패: ' + e, 'bad');
   }
 }
@@ -617,7 +575,7 @@ async function stopScanner() {
     try { await activeScanner.stop(); await activeScanner.clear(); } catch (e) {}
     activeScanner = null;
   }
-  ['readerWrapSingle', 'readerWrapMulti', 'readerWrapLoop'].forEach(id => {
+  ['readerWrapSingle', 'readerWrapMulti', 'readerWrapLoop', 'readerWrapProd'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.classList.add('hidden');
   });
@@ -646,6 +604,10 @@ function captureScannerFrame(mode) {
 }
 
 async function onCode(text) {
+  if (scanMode === 'prodpick') {
+    onProdCode(text);
+    return;
+  }
   if (scanMode === 'single') {
     captureScannerFrame('wms');
     await stopScanner();
@@ -1097,38 +1059,59 @@ function clearMulti() {
   setStatus('saveMultiStatus', '파레트 등록 후 저장하세요.', '');
 }
 
-/* ============ 생산 등록 ============ */
+/* ============ 생산 기록 (파레트 → 제품/제조번호 추적) ============ */
 
-let prodSelectedRecords = [];
-
+let prodSelectedPallets = [];
 let prodSearchResultsList = [];
 
-async function searchRecordsForProd() {
-  const kw = document.getElementById('prodSearchKw').value.trim();
-  if (!kw) {
-    setStatus('prodSearchStatus', '검색어를 입력하세요.', 'bad');
-    return;
+function palletKey(p) {
+  return (p.inboundNo || '') + '-' + (p.containerNo || '') + '-' + (p.code || '');
+}
+
+function startProdScan() {
+  startScanner('prodpick');
+}
+
+// 스캔한 바코드로 검수 이력을 찾아 바로 투입 목록에 추가
+async function onProdCode(text) {
+  await stopScanner();
+  setStatus('prodSearchStatus', '검수 이력 확인 중...', 'warn');
+  try {
+    const res = await apiGet('searchPallets', { keyword: text });
+    const hit = (res.items || [])[0];
+    if (!hit) {
+      setStatus('prodSearchStatus', '검수 이력이 없는 파레트입니다: ' + text + ' (먼저 입고 검수를 진행하세요)', 'bad');
+      return;
+    }
+    addProdPallet(hit);
+  } catch (e) {
+    setStatus('prodSearchStatus', '조회 실패: ' + e, 'bad');
   }
+}
+
+async function searchPalletsForProd() {
+  const kw = document.getElementById('prodSearchKw').value.trim();
+  if (!kw) { setStatus('prodSearchStatus', '검색어를 입력하세요.', 'bad'); return; }
   setStatus('prodSearchStatus', '검색 중...', 'warn');
   try {
-    const res = await apiGet('searchRecords', { keyword: kw });
-    if (!res.ok) {
-      setStatus('prodSearchStatus', '검색 실패: ' + res.message, 'bad');
-      return;
-    }
+    const res = await apiGet('searchPallets', { keyword: kw });
+    if (!res.ok) { setStatus('prodSearchStatus', '검색 실패: ' + res.message, 'bad'); return; }
     prodSearchResultsList = res.items || [];
     const box = document.getElementById('prodSearchResults');
-    if (prodSearchResultsList.length === 0) {
+    const addAll = document.getElementById('btnAddAll');
+    if (!prodSearchResultsList.length) {
       box.innerHTML = '';
-      setStatus('prodSearchStatus', '일치하는 입고건이 없습니다.', 'bad');
+      addAll.classList.add('hidden');
+      setStatus('prodSearchStatus', '검수한 파레트를 찾지 못했습니다.', 'bad');
       return;
     }
-    setStatus('prodSearchStatus', prodSearchResultsList.length + '건 검색됨 · 선택하세요.', 'ok');
+    setStatus('prodSearchStatus', prodSearchResultsList.length + '개 파레트 검색됨 · 눌러서 추가하세요.', 'ok');
+    addAll.classList.remove('hidden');
     box.innerHTML = prodSearchResultsList.map((it, i) => `
-      <div class="result-item" onclick="selectProdRecord(${i})">
+      <div class="result-item" onclick="addProdPallet(prodSearchResultsList[${i}])">
         <div>
-          <div>${esc(it.product)} · ${esc(String(it.qty))}${esc(it.unit || '')}</div>
-          <div class="meta">입고번호 ${esc(it.inboundNo)} · ${esc(it.mode)} · ${esc(it.regDate)}</div>
+          <div>${esc(it.inboundNo)}-${esc(it.containerNo)} · ${esc(it.product || '')}</div>
+          <div class="meta">${esc(String(it.qty || ''))}${esc(it.unit || '')} · ${esc(it.result || '')} · ${esc(it.source || '')}</div>
         </div>
         <div>+</div>
       </div>
@@ -1138,60 +1121,85 @@ async function searchRecordsForProd() {
   }
 }
 
-function selectProdRecord(index) {
-  const it = prodSearchResultsList[index];
-  if (!it || prodSelectedRecords.some(x => x.id === it.id)) return;
-  prodSelectedRecords.push(it);
+function addAllSearchResults() {
+  let added = 0;
+  prodSearchResultsList.forEach(it => {
+    if (!prodSelectedPallets.some(x => palletKey(x) === palletKey(it))) {
+      prodSelectedPallets.push(it); added++;
+    }
+  });
   renderProdSelected();
+  setStatus('prodSearchStatus', added + '개 추가됨 (중복 제외)', 'ok');
 }
 
-function removeProdRecord(id) {
-  prodSelectedRecords = prodSelectedRecords.filter(x => x.id !== id);
+function addProdPallet(it) {
+  if (!it) return;
+  if (prodSelectedPallets.some(x => palletKey(x) === palletKey(it))) {
+    setStatus('prodSearchStatus', '이미 추가된 파레트입니다: ' + it.inboundNo + '-' + it.containerNo, 'warn');
+    return;
+  }
+  prodSelectedPallets.push(it);
+  if (navigator.vibrate) navigator.vibrate(60);
+  renderProdSelected();
+  setStatus('prodSearchStatus', '추가됨 · ' + it.inboundNo + '-' + it.containerNo + ' (' + (it.product || '') + ')', 'ok');
+}
+
+function removeProdPallet(key) {
+  prodSelectedPallets = prodSelectedPallets.filter(x => palletKey(x) !== key);
   renderProdSelected();
 }
 
 function renderProdSelected() {
+  const total = prodSelectedPallets.reduce(
+    (s, p) => s + (Number(String(p.qty || '').replace(/,/g, '')) || 0), 0);
+  document.getElementById('prodPalletCount').textContent = prodSelectedPallets.length;
+  document.getElementById('prodPalletTotal').textContent = total.toLocaleString();
+
   const box = document.getElementById('prodSelected');
-  if (prodSelectedRecords.length === 0) {
-    box.innerHTML = '';
+  if (!prodSelectedPallets.length) {
+    box.innerHTML = '<div class="status">아직 선택한 파레트가 없습니다.</div>';
     return;
   }
-  box.innerHTML = '<div style="font-size:0.78rem;color:var(--muted);margin-bottom:6px;">연결된 입고건</div>' +
-    prodSelectedRecords.map(it => `
-      <span class="chip">${esc(it.product)} (${esc(it.inboundNo)})
-        <button type="button" onclick="removeProdRecord('${it.id}')">×</button>
-      </span>
-    `).join('');
+  box.innerHTML = prodSelectedPallets.map(p => `
+    <div class="pallet-item">
+      <div>
+        <div>${esc(p.inboundNo)}-${esc(p.containerNo)} · ${esc(p.product || '')}</div>
+        <div class="code">${esc(String(p.qty || ''))}${esc(p.unit || '')} · ${esc(p.result || '')}</div>
+      </div>
+      <button type="button" class="btn ghost" style="width:auto;padding:4px 10px;"
+        onclick="removeProdPallet('${palletKey(p)}')">삭제</button>
+    </div>
+  `).join('');
 }
 
 async function saveProduction() {
   const get = id => document.getElementById(id).value.trim();
-  const productName = get('prodProductName');
-  if (!productName) {
-    setStatus('saveProdStatus', '제품명을 입력하세요.', 'bad');
-    return;
+  if (!get('prodProductName')) {
+    setStatus('saveProdStatus', '제품명을 입력하세요.', 'bad'); return;
   }
   if (!get('prodLotNo')) {
-    setStatus('saveProdStatus', '제조번호를 입력하세요.', 'bad');
-    return;
+    setStatus('saveProdStatus', '제조번호를 입력하세요.', 'bad'); return;
   }
-  const payload = {
-    productName, lotNo: get('prodLotNo'), prodDate: get('prodDate'), prodQty: get('prodQty'),
-    note: get('prodNote'), registrant: get('prodRegistrant'),
-    linkedRecords: prodSelectedRecords,
-    photo: lastPhotoDataUrl.prod, ocrRaw: lastOcrText.prod
-  };
-
+  if (!prodSelectedPallets.length) {
+    setStatus('saveProdStatus', '투입한 파레트를 최소 1개 선택하세요.', 'bad'); return;
+  }
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
-    setStatus('saveProdStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
-    return;
+    setStatus('saveProdStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad'); return;
   }
+
+  const payload = {
+    productName: get('prodProductName'), lotNo: get('prodLotNo'),
+    prodDate: get('prodDate'), prodQty: get('prodQty'),
+    note: get('prodNote'), registrant: get('prodRegistrant'),
+    pallets: prodSelectedPallets
+  };
 
   setStatus('saveProdStatus', '저장 중...', 'warn');
   try {
     const res = await apiPost('saveProduction', payload);
     if (res.ok) {
-      setStatus('saveProdStatus', '생산 등록 완료 (ID: ' + res.id + ')', 'ok');
+      setStatus('saveProdStatus',
+        '저장 완료 · 파레트 ' + res.palletCount + '개 (총 ' + Number(res.total).toLocaleString() + ') 투입 기록됨', 'ok');
       rememberInspector(payload.registrant);
     } else {
       setStatus('saveProdStatus', '저장 실패: ' + res.message, 'bad');
@@ -1202,20 +1210,17 @@ async function saveProduction() {
 }
 
 function clearProduction() {
-  stopLiveOcr('prod');
-  prodSelectedRecords = [];
-  ['prodSearchKw', 'prodProductName', 'prodLotNo', 'prodDate', 'prodQty', 'prodRegistrant', 'prodNote']
+  stopScanner();
+  prodSelectedPallets = [];
+  prodSearchResultsList = [];
+  ['prodSearchKw', 'prodProductName', 'prodLotNo', 'prodDate', 'prodQty', 'prodNote']
     .forEach(id => document.getElementById(id).value = '');
-  document.getElementById('prodSearchResults').innerHTML = '';
-  document.getElementById('prodPreview').classList.add('hidden');
-  document.getElementById('ocrBoxProd').classList.add('hidden');
-  document.getElementById('ocrProgressProd').style.width = '0%';
-  lastPhotoDataUrl.prod = ''; lastOcrText.prod = '';
-  renderProdSelected();
   document.getElementById('prodRegistrant').value = getRememberedInspector();
-  setStatus('prodOcrStatus', '제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.', '');
-  setStatus('prodSearchStatus', '입고번호나 품명으로 검색해서 사용한 공병 입고건을 선택하세요.', '');
-  setStatus('saveProdStatus', '연결할 입고건 선택 후 생산 정보를 입력하세요.', '');
+  document.getElementById('prodSearchResults').innerHTML = '';
+  document.getElementById('btnAddAll').classList.add('hidden');
+  renderProdSelected();
+  setStatus('prodSearchStatus', '검수 완료된 파레트를 스캔하거나 검색해서 추가하세요.', '');
+  setStatus('saveProdStatus', '제품명·제조번호와 투입 파레트를 입력하면 저장할 수 있습니다.', '');
 }
 
 /* ============ 보고서 출력 (A4) ============ */
@@ -1522,7 +1527,7 @@ function initInspector() {
 
 /* ============ PWA 설치 ============ */
 
-window.addEventListener('DOMContentLoaded', () => { initInspector(); renderLoop(); });
+window.addEventListener('DOMContentLoaded', () => { initInspector(); renderLoop(); renderProdSelected(); });
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
