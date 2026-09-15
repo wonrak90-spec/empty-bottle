@@ -143,29 +143,45 @@
 <section id="single" class="panel active">
 
   <div class="card">
-    <p class="step-title"><span class="step-num">1</span>입고정보 불러오기</p>
-    <input id="singlePhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'single')">
-    <input id="singlePhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'single')">
-    <button class="btn primary" onclick="document.getElementById('singlePhoto').click()">📷 라벨 사진 촬영 (OCR 자동입력)</button>
-    <button class="btn outline" onclick="document.getElementById('singlePhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
-    <button class="btn outline" onclick="startLiveOcr('single')">🎥 카메라로 실시간 인식</button>
-    <button class="btn outline" id="btnScanSingle" onclick="startScanner('single')">코드 스캔 (QR/바코드가 있는 경우)</button>
-    <div id="liveWrapSingle" class="hidden" style="margin-top:10px;">
-      <video id="liveVideoSingle" playsinline muted class="preview"></video>
-      <button class="btn outline" onclick="stopLiveOcr('single')">인식 완료 / 카메라 닫기</button>
-    </div>
-    <img id="singlePreview" class="preview hidden">
-    <div class="progress hidden" id="ocrBoxSingle"><div id="ocrProgressSingle"></div></div>
+    <p class="step-title"><span class="step-num">1</span>WMS 입고라벨 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(공병창고 라벨)</span></p>
+    <input id="wmsPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'wms')">
+    <input id="wmsPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'wms')">
+    <button class="btn primary" id="btnScanSingle" onclick="startScanner('single')">📊 바코드 스캔 (가장 정확·권장)</button>
+    <button class="btn outline" onclick="document.getElementById('wmsPhoto').click()">📷 라벨 촬영</button>
+    <button class="btn outline" onclick="document.getElementById('wmsPhotoGallery').click()">🖼 갤러리에서 불러오기</button>
     <div id="readerWrapSingle" class="hidden" style="margin-top:10px;">
       <div id="reader"></div>
       <button class="btn outline" onclick="stopScanner()">카메라 닫기</button>
     </div>
-    <div id="singleStatus" class="status">라벨을 촬영하거나 코드를 스캔하세요.</div>
-    <details id="ocrRawSingle" class="ocr-raw hidden"><summary>인식된 글자 보기</summary><pre></pre></details>
+    <img id="wmsPreview" class="preview hidden">
+    <div class="progress hidden" id="ocrBoxWms"><div id="ocrProgressWms"></div></div>
+    <div id="wmsStatus" class="status">바코드를 스캔하거나 WMS 입고라벨을 촬영하세요.</div>
+    <details id="ocrRawWms" class="ocr-raw hidden"><summary>인식된 글자 보기</summary><pre></pre></details>
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">2</span>입고정보 확인</p>
+    <p class="step-title"><span class="step-num">2</span>업체 라벨 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(실물에 붙은 라벨)</span></p>
+    <input id="vendorPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'vendor')">
+    <input id="vendorPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'vendor')">
+    <button class="btn primary" onclick="document.getElementById('vendorPhoto').click()">📷 업체 라벨 촬영</button>
+    <button class="btn outline" onclick="document.getElementById('vendorPhotoGallery').click()">🖼 갤러리에서 불러오기</button>
+    <img id="vendorPreview" class="preview hidden">
+    <div class="progress hidden" id="ocrBoxVendor"><div id="ocrProgressVendor"></div></div>
+    <div id="vendorStatus" class="status">업체 라벨을 촬영하면 WMS 정보와 자동 비교합니다.</div>
+    <details id="ocrRawVendor" class="ocr-raw hidden"><summary>인식된 글자 보기</summary><pre></pre></details>
+    <div class="row2" style="margin-top:10px;">
+      <div class="field"><label>업체라벨 품명</label><input id="vProduct"></div>
+      <div class="field"><label>업체라벨 수량</label><input id="vQty" inputmode="decimal"></div>
+    </div>
+    <div class="row2">
+      <div class="field"><label>생산일자</label><input id="vProdDate" placeholder="YYYY-MM-DD"></div>
+      <div class="field"><label>Lot/P-번호</label><input id="vLotNo"></div>
+    </div>
+    <div id="matchResult" class="status">두 라벨을 모두 입력하면 자동으로 대조합니다.</div>
+  </div>
+
+  <div class="card">
+    <p class="step-title"><span class="step-num">3</span>WMS 입고정보 확인</p>
     <div class="row2">
       <div class="field"><label>입고번호</label><input id="inboundNo"></div>
       <div class="field"><label>입고일자</label><input id="inboundDate" placeholder="YYYY-MM-DD"></div>
@@ -191,7 +207,7 @@
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">3</span>공병 실물 사진 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택, 여러 장 가능)</span></p>
+    <p class="step-title"><span class="step-num">4</span>공병 실물 사진 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택, 여러 장 가능)</span></p>
     <input id="singleItemPhotoInput" type="file" accept="image/*" capture="environment" multiple class="hidden" onchange="itemPhotoSelected(event,'single')">
     <input id="singleItemPhotoInputGallery" type="file" accept="image/*" multiple class="hidden" onchange="itemPhotoSelected(event,'single')">
     <button class="btn outline" onclick="document.getElementById('singleItemPhotoInput').click()">📷 실물 사진 추가</button>
@@ -200,7 +216,7 @@
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">4</span>입고 확인</p>
+    <p class="step-title"><span class="step-num">5</span>입고 확인</p>
     <label style="font-size:0.78rem;color:var(--muted);">입고정보 일치</label>
     <div class="toggle-row">
       <div class="toggle" id="matchYes" onclick="choose('matchYes','matchNo','ok')">일치</div>
@@ -219,7 +235,7 @@
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">5</span>저장</p>
+    <p class="step-title"><span class="step-num">6</span>저장</p>
     <div class="field"><label>검수자</label><input id="inspector"></div>
     <div class="field"><label>특이사항</label><textarea id="note"></textarea></div>
     <button class="btn primary" onclick="saveSingleRecord()">저장</button>
