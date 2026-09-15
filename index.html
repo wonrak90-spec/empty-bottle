@@ -424,6 +424,19 @@
     <button class="btn primary" onclick="printCurrentViewRecord()">🖨 A4 출력</button>
   </div>
 
+  <div class="card">
+    <p class="step-title"><span class="step-num">3</span>입고 예정 목록 불러오기 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(엑셀에서 복사 → 붙여넣기)</span></p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0 0 10px;">
+      WMS에서 입고 목록을 엑셀로 연 뒤 <b>제목줄 포함 전체 선택(Ctrl+A) → 복사(Ctrl+C)</b> 하고,
+      아래 칸을 눌러 <b>붙여넣기(Ctrl+V)</b> 하세요. 열 순서가 달라도 자동으로 맞춥니다.
+    </p>
+    <textarea id="importBox" style="width:100%;min-height:110px;padding:10px;border:1px solid var(--line);border-radius:6px;font-size:0.78rem;" placeholder="여기에 붙여넣기 (Ctrl+V)" oninput="previewImport()"></textarea>
+    <input id="importFile" type="file" accept=".csv,text/csv" class="hidden" onchange="importFileSelected(event)">
+    <button class="btn outline" onclick="document.getElementById('importFile').click()">📄 CSV 파일로 불러오기</button>
+    <div id="importStatus" class="status">아직 불러온 목록이 없습니다.</div>
+    <button class="btn primary hidden" id="btnImport" onclick="commitImport()">입고 목록 저장</button>
+  </div>
+
 </section>
 
 </main>

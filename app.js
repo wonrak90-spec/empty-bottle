@@ -1361,6 +1361,132 @@ function printCurrentViewRecord() {
   openPrintWindow(currentViewRecord.record, currentViewRecord.pallets);
 }
 
+/* ============ 입고 예정 목록 불러오기 ============ */
+
+let importRows = [];
+
+// WMS마다 열 이름이 달라서 여러 표기를 모두 인식
+const IMPORT_ALIASES = {
+  inboundNo: ['입고번호', '입고no', '입고번호no', 'inboundno', '입하번호', '전표번호'],
+  containerNo: ['용기번호', '용기no', '팔레트번호', '파레트번호', 'containerno', '용기'],
+  product: ['품명', '품목명', '자재명', '제품명', 'product', 'itemname'],
+  itemCode: ['품목코드', '자재코드', '품번', 'itemcode', 'materialcode', '코드'],
+  manufacturer: ['제조원', '제조사', '제조회사', 'manufacturer'],
+  supplier: ['공급업체', '거래처', '납품처', '업체명', 'supplier', 'vendor'],
+  qty: ['수량', '입고수량', '발주수량', 'qty', 'quantity'],
+  unit: ['단위', 'unit', 'uom'],
+  expiryDate: ['사용기한', '유효기한', '유통기한', 'expiry', 'expirydate'],
+  inboundDate: ['입고일자', '입고일', '납품일자', 'inbounddate']
+};
+
+function normHeader(h) {
+  return String(h || '').toLowerCase().replace(/[\s()\-_./]/g, '');
+}
+
+function splitRow(line) {
+  if (line.indexOf('\t') >= 0) return line.split('\t');
+  // 간단한 CSV 분해 (따옴표 안의 쉼표 보호)
+  const out = []; let cur = ''; let q = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i];
+    if (c === '"') { q = !q; continue; }
+    if (c === ',' && !q) { out.push(cur); cur = ''; continue; }
+    cur += c;
+  }
+  out.push(cur);
+  return out;
+}
+
+function parseImportText(text) {
+  const lines = String(text || '').replace(/\r/g, '').split('\n').filter(l => l.trim());
+  if (lines.length < 2) return { rows: [], error: '제목줄과 데이터가 함께 필요합니다.' };
+
+  const header = splitRow(lines[0]).map(normHeader);
+  const map = {};
+  Object.keys(IMPORT_ALIASES).forEach(field => {
+    for (let i = 0; i < header.length; i++) {
+      if (IMPORT_ALIASES[field].some(a => header[i] === normHeader(a))) { map[field] = i; return; }
+    }
+    for (let i = 0; i < header.length; i++) {
+      if (IMPORT_ALIASES[field].some(a => header[i].indexOf(normHeader(a)) >= 0)) { map[field] = i; return; }
+    }
+  });
+
+  if (map.inboundNo === undefined || map.product === undefined) {
+    return { rows: [], error: '입고번호와 품명 열을 찾지 못했습니다. 제목줄이 포함되었는지 확인하세요.' };
+  }
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const c = splitRow(lines[i]);
+    const get = f => (map[f] !== undefined ? String(c[map[f]] || '').trim() : '');
+    const inboundNo = get('inboundNo');
+    const product = get('product');
+    if (!inboundNo || !product) continue;
+
+    let containerNo = get('containerNo');
+    if (containerNo && /^\d+$/.test(containerNo)) containerNo = ('0000' + containerNo).slice(-4);
+
+    rows.push({
+      lookupKey: containerNo ? (inboundNo + '-' + containerNo) : inboundNo,
+      inboundNo: inboundNo, containerNo: containerNo, product: product,
+      itemCode: get('itemCode'), manufacturer: get('manufacturer'), supplier: get('supplier'),
+      qty: get('qty').replace(/,/g, ''), unit: get('unit') || 'EA',
+      expiryDate: normalizeDate(get('expiryDate')) || get('expiryDate')
+    });
+  }
+  return { rows: rows, mapped: Object.keys(map) };
+}
+
+function previewImport() {
+  const res = parseImportText(document.getElementById('importBox').value);
+  const btn = document.getElementById('btnImport');
+  if (res.error) {
+    setStatus('importStatus', res.error, 'bad');
+    btn.classList.add('hidden');
+    importRows = [];
+    return;
+  }
+  importRows = res.rows;
+  if (!importRows.length) {
+    setStatus('importStatus', '읽을 수 있는 줄이 없습니다.', 'bad');
+    btn.classList.add('hidden');
+    return;
+  }
+  const sample = importRows[0];
+  setStatus('importStatus',
+    importRows.length + '줄 확인됨 · 예: ' + sample.lookupKey + ' / ' + sample.product +
+    (sample.qty ? (' / ' + sample.qty + sample.unit) : ''), 'ok');
+  btn.classList.remove('hidden');
+}
+
+async function importFileSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  if (!file) return;
+  event.target.value = '';
+  const text = await file.text();
+  document.getElementById('importBox').value = text;
+  previewImport();
+}
+
+async function commitImport() {
+  if (!importRows.length) return;
+  setStatus('importStatus', importRows.length + '줄 저장 중...', 'warn');
+  try {
+    const res = await apiPost('importMaster', { rows: importRows });
+    if (res.ok) {
+      setStatus('importStatus', '완료 · ' + res.count + '줄이 등록되었습니다. 이제 바코드만 찍으면 정보가 자동으로 채워집니다.', 'ok');
+      document.getElementById('importBox').value = '';
+      document.getElementById('btnImport').classList.add('hidden');
+      importRows = [];
+    } else {
+      setStatus('importStatus', '저장 실패: ' + res.message, 'bad');
+    }
+  } catch (e) {
+    setStatus('importStatus', '저장 실패: ' + e, 'bad');
+  }
+}
+
 /* ============ 검수자 이름 기억 ============ */
 
 const INSPECTOR_KEY = 'gongbyeong_inspector';
