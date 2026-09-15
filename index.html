@@ -122,6 +122,26 @@
   }
   details.optional{margin-top:4px; border-top:1px solid var(--line); padding-top:8px;}
   details.optional summary{cursor:pointer; font-size:0.82rem; color:var(--muted); padding:4px 0;}
+  .loop-head{display:flex; align-items:center; gap:14px; margin-bottom:14px;}
+  .loop-label{font-size:0.72rem; color:var(--muted);}
+  .loop-count{font-size:2rem; font-weight:700; line-height:1.1;}
+  .loop-total{font-size:1rem; font-weight:400; color:var(--muted); margin-left:2px;}
+  .loop-progress-wrap{flex:1;}
+  .loop-progress{height:6px; background:var(--line); border-radius:3px; overflow:hidden;}
+  .loop-progress > div{height:100%; width:0%; background:var(--primary); transition:width .25s;}
+  .loop-sub{font-size:0.72rem; color:var(--muted); margin-top:6px;}
+  .loop-steps{display:flex; flex-direction:column; gap:8px;}
+  .loop-btn{
+    display:flex; align-items:center; gap:10px; width:100%; padding:16px 14px;
+    border:1px solid var(--line); border-radius:10px; background:#fff; cursor:pointer;
+    font-size:1rem; font-weight:600; color:var(--ink); text-align:left;
+  }
+  .loop-btn .loop-ic{font-size:1.2rem;}
+  .loop-btn .loop-chk{margin-left:auto; font-size:1.1rem; color:var(--ok);}
+  .loop-btn.done{background:var(--ok-bg); border-color:var(--ok); color:var(--ok);}
+  .loop-btn:disabled{opacity:0.45;}
+  .pallet-item .thumbs{display:flex; gap:4px; margin-top:4px;}
+  .pallet-item .thumbs img{width:34px; height:34px; object-fit:cover; border-radius:4px; border:1px solid var(--line);}
 </style>
 </head>
 <body>
@@ -131,7 +151,7 @@
   <p class="sub">라벨 촬영(OCR) 또는 코드 스캔 · Google Sheets 저장</p>
   <nav class="tabs">
     <button id="tabSingle" class="active" onclick="showTab('single')">단건 확인</button>
-    <button id="tabMulti" onclick="showTab('multi')">다중 팔레트</button>
+    <button id="tabMulti" onclick="showTab('multi')">다중 파레트</button>
     <button id="tabProd" onclick="showTab('prod')">생산 등록</button>
     <button id="tabView" onclick="showTab('view')">조회/출력</button>
   </nav>
@@ -246,23 +266,22 @@
 
 </section>
 
-<!-- ===================== 다중 팔레트 ===================== -->
+<!-- ===================== 다중 파레트 ===================== -->
 <section id="multi" class="panel">
 
-  <div class="card">
-    <p class="step-title"><span class="step-num">1</span>기준정보 설정</p>
+  <div class="card" id="mSetupCard">
+    <p class="step-title"><span class="step-num">1</span>입고 기준정보 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(처음 한 번만)</span></p>
+    <button class="btn primary" onclick="startScanner('base')">📊 첫 파레트 바코드로 기준정보 설정</button>
     <input id="multiPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'multi')">
     <input id="multiPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'multi')">
-    <button class="btn primary" onclick="document.getElementById('multiPhoto').click()">📷 첫 라벨 촬영 (OCR로 기준정보 설정)</button>
-    <button class="btn outline" onclick="document.getElementById('multiPhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
-    <button class="btn outline" onclick="startLiveOcr('multi')">🎥 카메라로 실시간 인식</button>
-    <div id="liveWrapMulti" class="hidden" style="margin-top:10px;">
-      <video id="liveVideoMulti" playsinline muted class="preview"></video>
-      <button class="btn outline" onclick="stopLiveOcr('multi')">인식 완료 / 카메라 닫기</button>
+    <button class="btn outline" onclick="document.getElementById('multiPhoto').click()">📷 라벨 촬영으로 설정</button>
+    <div id="readerWrapMulti" class="hidden" style="margin-top:10px;">
+      <div id="readerMulti"></div>
+      <button class="btn outline" onclick="stopScanner()">카메라 닫기</button>
     </div>
     <img id="multiPreview" class="preview hidden">
     <div class="progress hidden" id="ocrBoxMulti"><div id="ocrProgressMulti"></div></div>
-    <div id="multiBaseStatus" class="status">첫 라벨로 품명·품목코드·공급업체·팔레트당 수량을 설정합니다.</div>
+    <div id="multiBaseStatus" class="status">첫 파레트 바코드를 찍으면 품명·품목코드·수량이 자동 설정됩니다.</div>
     <details id="ocrRawMulti" class="ocr-raw hidden"><summary>인식된 글자 보기</summary><pre></pre></details>
     <div class="row2" style="margin-top:10px;">
       <div class="field"><label>품명</label><input id="mProduct"></div>
@@ -270,45 +289,66 @@
     </div>
     <div class="row2">
       <div class="field"><label>공급업체</label><input id="mSupplier"></div>
-      <div class="field"><label>팔레트당 수량</label><input id="mQty" inputmode="decimal"></div>
+      <div class="field"><label>파레트당 수량</label><input id="mQty" inputmode="decimal"></div>
     </div>
-    <div class="field"><label>입고번호</label><input id="mInboundNo"></div>
+    <div class="row2">
+      <div class="field"><label>입고번호</label><input id="mInboundNo"></div>
+      <div class="field"><label>총 파레트 수 (예정)</label><input id="mExpected" inputmode="numeric" oninput="renderLoop()"></div>
+    </div>
+  </div>
+
+  <div class="card" id="loopCard">
+    <div class="loop-head">
+      <div>
+        <div class="loop-label">현재 파레트</div>
+        <div class="loop-count"><span id="loopNo">1</span><span id="loopTotal" class="loop-total"></span></div>
+      </div>
+      <div class="loop-progress-wrap">
+        <div class="loop-progress"><div id="loopProgress"></div></div>
+        <div class="loop-sub" id="loopSub">시작하려면 바코드를 스캔하세요</div>
+      </div>
+    </div>
+
+    <div class="loop-steps">
+      <button class="loop-btn" id="stepScan" onclick="loopScan()">
+        <span class="loop-ic">📊</span><span>바코드 스캔</span><span class="loop-chk" id="chkScan"></span>
+      </button>
+      <input id="loopVendorPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="loopVendorSelected(event)">
+      <button class="loop-btn" id="stepVendor" onclick="document.getElementById('loopVendorPhoto').click()">
+        <span class="loop-ic">📷</span><span>업체라벨 촬영</span><span class="loop-chk" id="chkVendor"></span>
+      </button>
+    </div>
+
+    <div id="readerWrapLoop" class="hidden" style="margin-top:10px;">
+      <div id="readerLoop"></div>
+      <button class="btn outline" onclick="stopScanner()">카메라 닫기</button>
+    </div>
+
+    <div id="loopStatus" class="status">기준정보 설정 후 파레트를 하나씩 등록하세요.</div>
+    <button class="btn primary" id="btnNextPallet" onclick="commitPallet()" disabled>✓ 이 파레트 완료 · 다음</button>
+    <button class="btn ghost" onclick="skipPalletNote()">문제 있음 / 메모 남기기</button>
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">2</span>공병 실물 사진 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택, 여러 장 가능)</span></p>
-    <input id="multiItemPhotoInput" type="file" accept="image/*" capture="environment" multiple class="hidden" onchange="itemPhotoSelected(event,'multi')">
-    <input id="multiItemPhotoInputGallery" type="file" accept="image/*" multiple class="hidden" onchange="itemPhotoSelected(event,'multi')">
-    <button class="btn outline" onclick="document.getElementById('multiItemPhotoInput').click()">📷 실물 사진 추가</button>
-    <button class="btn outline" onclick="document.getElementById('multiItemPhotoInputGallery').click()">🖼 갤러리에서 실물 사진 추가</button>
-    <div id="multiItemPhotos" class="photo-grid"></div>
-  </div>
-
-  <div class="card">
-    <p class="step-title"><span class="step-num">3</span>팔레트별 코드 스캔</p>
-    <button class="btn outline" id="btnScanMulti" onclick="startScanner('multi')">코드 연속 스캔 시작</button>
-    <div id="readerWrapMulti" class="hidden" style="margin-top:10px;">
-      <div id="readerMulti"></div>
-      <button class="btn outline" onclick="stopScanner()">스캔 완료 / 카메라 닫기</button>
-    </div>
-    <button class="btn outline" onclick="addPalletManually()">코드 없이 수동 추가</button>
+    <p class="step-title"><span class="step-num">2</span>등록 현황</p>
     <div class="kpis">
-      <div class="kpi"><small>인식 팔레트</small><b id="multiCount">0</b></div>
+      <div class="kpi"><small>완료 파레트</small><b id="multiCount">0</b></div>
       <div class="kpi"><small>총 수량</small><b id="multiTotal">0</b></div>
-      <div class="kpi"><small>이종 감지</small><b id="multiMixed">0</b></div>
+      <div class="kpi"><small>이상 감지</small><b id="multiMixed">0</b></div>
     </div>
-    <div id="palletList"><div class="status">인식된 팔레트가 없습니다.</div></div>
+    <div id="palletList"><div class="status">등록된 파레트가 없습니다.</div></div>
   </div>
 
   <div class="card">
-    <p class="step-title"><span class="step-num">4</span>저장</p>
+    <p class="step-title"><span class="step-num">3</span>저장</p>
     <div class="field"><label>검수자</label><input id="mInspector"></div>
     <div class="field"><label>특이사항</label><textarea id="mNote"></textarea></div>
-    <button class="btn primary" onclick="saveMultiRecord()">팔레트 일괄 저장</button>
+    <button class="btn primary" onclick="saveMultiRecord()">전체 파레트 저장</button>
     <button class="btn outline hidden" id="btnPrintMulti" onclick="printLastSaved('multi')">🖨 방금 저장한 건 A4 출력</button>
     <button class="btn ghost" onclick="clearMulti()">초기화</button>
-    <div id="saveMultiStatus" class="status">팔레트 스캔 후 저장하세요.</div>
+    <div id="saveMultiStatus" class="status">파레트 등록 후 저장하세요.</div>
   </div>
+
 </section>
 
 <!-- ===================== 생산 등록 ===================== -->
