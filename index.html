@@ -145,7 +145,9 @@
   <div class="card">
     <p class="step-title"><span class="step-num">1</span>입고정보 불러오기</p>
     <input id="singlePhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'single')">
+    <input id="singlePhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'single')">
     <button class="btn primary" onclick="document.getElementById('singlePhoto').click()">📷 라벨 사진 촬영 (OCR 자동입력)</button>
+    <button class="btn outline" onclick="document.getElementById('singlePhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
     <button class="btn outline" onclick="startLiveOcr('single')">🎥 카메라로 실시간 인식</button>
     <button class="btn outline" id="btnScanSingle" onclick="startScanner('single')">코드 스캔 (QR/바코드가 있는 경우)</button>
     <div id="liveWrapSingle" class="hidden" style="margin-top:10px;">
@@ -191,7 +193,9 @@
   <div class="card">
     <p class="step-title"><span class="step-num">3</span>공병 실물 사진 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택, 여러 장 가능)</span></p>
     <input id="singleItemPhotoInput" type="file" accept="image/*" capture="environment" multiple class="hidden" onchange="itemPhotoSelected(event,'single')">
+    <input id="singleItemPhotoInputGallery" type="file" accept="image/*" multiple class="hidden" onchange="itemPhotoSelected(event,'single')">
     <button class="btn outline" onclick="document.getElementById('singleItemPhotoInput').click()">📷 실물 사진 추가</button>
+    <button class="btn outline" onclick="document.getElementById('singleItemPhotoInputGallery').click()">🖼 갤러리에서 실물 사진 추가</button>
     <div id="singleItemPhotos" class="photo-grid"></div>
   </div>
 
@@ -232,7 +236,9 @@
   <div class="card">
     <p class="step-title"><span class="step-num">1</span>기준정보 설정</p>
     <input id="multiPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'multi')">
+    <input id="multiPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'multi')">
     <button class="btn primary" onclick="document.getElementById('multiPhoto').click()">📷 첫 라벨 촬영 (OCR로 기준정보 설정)</button>
+    <button class="btn outline" onclick="document.getElementById('multiPhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
     <button class="btn outline" onclick="startLiveOcr('multi')">🎥 카메라로 실시간 인식</button>
     <div id="liveWrapMulti" class="hidden" style="margin-top:10px;">
       <video id="liveVideoMulti" playsinline muted class="preview"></video>
@@ -256,7 +262,9 @@
   <div class="card">
     <p class="step-title"><span class="step-num">2</span>공병 실물 사진 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(선택, 여러 장 가능)</span></p>
     <input id="multiItemPhotoInput" type="file" accept="image/*" capture="environment" multiple class="hidden" onchange="itemPhotoSelected(event,'multi')">
+    <input id="multiItemPhotoInputGallery" type="file" accept="image/*" multiple class="hidden" onchange="itemPhotoSelected(event,'multi')">
     <button class="btn outline" onclick="document.getElementById('multiItemPhotoInput').click()">📷 실물 사진 추가</button>
+    <button class="btn outline" onclick="document.getElementById('multiItemPhotoInputGallery').click()">🖼 갤러리에서 실물 사진 추가</button>
     <div id="multiItemPhotos" class="photo-grid"></div>
   </div>
 
@@ -293,7 +301,9 @@
   <div class="card">
     <p class="step-title"><span class="step-num">1</span>완제품 라벨/박스 촬영으로 자동입력</p>
     <input id="prodPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'prod')">
+    <input id="prodPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'prod')">
     <button class="btn primary" onclick="document.getElementById('prodPhoto').click()">📷 사진 촬영 (OCR 자동입력)</button>
+    <button class="btn outline" onclick="document.getElementById('prodPhotoGallery').click()">🖼 갤러리에서 사진 불러오기</button>
     <button class="btn outline" onclick="startLiveOcr('prod')">🎥 카메라로 실시간 인식</button>
     <div id="liveWrapProd" class="hidden" style="margin-top:10px;">
       <video id="liveVideoProd" playsinline muted class="preview"></video>
