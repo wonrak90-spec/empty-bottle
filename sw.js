@@ -1,4 +1,4 @@
-const CACHE = '공병입고-v14';
+const CACHE = '공병입고-v15';
 const SHELL = ['./', './index.html', './app.js', './config.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {

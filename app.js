@@ -40,8 +40,14 @@ function choose(onId, offId, type) {
 }
 
 function normalizeDate(v) {
-  const d = String(v || '').replace(/[^0-9]/g, '');
-  return d.length >= 8 ? d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8) : String(v || '').trim();
+  const s = String(v || '').trim();
+  if (!s) return '';
+  const d = s.replace(/[^0-9]/g, '');
+  if (d.length === 8) return d.slice(0, 4) + '-' + d.slice(4, 6) + '-' + d.slice(6, 8);
+  // 2026-1-5 / 2026.1.5 / 2026년 1월 5일 같은 형태
+  const m = s.match(/([0-9]{4})\D+([0-9]{1,2})\D+([0-9]{1,2})/);
+  if (m) return m[1] + '-' + ('0' + m[2]).slice(-2) + '-' + ('0' + m[3]).slice(-2);
+  return s;
 }
 
 /* ============ API 호출 ============ */
@@ -95,26 +101,37 @@ async function getOcrWorker(progressId) {
 }
 
 function applyOcrToMode(mode, parsed) {
+  let filled = 0;
   if (mode === 'single') {
     applyParsed(parsed);
-    return '라벨 자동인식 완료 · 아래 내용을 확인하세요.';
-  }
-  if (mode === 'multi') {
-    if (parsed.product) document.getElementById('mProduct').value = parsed.product;
-    if (parsed.itemCode) document.getElementById('mItemCode').value = parsed.itemCode;
-    if (parsed.supplier) document.getElementById('mSupplier').value = parsed.supplier;
-    if (parsed.displayQty) document.getElementById('mQty').value = parsed.displayQty;
-    if (parsed.inboundNo) document.getElementById('mInboundNo').value = parsed.inboundNo;
-    return '기준정보 설정 완료 · 이제 코드 스캔 또는 수동 추가를 진행하세요.';
-  }
-  if (mode === 'prod') {
+    filled = Object.keys(parsed).filter(k => parsed[k]).length;
+  } else if (mode === 'multi') {
+    if (parsed.product) { document.getElementById('mProduct').value = parsed.product; filled++; }
+    if (parsed.itemCode) { document.getElementById('mItemCode').value = parsed.itemCode; filled++; }
+    if (parsed.supplier) { document.getElementById('mSupplier').value = parsed.supplier; filled++; }
+    if (parsed.displayQty) { document.getElementById('mQty').value = parsed.displayQty; filled++; }
+    if (parsed.inboundNo) { document.getElementById('mInboundNo').value = parsed.inboundNo; filled++; }
+  } else if (mode === 'prod') {
     const p = parseProductionText(lastOcrText.prod);
-    if (p.productName) document.getElementById('prodProductName').value = p.productName;
-    if (p.lotNo) document.getElementById('prodLotNo').value = p.lotNo;
-    if (p.prodDate) document.getElementById('prodDate').value = p.prodDate;
-    if (p.prodQty) document.getElementById('prodQty').value = p.prodQty;
-    return '자동인식 완료 · 아래 생산 정보를 확인하세요.';
+    if (p.productName) { document.getElementById('prodProductName').value = p.productName; filled++; }
+    if (p.lotNo) { document.getElementById('prodLotNo').value = p.lotNo; filled++; }
+    if (p.prodDate) { document.getElementById('prodDate').value = p.prodDate; filled++; }
+    if (p.prodQty) { document.getElementById('prodQty').value = p.prodQty; filled++; }
   }
+
+  showOcrRaw(mode);
+  return filled > 0
+    ? '자동인식 완료 · ' + filled + '개 항목 채움 (내용 확인 후 수정하세요)'
+    : '글자는 읽었지만 항목을 찾지 못했습니다. 아래 "인식된 글자 보기"를 눌러 확인하고 직접 입력해주세요.';
+}
+
+function showOcrRaw(mode) {
+  const box = document.getElementById('ocrRaw' + mode.charAt(0).toUpperCase() + mode.slice(1));
+  if (!box) return;
+  const text = (lastOcrText[mode] || '').trim();
+  box.classList.toggle('hidden', !text);
+  const pre = box.querySelector('pre');
+  if (pre) pre.textContent = text;
 }
 
 async function labelPhotoSelected(event, mode) {
@@ -146,52 +163,116 @@ async function labelPhotoSelected(event, mode) {
 }
 
 function parseLabelText(raw) {
-  const t = String(raw || '').replace(/\r/g, '\n').replace(/：/g, ':').replace(/\n+/g, '\n');
+  const t = String(raw || '')
+    .replace(/\r/g, '\n')
+    .replace(/[：﹕]/g, ':')
+    .replace(/[|｜]/g, ' ')
+    .replace(/[ \t]+/g, ' ');
+  const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
   const out = {};
-  const one = re => { const m = t.match(re); return m ? m[1].trim() : ''; };
 
-  out.inboundNo = one(/입고\s*번호\s*[:\-]?\s*([0-9]{6,})/i);
-  out.product = one(/품\s*명\s*[:\-]?\s*([^\n]+)/i);
-  out.itemCode = one(/품목\s*코드\s*[:\-]?\s*([A-Za-z0-9\-]+)/i);
+  // 항목명 뒤의 값을 찾되, 같은 줄에 없으면 다음 줄에서 찾는다.
+  // 콜론/하이픈이 없어도 동작하도록 구분자를 선택적으로 처리.
+  function grab(labelRe, valueRe) {
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(new RegExp(labelRe.source + '\\s*[:\\-]?\\s*(.*)$', 'i'));
+      if (!m) continue;
+      const rest = (m[1] || '').trim();
+      if (rest) {
+        const v = valueRe ? rest.match(valueRe) : [rest];
+        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
+      }
+      // 같은 줄에 값이 없으면 다음 줄을 값으로 간주
+      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+        const nxt = lines[j].trim();
+        if (!nxt) continue;
+        const v = valueRe ? nxt.match(valueRe) : [nxt];
+        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
+      }
+    }
+    return '';
+  }
 
-  const q = t.match(/수\s*량\s*[:\-]?\s*([\d,]+(?:\.\d+)?)\s*([A-Za-z가-힣]+)?/i);
-  if (q) { out.displayQty = q[1]; out.unit = q[2] || 'EA'; }
+  const NUM = /([0-9][0-9,]*(?:\.[0-9]+)?)/;
+  const DATE = /([0-9]{4}\s*[-.\/년]\s*[0-9]{1,2}\s*[-.\/월]\s*[0-9]{1,2}|[0-9]{8})/;
 
-  out.manufacturer = one(/제\s*조\s*원\s*[:\-]?\s*([^\n]+)/i);
-  out.supplier = one(/공급\s*업체\s*[:\-]?\s*([^\n]+)/i);
-  out.inboundDate = normalizeDate(one(/입고\s*일자\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i));
-  out.expiryDate = normalizeDate(one(/사용\s*기한\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i));
+  out.inboundNo = grab(/입\s*고\s*번\s*호/, /([0-9]{5,})/);
+  out.product = grab(/품\s*명|제\s*품\s*명/);
+  out.itemCode = grab(/품\s*목\s*코\s*드|자\s*재\s*코\s*드/, /([A-Za-z0-9\-]{3,})/);
+  out.manufacturer = grab(/제\s*조\s*원|제\s*조\s*사/);
+  out.supplier = grab(/공\s*급\s*업\s*체|거\s*래\s*처|납\s*품\s*처/);
+  out.inboundDate = normalizeDate(grab(/입\s*고\s*일\s*자?|납\s*품\s*일\s*자?/, DATE));
+  out.expiryDate = normalizeDate(grab(/사\s*용\s*기\s*한|유\s*효\s*기\s*한/, DATE));
 
-  const c = t.match(/용기\s*번호\s*[:\-]?\s*([0-9]{1,8})\s*[/／]\s*([0-9]{1,8})/i);
+  const qtyStr = grab(/수\s*량/, NUM);
+  if (qtyStr) out.displayQty = qtyStr.replace(/,/g, '');
+  const unitLine = t.match(/수\s*량\s*[:\-]?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*([A-Za-z가-힣]{1,4})/i);
+  if (unitLine) out.unit = unitLine[1];
+
+  const c = t.match(/용\s*기\s*번\s*호\s*[:\-]?\s*([0-9]{1,8})\s*[\/～~\-]\s*([0-9]{1,8})/i);
   if (c) { out.containerFrom = c[1]; out.containerTo = c[2]; }
+  else {
+    const c1 = grab(/용\s*기\s*번\s*호/, /([0-9]{1,8})/);
+    if (c1) out.containerFrom = c1;
+  }
 
   const code = t.match(/(?<!\d)([0-9]{6,12}-[0-9]{3,8})(?!\d)/);
-  if (code) out.codeRaw = code[1];
-
-  if (out.product) {
-    out.product = out.product.replace(/\s+(품목\s*코드|수\s*량|제\s*조\s*원|공급\s*업체).*$/i, '').trim();
+  if (code) {
+    out.codeRaw = code[1];
+    if (!out.inboundNo) out.inboundNo = code[1].split('-')[0];
+    if (!out.containerFrom) out.containerFrom = code[1].split('-')[1];
   }
+
+  // 항목명이 값 뒤에 딸려온 경우 잘라내기
+  ['product', 'manufacturer', 'supplier'].forEach(k => {
+    if (out[k]) {
+      out[k] = out[k]
+        .replace(/\s*(품\s*목\s*코\s*드|수\s*량|제\s*조\s*원|공\s*급\s*업\s*체|사\s*용\s*기\s*한|입\s*고\s*번\s*호).*$/i, '')
+        .replace(/[:\-]\s*$/, '')
+        .trim();
+    }
+  });
+
   return out;
 }
 
 function parseProductionText(raw) {
-  const t = String(raw || '').replace(/\r/g, '\n').replace(/：/g, ':').replace(/\n+/g, '\n');
+  const t = String(raw || '')
+    .replace(/\r/g, '\n').replace(/[：﹕]/g, ':').replace(/[|｜]/g, ' ').replace(/[ \t]+/g, ' ');
+  const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
   const out = {};
-  const one = re => { const m = t.match(re); return m ? m[1].trim() : ''; };
 
-  out.productName = one(/제\s*품\s*명\s*[:\-]?\s*([^\n]+)/i) || one(/품\s*명\s*[:\-]?\s*([^\n]+)/i);
-  out.lotNo = one(/제\s*조\s*번\s*호\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
-    one(/lot\s*(?:no\.?)?\s*[:\-]?\s*([A-Za-z0-9\-]+)/i) ||
-    one(/로트\s*번호\s*[:\-]?\s*([A-Za-z0-9\-]+)/i);
-  out.prodDate = normalizeDate(
-    one(/제\s*조\s*일\s*자?\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i) ||
-    one(/생\s*산\s*일\s*자?\s*[:\-]?\s*([0-9]{8}|[0-9]{4}[-./][0-9]{1,2}[-./][0-9]{1,2})/i)
-  );
-  const q = t.match(/(?:생\s*산\s*수\s*량|수\s*량)\s*[:\-]?\s*([\d,]+(?:\.\d+)?)/i);
-  if (q) out.prodQty = q[1];
+  function grab(labelRe, valueRe) {
+    for (let i = 0; i < lines.length; i++) {
+      const m = lines[i].match(new RegExp(labelRe.source + '\\s*[:\\-]?\\s*(.*)$', 'i'));
+      if (!m) continue;
+      const rest = (m[1] || '').trim();
+      if (rest) {
+        const v = valueRe ? rest.match(valueRe) : [rest];
+        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
+      }
+      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
+        const nxt = lines[j].trim();
+        if (!nxt) continue;
+        const v = valueRe ? nxt.match(valueRe) : [nxt];
+        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
+      }
+    }
+    return '';
+  }
+
+  const DATE = /([0-9]{4}\s*[-.\/년]\s*[0-9]{1,2}\s*[-.\/월]\s*[0-9]{1,2}|[0-9]{8})/;
+
+  out.productName = grab(/제\s*품\s*명|품\s*명/);
+  out.lotNo = grab(/제\s*조\s*번\s*호|로\s*트\s*번\s*호|lot\s*(?:no\.?)?|batch\s*(?:no\.?)?/, /([A-Za-z0-9\-]{2,})/);
+  out.prodDate = normalizeDate(grab(/제\s*조\s*일\s*자?|생\s*산\s*일\s*자?/, DATE));
+  out.prodQty = grab(/생\s*산\s*수\s*량|수\s*량/, /([0-9][0-9,]*)/);
+  if (out.prodQty) out.prodQty = out.prodQty.replace(/,/g, '');
 
   if (out.productName) {
-    out.productName = out.productName.replace(/\s+(제조\s*번호|lot|로트\s*번호|제조\s*일자?|생산\s*일자?|수\s*량).*$/i, '').trim();
+    out.productName = out.productName
+      .replace(/\s*(제\s*조\s*번\s*호|로\s*트|lot|batch|제\s*조\s*일\s*자?|생\s*산\s*일\s*자?|수\s*량).*$/i, '')
+      .replace(/[:\-]\s*$/, '').trim();
   }
   return out;
 }
@@ -560,6 +641,7 @@ async function saveSingleRecord() {
         pallets: []
       };
       document.getElementById('btnPrintSingle').classList.remove('hidden');
+      rememberInspector(payload.inspector);
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -608,6 +690,7 @@ async function saveMultiRecord() {
         }))
       };
       document.getElementById('btnPrintMulti').classList.remove('hidden');
+      rememberInspector(payload.inspector);
     } else {
       setStatus('saveMultiStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -630,6 +713,7 @@ function clearSingle() {
   ['matchYes', 'matchNo', 'mixYes', 'mixNo'].forEach(id => document.getElementById(id).classList.remove('sel-ok', 'sel-bad'));
   lastPhotoDataUrl.single = ''; lastOcrText.single = '';
   itemPhotos.single = []; renderItemPhotos('single');
+  document.getElementById('inspector').value = getRememberedInspector();
   setStatus('singleStatus', '라벨을 촬영하거나 코드를 스캔하세요.', '');
   setStatus('qtyStatus', '수량을 입력하면 일치 여부를 계산합니다.', '');
   setStatus('saveSingleStatus', '저장 전 자동입력 내용을 확인하세요.', '');
@@ -648,6 +732,7 @@ function clearMulti() {
   lastPhotoDataUrl.multi = ''; lastOcrText.multi = '';
   itemPhotos.multi = []; renderItemPhotos('multi');
   renderPallets();
+  document.getElementById('mInspector').value = getRememberedInspector();
   setStatus('multiBaseStatus', '첫 라벨로 품명·품목코드·공급업체·팔레트당 수량을 설정합니다.', '');
   setStatus('saveMultiStatus', '팔레트 스캔 후 저장하세요.', '');
 }
@@ -720,14 +805,14 @@ function renderProdSelected() {
 }
 
 async function saveProduction() {
-  if (prodSelectedRecords.length === 0) {
-    setStatus('saveProdStatus', '연결할 공병 입고건을 최소 1개 선택하세요.', 'bad');
-    return;
-  }
   const get = id => document.getElementById(id).value.trim();
   const productName = get('prodProductName');
   if (!productName) {
     setStatus('saveProdStatus', '제품명을 입력하세요.', 'bad');
+    return;
+  }
+  if (!get('prodLotNo')) {
+    setStatus('saveProdStatus', '제조번호를 입력하세요.', 'bad');
     return;
   }
   const payload = {
@@ -747,6 +832,7 @@ async function saveProduction() {
     const res = await apiPost('saveProduction', payload);
     if (res.ok) {
       setStatus('saveProdStatus', '생산 등록 완료 (ID: ' + res.id + ')', 'ok');
+      rememberInspector(payload.registrant);
     } else {
       setStatus('saveProdStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -766,6 +852,7 @@ function clearProduction() {
   document.getElementById('ocrProgressProd').style.width = '0%';
   lastPhotoDataUrl.prod = ''; lastOcrText.prod = '';
   renderProdSelected();
+  document.getElementById('prodRegistrant').value = getRememberedInspector();
   setStatus('prodOcrStatus', '제품명·제조번호가 보이도록 촬영하면 아래 항목이 자동으로 채워집니다.', '');
   setStatus('prodSearchStatus', '입고번호나 품명으로 검색해서 사용한 공병 입고건을 선택하세요.', '');
   setStatus('saveProdStatus', '연결할 입고건 선택 후 생산 정보를 입력하세요.', '');
@@ -910,7 +997,37 @@ function printCurrentViewRecord() {
   openPrintWindow(currentViewRecord.record, currentViewRecord.pallets);
 }
 
+/* ============ 검수자 이름 기억 ============ */
+
+const INSPECTOR_KEY = 'gongbyeong_inspector';
+
+function getRememberedInspector() {
+  try { return localStorage.getItem(INSPECTOR_KEY) || ''; } catch (e) { return ''; }
+}
+
+function rememberInspector(name) {
+  const v = String(name || '').trim();
+  if (!v) return;
+  try { localStorage.setItem(INSPECTOR_KEY, v); } catch (e) {}
+  ['inspector', 'mInspector', 'prodRegistrant'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el && !el.value.trim()) el.value = v;
+  });
+}
+
+function initInspector() {
+  const saved = getRememberedInspector();
+  ['inspector', 'mInspector', 'prodRegistrant'].forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    if (saved) el.value = saved;
+    el.addEventListener('change', () => rememberInspector(el.value));
+  });
+}
+
 /* ============ PWA 설치 ============ */
+
+window.addEventListener('DOMContentLoaded', initInspector);
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
