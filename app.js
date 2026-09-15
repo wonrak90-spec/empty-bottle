@@ -1,13 +1,14 @@
 /* ============ 공통 ============ */
 
 function showTab(tab) {
-  ['single', 'multi', 'prod', 'view'].forEach(t => {
+  ['dash', 'single', 'multi', 'prod', 'view'].forEach(t => {
     document.getElementById(t).classList.toggle('active', t === tab);
     document.getElementById('tab' + t.charAt(0).toUpperCase() + t.slice(1)).classList.toggle('active', t === tab);
   });
   stopScanner();
   stopLiveOcr('single');
   stopLiveOcr('multi');
+  if (tab === 'dash' && !dashData) loadDashboard();
 }
 
 function setStatus(id, text, type) {
@@ -767,27 +768,97 @@ function renderLoop() {
   document.getElementById('stepVendor').classList.toggle('done', hasVendor);
   document.getElementById('chkVendor').textContent = hasVendor ? '✓' : '';
   document.getElementById('btnNextPallet').disabled = !(hasScan && hasVendor);
+  document.getElementById('btnScanOnly').classList.toggle('hidden', !(hasScan && !hasVendor));
 
   if (!hasScan) setStatus('loopStatus', '바코드를 스캔하세요.', '');
-  else if (!hasVendor) setStatus('loopStatus', '스캔 완료 (' + p.code + ') · 이제 업체라벨을 촬영하세요.', 'warn');
+  else if (!hasVendor) setStatus('loopStatus', '스캔 완료 (' + p.code + ') · 업체라벨을 촬영하거나, 바코드만 먼저 등록할 수 있습니다.', 'warn');
   else if (p.matchResult === '불일치') setStatus('loopStatus', '⚠ 업체라벨 품명이 기준과 다릅니다: ' + (p.vendorProduct || ''), 'bad');
   else setStatus('loopStatus', '준비 완료 · "이 파레트 완료"를 누르세요.', 'ok');
 
   renderPallets();
+  renderPending();
 }
 
-async function commitPallet() {
-  if (!currentPallet || !currentPallet.code || !currentPallet.vendorPhoto) return;
+async function commitPallet(scanOnly) {
+  if (!currentPallet || !currentPallet.code) return;
+  if (!scanOnly && !currentPallet.vendorPhoto) return;
+
   const p = currentPallet;
   p.seq = palletSeq;
+  p.pendingPhoto = !p.vendorPhoto;
   multiPallets.push(p);
   currentPallet = null;
   palletSeq++;
   renderLoop();
-  setStatus('loopStatus', '파레트 ' + p.seq + ' 등록됨 · 다음 파레트 바코드를 스캔하세요.', 'ok');
 
-  // 사진은 즉시 업로드해서 마지막에 몰리지 않게 함
+  setStatus('loopStatus', p.pendingPhoto
+    ? ('파레트 ' + p.seq + ' 바코드만 등록됨 · 업체라벨 사진은 아래 목록에서 나중에 추가하세요.')
+    : ('파레트 ' + p.seq + ' 등록됨 · 다음 파레트 바코드를 스캔하세요.'),
+    p.pendingPhoto ? 'warn' : 'ok');
+
   uploadPalletPhotos(p);
+}
+
+/* ---- 사진 미완료 파레트 채우기 ---- */
+
+let pendingTarget = null;
+
+function pickPendingPhoto(seq) {
+  pendingTarget = multiPallets.find(x => x.seq === seq) || null;
+  if (!pendingTarget) return;
+  document.getElementById('pendingVendorPhoto').click();
+}
+
+async function pendingVendorSelected(event) {
+  const file = event.target.files && event.target.files[0];
+  event.target.value = '';
+  if (!file || !pendingTarget) return;
+
+  const target = pendingTarget;
+  pendingTarget = null;
+
+  const raw = await fileToDataUrl(file);
+  const small = await shrinkDataUrl(raw);
+  target.vendorPhoto = small;
+  target.pendingPhoto = false;
+  renderLoop();
+  setStatus('loopStatus', '파레트 ' + target.seq + ' 업체라벨 사진이 추가되었습니다.', 'ok');
+
+  uploadPalletPhotos(target);
+
+  // 품명 대조는 백그라운드
+  runOcr(small, 'loopOcrDummy').then(text => {
+    const v = parseVendorLabel(text);
+    target.vendorProduct = v.product || '';
+    target.vendorOcr = text;
+    const base = document.getElementById('mProduct').value.trim();
+    if (base && v.product) {
+      const a = normProductName(base), b = normProductName(v.product);
+      const ok = a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0;
+      target.matchResult = ok ? '일치' : '불일치';
+      if (!ok) target.mismatch = true;
+    }
+    renderLoop();
+  }).catch(() => {});
+}
+
+function renderPending() {
+  const pending = multiPallets.filter(p => p.pendingPhoto);
+  const card = document.getElementById('pendingCard');
+  card.classList.toggle('hidden', pending.length === 0);
+  if (!pending.length) return;
+
+  document.getElementById('pendingCount').textContent = '(' + pending.length + '개 남음)';
+  document.getElementById('pendingList').innerHTML = pending.map(p => `
+    <div class="list-row">
+      <div>
+        <div>#${p.seq} ${esc(p.containerNo || p.code || '')}</div>
+        <div class="meta">${esc(p.product || '')} · ${esc(p.scanTime || '')}</div>
+      </div>
+      <button type="button" class="btn primary" style="width:auto;padding:6px 12px;font-size:0.78rem;"
+        onclick="pickPendingPhoto(${p.seq})">사진 찍기</button>
+    </div>
+  `).join('');
 }
 
 async function uploadPalletPhotos(p) {
@@ -863,7 +934,8 @@ function renderPallets() {
           ${p.vendorPhoto ? `<img src="${p.vendorPhoto}">` : ''}
         </div>
       </div>
-      ${p.mismatch ? '<div class="flag">⚠ 확인</div>' : '<div class="flag" style="color:var(--ok)">✓</div>'}
+      ${p.pendingPhoto ? '<div class="flag" style="color:var(--caution)">사진 필요</div>'
+        : (p.mismatch ? '<div class="flag">⚠ 확인</div>' : '<div class="flag" style="color:var(--ok)">✓</div>')}
     </div>
   `).join('');
 }
@@ -974,6 +1046,18 @@ async function saveMultiRecord() {
     return;
   }
 
+  const pending = multiPallets.filter(p => p.pendingPhoto);
+  if (pending.length) {
+    const ok = window.confirm(
+      '업체라벨 사진이 없는 파레트가 ' + pending.length + '개 있습니다.\n' +
+      '(#' + pending.map(p => p.seq).join(', #') + ')\n\n' +
+      '이대로 저장할까요? 저장 후에는 이 화면에서 사진을 추가할 수 없습니다.');
+    if (!ok) {
+      setStatus('saveMultiStatus', '저장을 취소했습니다. 위 목록에서 사진을 채워주세요.', 'warn');
+      return;
+    }
+  }
+
   setStatus('saveMultiStatus', '사진 업로드 확인 중...', 'warn');
   for (const p of multiPallets) {
     if (p.wmsPhoto || (p.vendorPhoto && !p.vendorPhotoUrl)) await uploadPalletPhotos(p);
@@ -983,7 +1067,7 @@ async function saveMultiRecord() {
     itemCode: p.itemCode, product: p.product, supplier: p.supplier, qty: p.qty, unit: p.unit,
     mismatch: !!p.mismatch, wmsPhotoUrl: p.wmsPhotoUrl || '', vendorPhotoUrl: p.vendorPhotoUrl || '',
     vendorProduct: p.vendorProduct || '', matchResult: p.matchResult || '', scanTime: p.scanTime || '',
-    note: p.note || ''
+    note: (p.note || '') + (p.pendingPhoto ? (p.note ? ' / ' : '') + '업체라벨 사진 없음' : '')
   }));
 
   setStatus('saveMultiStatus', '저장 중...', 'warn');
@@ -1221,6 +1305,202 @@ function clearProduction() {
   renderProdSelected();
   setStatus('prodSearchStatus', '검수 완료된 파레트를 스캔하거나 검색해서 추가하세요.', '');
   setStatus('saveProdStatus', '제품명·제조번호와 투입 파레트를 입력하면 저장할 수 있습니다.', '');
+}
+
+
+/* ============ 현황 (대시보드) ============ */
+
+let dashData = null;
+let dashRange = 'today';
+let traceData = null;
+let traceKeyword = '';
+
+function setDashRange(r) {
+  dashRange = r;
+  ['today', 'week', 'month'].forEach(k => {
+    document.getElementById('seg' + k.charAt(0).toUpperCase() + k.slice(1))
+      .classList.toggle('active', k === r);
+  });
+  renderDashKpis();
+}
+
+async function loadDashboard() {
+  setStatus('dashStatus', '불러오는 중...', 'warn');
+  try {
+    const res = await apiGet('dashboard');
+    if (!res.ok) { setStatus('dashStatus', '불러오기 실패: ' + res.message, 'bad'); return; }
+    dashData = res;
+    renderDashKpis();
+    renderDashLots();
+    renderDashIssues();
+    renderTopProducts();
+    setStatus('dashStatus', '기준 시각 ' + new Date().toLocaleString('ko-KR'), '');
+  } catch (e) {
+    setStatus('dashStatus', '불러오기 실패: ' + e, 'bad');
+  }
+}
+
+function renderDashKpis() {
+  if (!dashData) return;
+  const b = dashData[dashRange] || { records: 0, pallets: 0, qty: 0, issues: 0 };
+  document.getElementById('dashRecords').textContent = b.records.toLocaleString();
+  document.getElementById('dashPallets').textContent = b.pallets.toLocaleString();
+  document.getElementById('dashQty').textContent = Number(b.qty || 0).toLocaleString();
+  document.getElementById('dashIssues').textContent = b.issues.toLocaleString();
+  document.getElementById('dashIssueKpi').classList.toggle('alert', b.issues > 0);
+}
+
+function renderDashLots() {
+  const box = document.getElementById('dashLots');
+  const lots = (dashData && dashData.recentLots) || [];
+  if (!lots.length) {
+    box.innerHTML = '<div class="status">아직 생산 기록이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = lots.map(l => `
+    <div class="list-row">
+      <div>
+        <div><b>${esc(l.productName || '')}</b> · ${esc(l.lotNo || '')}</div>
+        <div class="meta">${esc(l.date)} · 파레트 ${esc(String(l.palletCount || 0))}개 · ${Number(l.total || 0).toLocaleString()}개 투입${l.registrant ? ' · ' + esc(l.registrant) : ''}</div>
+      </div>
+      <button type="button" class="btn ghost" style="width:auto;padding:4px 8px;font-size:0.74rem;"
+        onclick="traceLot('${esc(String(l.lotNo || '')).replace(/'/g, '')}')">추적</button>
+    </div>
+  `).join('');
+}
+
+function renderDashIssues() {
+  const box = document.getElementById('dashIssueList');
+  const items = (dashData && dashData.recentIssues) || [];
+  if (!items.length) {
+    box.innerHTML = '<div class="status ok">확인이 필요한 건이 없습니다.</div>';
+    return;
+  }
+  box.innerHTML = items.map(it => `
+    <div class="list-row">
+      <div>
+        <div>${esc(it.product || '')} · ${esc(it.inboundNo || '')}</div>
+        <div class="meta">${esc(it.date)} · ${esc(it.mode || '')}${it.supplier ? ' · ' + esc(it.supplier) : ''}${it.inspector ? ' · ' + esc(it.inspector) : ''}</div>
+      </div>
+      <div class="tag-bad">${esc(it.reason || '확인필요')}</div>
+    </div>
+  `).join('');
+}
+
+function renderTopProducts() {
+  const box = document.getElementById('dashTopProducts');
+  const items = (dashData && dashData.topProducts) || [];
+  if (!items.length) {
+    box.innerHTML = '<div class="status">집계할 입고 기록이 없습니다.</div>';
+    return;
+  }
+  const max = Math.max.apply(null, items.map(i => Number(i.qty) || 0)) || 1;
+  box.innerHTML = items.map(i => `
+    <div class="bar-row">
+      <div class="bar-label"><span>${esc(i.product)}</span><span>${Number(i.qty || 0).toLocaleString()}</span></div>
+      <div class="bar-track"><div class="bar-fill" style="width:${Math.max(3, (Number(i.qty) || 0) / max * 100)}%"></div></div>
+    </div>
+  `).join('');
+}
+
+function traceLot(lotNo) {
+  document.getElementById('traceKw').value = lotNo;
+  runTrace();
+  document.getElementById('traceKw').scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+async function runTrace() {
+  const kw = document.getElementById('traceKw').value.trim();
+  if (!kw) { setStatus('traceStatus', '추적할 번호를 입력하세요.', 'bad'); return; }
+  traceKeyword = kw;
+  setStatus('traceStatus', '추적 중...', 'warn');
+  document.getElementById('btnPrintTrace').classList.add('hidden');
+  try {
+    const res = await apiGet('trace', { keyword: kw });
+    if (!res.ok) { setStatus('traceStatus', '추적 실패: ' + res.message, 'bad'); return; }
+    traceData = res;
+    renderTrace();
+  } catch (e) {
+    setStatus('traceStatus', '추적 실패: ' + e, 'bad');
+  }
+}
+
+function renderTrace() {
+  const box = document.getElementById('traceResults');
+  const byLot = (traceData && traceData.byLot) || [];
+  const byPallet = (traceData && traceData.byPallet) || [];
+
+  if (!byLot.length && !byPallet.length) {
+    box.innerHTML = '';
+    setStatus('traceStatus', '해당하는 투입 기록을 찾지 못했습니다.', 'bad');
+    return;
+  }
+
+  let html = '';
+  if (byLot.length) {
+    const total = byLot.reduce((s, x) => s + (Number(String(x.qty || '').replace(/,/g, '')) || 0), 0);
+    html += `<div class="trace-group"><h4>이 제품에 들어간 공병 (${byLot.length}개 파레트 · ${total.toLocaleString()}개)</h4>` +
+      byLot.map(x => `
+        <div class="list-row">
+          <div>
+            <div>${esc(x.inboundNo)}-${esc(x.containerNo)} · ${esc(x.product || '')}</div>
+            <div class="meta">${esc(x.productName || '')} / ${esc(x.lotNo || '')} · ${Number(String(x.qty || '').replace(/,/g, '') || 0).toLocaleString()}${esc(x.unit || '')}</div>
+          </div>
+          <div class="${x.result === '이종' || x.result === '확인필요' ? 'tag-bad' : 'tag-ok'}">${esc(x.result || '')}</div>
+        </div>`).join('') + '</div>';
+  }
+  if (byPallet.length) {
+    html += `<div class="trace-group"><h4>이 공병이 들어간 제품 (${byPallet.length}건)</h4>` +
+      byPallet.map(x => `
+        <div class="list-row">
+          <div>
+            <div><b>${esc(x.productName || '')}</b> · ${esc(x.lotNo || '')}</div>
+            <div class="meta">${esc(x.inboundNo)}-${esc(x.containerNo)} · ${esc(x.product || '')} · ${Number(String(x.qty || '').replace(/,/g, '') || 0).toLocaleString()}${esc(x.unit || '')}</div>
+          </div>
+          <div class="${x.result === '이종' || x.result === '확인필요' ? 'tag-bad' : 'tag-ok'}">${esc(x.result || '')}</div>
+        </div>`).join('') + '</div>';
+  }
+  box.innerHTML = html;
+  setStatus('traceStatus', '추적 완료 · "' + traceKeyword + '"', 'ok');
+  document.getElementById('btnPrintTrace').classList.remove('hidden');
+}
+
+function printTrace() {
+  if (!traceData) return;
+  const byLot = traceData.byLot || [];
+  const byPallet = traceData.byPallet || [];
+  const rowsHtml = arr => arr.map(x => `
+    <tr>
+      <td>${esc(x.productName || '')}</td><td>${esc(x.lotNo || '')}</td>
+      <td>${esc(x.inboundNo)}-${esc(x.containerNo)}</td><td>${esc(x.product || '')}</td>
+      <td>${esc(String(x.qty || ''))}${esc(x.unit || '')}</td><td>${esc(x.result || '')}</td>
+    </tr>`).join('');
+
+  const html = `<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8">
+<title>공병 투입 추적 결과</title>
+<style>
+  body{font-family:'Malgun Gothic',sans-serif;padding:24px;color:#1C1B19;}
+  h1{font-size:1.25rem;border-bottom:2px solid #1F4B5F;padding-bottom:8px;}
+  h2{font-size:1rem;margin-top:20px;}
+  table{width:100%;border-collapse:collapse;margin:10px 0;font-size:0.82rem;}
+  th,td{border:1px solid #ccc;padding:6px 8px;text-align:left;}
+  th{background:#F0EFE9;}
+  .meta{color:#666;font-size:0.8rem;}
+</style></head><body>
+  <h1>공병 투입 추적 결과</h1>
+  <div class="meta">검색어: ${esc(traceKeyword)} · 출력일시: ${new Date().toLocaleString('ko-KR')}</div>
+  ${byLot.length ? `<h2>이 제품에 들어간 공병 (${byLot.length}개 파레트)</h2>
+  <table><tr><th>제품명</th><th>제조번호</th><th>입고-용기번호</th><th>품명</th><th>수량</th><th>검수결과</th></tr>
+  ${rowsHtml(byLot)}</table>` : ''}
+  ${byPallet.length ? `<h2>이 공병이 들어간 제품 (${byPallet.length}건)</h2>
+  <table><tr><th>제품명</th><th>제조번호</th><th>입고-용기번호</th><th>품명</th><th>수량</th><th>검수결과</th></tr>
+  ${rowsHtml(byPallet)}</table>` : ''}
+  <script>window.onload=()=>window.print();<\/script>
+</body></html>`;
+
+  const w = window.open('', '_blank');
+  if (!w) { alert('팝업이 차단되었습니다. 팝업 허용 후 다시 시도해주세요.'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
 /* ============ 보고서 출력 (A4) ============ */

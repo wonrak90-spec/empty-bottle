@@ -33,8 +33,9 @@
   .sub{color:var(--muted); font-size:0.78rem; margin:0 0 12px;}
   nav.tabs{display:flex; gap:6px; margin-bottom:0;}
   nav.tabs button{
-    flex:1; padding:10px 4px; border:none; background:transparent; color:var(--muted);
-    font-size:0.88rem; font-weight:600; border-bottom:2px solid transparent; cursor:pointer;
+    flex:1; padding:10px 2px; border:none; background:transparent; color:var(--muted);
+    font-size:0.8rem; font-weight:600; border-bottom:2px solid transparent; cursor:pointer;
+    white-space:nowrap;
   }
   nav.tabs button.active{color:var(--primary); border-bottom-color:var(--primary);}
   main{padding:14px 16px 0; max-width:520px; margin:0 auto;}
@@ -142,6 +143,30 @@
   .loop-btn:disabled{opacity:0.45;}
   .pallet-item .thumbs{display:flex; gap:4px; margin-top:4px;}
   .pallet-item .thumbs img{width:34px; height:34px; object-fit:cover; border-radius:4px; border:1px solid var(--line);}
+  .seg{display:flex; gap:0; border:1px solid var(--line); border-radius:8px; overflow:hidden;}
+  .seg-btn{
+    flex:1; padding:9px 4px; border:none; background:#fff; color:var(--muted);
+    font-size:0.82rem; font-weight:600; cursor:pointer;
+  }
+  .seg-btn + .seg-btn{border-left:1px solid var(--line);}
+  .seg-btn.active{background:var(--primary); color:#fff;}
+  .kpi.alert{background:var(--warn-bg);}
+  .kpi.alert b{color:var(--warn);}
+  .bar-row{margin-bottom:10px;}
+  .bar-row .bar-label{display:flex; justify-content:space-between; font-size:0.8rem; margin-bottom:4px;}
+  .bar-row .bar-label span:last-child{color:var(--muted); font-size:0.75rem;}
+  .bar-track{height:8px; background:var(--line); border-radius:4px; overflow:hidden;}
+  .bar-fill{height:100%; background:var(--primary); border-radius:4px;}
+  .list-row{
+    display:flex; justify-content:space-between; gap:8px; align-items:flex-start;
+    padding:9px 0; border-bottom:1px solid var(--line); font-size:0.84rem;
+  }
+  .list-row:last-child{border-bottom:none;}
+  .list-row .meta{color:var(--muted); font-size:0.73rem; margin-top:2px;}
+  .tag-bad{color:var(--warn); font-weight:700; font-size:0.74rem; white-space:nowrap;}
+  .tag-ok{color:var(--ok); font-weight:700; font-size:0.74rem; white-space:nowrap;}
+  .trace-group{margin-top:10px;}
+  .trace-group h4{font-size:0.85rem; margin:0 0 6px; color:var(--primary);}
 </style>
 </head>
 <body>
@@ -150,6 +175,7 @@
   <h1>공병 입고 확인</h1>
   <p class="sub">라벨 촬영(OCR) 또는 코드 스캔 · Google Sheets 저장</p>
   <nav class="tabs">
+    <button id="tabDash" onclick="showTab('dash')">현황</button>
     <button id="tabSingle" class="active" onclick="showTab('single')">단건 확인</button>
     <button id="tabMulti" onclick="showTab('multi')">다중 파레트</button>
     <button id="tabProd" onclick="showTab('prod')">생산 등록</button>
@@ -158,6 +184,62 @@
 </header>
 
 <main>
+
+<!-- ===================== 현황 (대시보드) ===================== -->
+<section id="dash" class="panel">
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+      <p class="step-title" style="margin:0;">입고 검수 현황</p>
+      <button class="btn ghost" style="width:auto;padding:6px 10px;" onclick="loadDashboard()">새로고침</button>
+    </div>
+    <div class="seg">
+      <button class="seg-btn active" id="segToday" onclick="setDashRange('today')">오늘</button>
+      <button class="seg-btn" id="segWeek" onclick="setDashRange('week')">최근 7일</button>
+      <button class="seg-btn" id="segMonth" onclick="setDashRange('month')">최근 30일</button>
+    </div>
+    <div class="kpis" style="margin-top:12px;">
+      <div class="kpi"><small>검수 건수</small><b id="dashRecords">–</b></div>
+      <div class="kpi"><small>파레트</small><b id="dashPallets">–</b></div>
+    </div>
+    <div class="kpis">
+      <div class="kpi"><small>총 수량</small><b id="dashQty">–</b></div>
+      <div class="kpi" id="dashIssueKpi"><small>이상 건수</small><b id="dashIssues">–</b></div>
+    </div>
+    <div id="dashStatus" class="status">불러오는 중...</div>
+  </div>
+
+  <div class="card">
+    <p class="step-title">제품 ↔ 공병 추적</p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0 0 10px;">
+      제조번호를 넣으면 그 제품에 들어간 공병을, 입고번호·용기번호를 넣으면 그 공병이 나간 제품을 보여줍니다.
+    </p>
+    <div style="display:flex; gap:8px;">
+      <input id="traceKw" style="flex:1;" placeholder="제조번호 또는 입고번호-용기번호" onkeydown="if(event.key==='Enter')runTrace()">
+      <button class="btn primary" style="width:auto; padding:10px 16px;" onclick="runTrace()">추적</button>
+    </div>
+    <div id="traceStatus" class="status">추적할 번호를 입력하세요.</div>
+    <div id="traceResults"></div>
+    <button class="btn outline hidden" id="btnPrintTrace" onclick="printTrace()">추적 결과 A4 출력</button>
+  </div>
+
+  <div class="card">
+    <p class="step-title">최근 생산 로트</p>
+    <div id="dashLots"><div class="status">불러오는 중...</div></div>
+  </div>
+
+  <div class="card">
+    <p class="step-title">확인이 필요한 최근 건</p>
+    <div id="dashIssueList"><div class="status">불러오는 중...</div></div>
+  </div>
+
+  <div class="card">
+    <p class="step-title">품목별 입고량 (최근 30일)</p>
+    <div id="dashTopProducts"><div class="status">불러오는 중...</div></div>
+  </div>
+
+</section>
+
 
 <!-- ===================== 단건 확인 ===================== -->
 <section id="single" class="panel active">
@@ -326,7 +408,17 @@
 
     <div id="loopStatus" class="status">기준정보 설정 후 파레트를 하나씩 등록하세요.</div>
     <button class="btn primary" id="btnNextPallet" onclick="commitPallet()" disabled>✓ 이 파레트 완료 · 다음</button>
+    <button class="btn outline hidden" id="btnScanOnly" onclick="commitPallet(true)">바코드만 등록 · 사진은 나중에</button>
     <button class="btn ghost" onclick="skipPalletNote()">문제 있음 / 메모 남기기</button>
+    <input id="pendingVendorPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="pendingVendorSelected(event)">
+  </div>
+
+  <div class="card hidden" id="pendingCard">
+    <p class="step-title" style="color:var(--warn);">업체라벨 사진이 필요한 파레트 <span id="pendingCount" style="font-weight:400;color:var(--muted);font-size:0.78rem;"></span></p>
+    <p style="font-size:0.8rem;color:var(--muted);margin:0 0 8px;">
+      해당 파레트를 눌러 업체라벨을 찍으면 됩니다. 순서와 상관없이 골라서 채울 수 있습니다.
+    </p>
+    <div id="pendingList"></div>
   </div>
 
   <div class="card">
