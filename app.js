@@ -1016,6 +1016,7 @@ async function loopVendorSelected(event) {
     if (!target || target.vendorPhoto !== small) return;
     const v = parseVendorLabel(text);
     target.vendorProduct = v.product || '';
+    target.vendorPalletNo = v.lotNo || '';
     target.vendorOcr = text;
     const base = document.getElementById('mProduct').value.trim();
     if (base && v.product) {
@@ -1108,6 +1109,7 @@ async function pendingVendorSelected(event) {
   runOcr(small, 'loopOcrDummy').then(text => {
     const v = parseVendorLabel(text);
     target.vendorProduct = v.product || '';
+    target.vendorPalletNo = v.lotNo || '';
     target.vendorOcr = text;
     const base = document.getElementById('mProduct').value.trim();
     if (base && v.product) {
@@ -1206,7 +1208,7 @@ function renderPallets() {
     <div class="pallet-item">
       <div>
         <div>#${p.seq} ${esc(p.product || '')} · ${esc(String(p.qty || ''))}${esc(p.unit || '')}</div>
-        <div class="code">${esc(p.containerNo || p.code || '')}${p.note ? ' · ' + esc(p.note) : ''}</div>
+        <div class="code">WMS P.No ${esc(p.containerNo || p.code || '-')} · 업체 P.No ${esc(p.vendorPalletNo || '-')}${p.note ? ' · ' + esc(p.note) : ''}</div>
         <div class="thumbs">
           ${p.wmsPhotoUrl || p.wmsPhoto ? `<img src="${p.wmsPhoto || ''}" ${p.wmsPhotoUrl && !p.wmsPhoto ? 'style="display:none"' : ''}>` : ''}
           ${p.vendorPhoto ? `<img src="${p.vendorPhoto}">` : ''}
@@ -1351,7 +1353,7 @@ async function saveMultiRecord() {
     seq: p.seq, code: p.code, inboundNo: p.inboundNo, containerNo: p.containerNo,
     itemCode: p.itemCode, product: p.product, supplier: p.supplier, qty: p.qty, unit: p.unit,
     mismatch: !!p.mismatch, wmsPhotoUrl: p.wmsPhotoUrl || '', vendorPhotoUrl: p.vendorPhotoUrl || '',
-    vendorProduct: p.vendorProduct || '', matchResult: p.matchResult || '', scanTime: p.scanTime || '',
+    vendorProduct: p.vendorProduct || '', vendorPalletNo: p.vendorPalletNo || '', matchResult: p.matchResult || '', scanTime: p.scanTime || '',
     note: (p.note || '') + (p.pendingPhoto ? (p.note ? ' / ' : '') + '업체라벨 사진 없음' : '')
   }));
 
@@ -1369,7 +1371,7 @@ async function saveMultiRecord() {
           finalResult: payload.finalResult, note: payload.note, inspector: payload.inspector
         },
         pallets: multiPallets.map((p, i) => ({
-          seq: i + 1, code: p.code, containerNo: p.containerNo, product: p.product,
+          seq: i + 1, code: p.code, containerNo: p.containerNo, wmsPalletNo: p.containerNo, vendorPalletNo: p.vendorPalletNo || '', product: p.product,
           qty: p.qty, unit: p.unit, result: p.mismatch ? '이종' : '정상'
         }))
       };

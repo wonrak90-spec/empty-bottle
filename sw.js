@@ -1,4 +1,4 @@
-const CACHE = '공병입고-v32';
+const CACHE = '공병입고-v33';
 const SHELL = ['./', './index.html', './app.js', './config.js', './v22.css', './v22.js', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil((async()=>{const c=await caches.open(CACHE);await Promise.all(SHELL.map(async url=>{try{const res=await fetch(url,{cache:'reload'});if(res.ok)await c.put(url,res);}catch(err){}}));})()); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); self.clients.claim(); });
