@@ -1,7 +1,7 @@
 // Apps Script Web App 연결 설정 — V22.3
 // 정적 API_TOKEN은 보안상 제거되었습니다. 접속코드 → 단기 세션 방식으로 인증합니다.
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbzN1SH_mzK7_U1ylz4Ion9EBFtjs5rlOt_MpfGbJE4Sw5orNUQ6Vtqi4FdHSYjG4GPUuw/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwHnPn_63Z-6AXD-fzgqnawwMt4eipxNRudi7eWHSMBjNp0Hm3m_erWMvUW6TtejQyswQ/exec',
   API_TOKEN: ''
 };
 
