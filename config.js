@@ -1,6 +1,6 @@
 // Apps Script Web App 연결 설정
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwTBf3oHI88yvATBX1usuoSY4iCx5Q2G8Rsmvchx1jsdTkq1yEM03QXMJxUSPJYdcstLA/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbzN1SH_mzK7_U1ylz4Ion9EBFtjs5rlOt_MpfGbJE4Sw5orNUQ6Vtqi4FdHSYjG4GPUuw/exec',
   API_TOKEN: 'lkC4e4hdWJIu2MOAckRurQC94hyc1cB-'
 };
 
