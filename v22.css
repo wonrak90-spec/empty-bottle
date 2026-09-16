@@ -1,0 +1,41 @@
+/* 공병 입고 확인 V22 — 현장 작업성 / 다중출력 / 보고서 */
+:root{ --safe-bottom: max(12px, env(safe-area-inset-bottom)); }
+body{ padding-bottom:110px; }
+.btn{ min-height:46px; }
+.btn.primary{ min-height:50px; }
+.worker-quickbar{
+  position:fixed; left:0; right:0; bottom:0; z-index:80;
+  display:flex; gap:8px; padding:9px 12px calc(9px + env(safe-area-inset-bottom));
+  background:rgba(246,245,241,.96); border-top:1px solid var(--line);
+  backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+}
+.worker-quickbar button{ flex:1; min-height:50px; padding:8px 6px; font-size:.82rem; }
+.worker-quickbar .mini{ flex:.75; }
+.v22-live{ margin-top:10px; border:1px solid var(--line); border-radius:10px; overflow:hidden; background:#111; }
+.v22-live video{ width:100%; max-height:42vh; display:block; object-fit:cover; background:#111; }
+.v22-live .live-guide{ position:relative; margin-top:-42vh; height:42vh; pointer-events:none; }
+.v22-live .live-guide:after{
+  content:'라벨을 이 영역 안에 맞춰주세요'; position:absolute; left:7%; right:7%; top:16%; bottom:16%;
+  border:2px solid rgba(255,255,255,.9); border-radius:10px; color:#fff; display:flex; align-items:flex-end;
+  justify-content:center; padding-bottom:8px; text-shadow:0 1px 2px #000; font-size:.78rem;
+}
+.v22-live .controls{ display:flex; gap:8px; padding:8px; background:#fff; }
+.v22-live .controls button{ flex:1; margin:0; }
+.v22-live-status{ font-size:.75rem; padding:7px 9px; background:#fff; color:var(--muted); }
+.batch-actions{ position:sticky; bottom:76px; z-index:35; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:10px; margin-top:10px; box-shadow:0 6px 20px rgba(0,0,0,.08); }
+.batch-actions .line{ display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+.batch-actions button{ width:auto; padding:9px 12px; min-height:40px; }
+.batch-actions label{ font-size:.78rem; color:var(--muted); display:flex; align-items:center; gap:6px; }
+.result-select{ display:grid; grid-template-columns:34px 1fr 24px; align-items:center; gap:6px; }
+.result-select input[type=checkbox]{ width:20px; height:20px; }
+.report-card textarea{ min-height:64px; }
+.report-card .report-grid{ display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.prod-shared{ background:#EAF1F4; border:1px solid #B7CDD6; color:#244754; padding:9px 10px; border-radius:8px; font-size:.78rem; margin:8px 0; }
+.prod-shared b{ color:var(--primary); }
+.speed-note{ font-size:.72rem; color:var(--muted); margin-top:5px; }
+@media (min-width:900px){
+  main{ max-width:980px; }
+  .worker-quickbar{ left:50%; transform:translateX(-50%); max-width:980px; border-left:1px solid var(--line); border-right:1px solid var(--line); border-radius:12px 12px 0 0; }
+  .report-card .report-grid{ grid-template-columns:1fr 1fr; }
+}
+@media print{ .worker-quickbar{ display:none!important; } body{ padding-bottom:0; } }
