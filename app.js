@@ -83,10 +83,27 @@ function normalizeDate(v) {
 
 /* ============ API 호출 ============ */
 
+// 서버가 JSON 대신 HTML(로그인/오류 페이지)을 보내는 경우를 구분해서 알려준다
+async function readJson(res) {
+  const text = await res.text();
+  const head = text.slice(0, 400);
+  if (head.trim().startsWith('<')) {
+    if (/accounts\.google\.com|로그인|Sign in/i.test(head)) {
+      throw new Error('서버 접근 권한 문제입니다. Apps Script 배포 설정에서 액세스 권한을 "모든 사용자"로 바꾼 뒤 새 버전으로 재배포하세요.');
+    }
+    throw new Error('서버가 오류 페이지를 반환했습니다. Apps Script 코드에 오류가 있거나 새 버전으로 재배포하지 않았을 수 있습니다.');
+  }
+  try {
+    return JSON.parse(text);
+  } catch (e) {
+    throw new Error('서버 응답을 읽지 못했습니다: ' + head.slice(0, 120));
+  }
+}
+
 async function apiGet(action, params) {
   const qs = new URLSearchParams(Object.assign({ action, token: CONFIG.API_TOKEN }, params || {})).toString();
   const res = await fetch(CONFIG.API_URL + '?' + qs);
-  return res.json();
+  return readJson(res);
 }
 
 async function apiPost(action, payload) {
@@ -95,7 +112,7 @@ async function apiPost(action, payload) {
     headers: { 'Content-Type': 'text/plain;charset=utf-8' }, // preflight(OPTIONS) 회피용
     body: JSON.stringify({ action, payload, token: CONFIG.API_TOKEN })
   });
-  return res.json();
+  return readJson(res);
 }
 
 async function lookupMaster(key) {
@@ -133,15 +150,71 @@ async function getOcrWorker(progressId) {
 }
 
 // 서버(Google Drive OCR)를 우선 사용하고, 실패 시 브라우저 Tesseract로 대체
+// OCR 전처리: 확대 + 흑백 + 대비 강화로 인식률을 크게 올린다
+async function preprocessForOcr(dataUrl) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        // 글자가 작으면 인식이 어려우므로 최소 2000px까지 확대
+        const target = 2000;
+        const scale = Math.min(3, Math.max(1, target / Math.max(img.width, img.height)));
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+
+        const d = ctx.getImageData(0, 0, c.width, c.height);
+        const px = d.data;
+
+        // 1) 흑백 변환하면서 평균 밝기 계산
+        let sum = 0;
+        for (let i = 0; i < px.length; i += 4) {
+          const g = 0.299 * px[i] + 0.587 * px[i + 1] + 0.114 * px[i + 2];
+          px[i] = px[i + 1] = px[i + 2] = g;
+          sum += g;
+        }
+        const mean = sum / (px.length / 4);
+
+        // 2) 평균 밝기를 기준으로 대비를 강하게 (글자는 더 검게, 종이는 더 희게)
+        const contrast = 1.9;
+        for (let i = 0; i < px.length; i += 4) {
+          let v = (px[i] - mean) * contrast + mean;
+          v = v < 0 ? 0 : v > 255 ? 255 : v;
+          px[i] = px[i + 1] = px[i + 2] = v;
+        }
+        ctx.putImageData(d, 0, 0);
+        resolve(c.toDataURL('image/jpeg', 0.92));
+      } catch (e) {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+// 어떤 엔진으로 읽었는지도 함께 돌려준다 (문제 파악용)
+let lastOcrEngine = '';
+
 async function runOcr(dataUrl, progressId) {
+  // 서버(구글 Drive OCR)는 원본을 그대로 보내는 편이 정확하다
   if (CONFIG.API_URL && CONFIG.API_URL.indexOf('PUT_YOUR') !== 0) {
     try {
       const res = await apiPost('ocr', { image: dataUrl });
-      if (res.ok && (res.text || '').trim()) return res.text;
-    } catch (e) { /* 서버 OCR 실패 → 아래 Tesseract로 진행 */ }
+      if (res.ok && (res.text || '').trim()) {
+        lastOcrEngine = '구글 인식';
+        return res.text;
+      }
+    } catch (e) { /* 서버 OCR 실패 → 아래 기기 인식으로 진행 */ }
   }
+  // 기기 인식(Tesseract)은 전처리를 거쳐야 그나마 읽는다
+  lastOcrEngine = '기기 인식';
+  const prepped = await preprocessForOcr(dataUrl);
   const worker = await getOcrWorker(progressId);
-  const ret = await worker.recognize(dataUrl);
+  const ret = await worker.recognize(prepped);
   return ret.data.text || '';
 }
 
@@ -155,7 +228,9 @@ function applyOcrToMode(mode, parsed) {
     if (v.product) { document.getElementById('vProduct').value = v.product; filled++; }
     if (v.qty) { document.getElementById('vQty').value = v.qty; filled++; }
     if (v.prodDate) { document.getElementById('vProdDate').value = v.prodDate; filled++; }
+    if (v.prodTime) { document.getElementById('vProdTime').value = v.prodTime; filled++; }
     if (v.lotNo) { document.getElementById('vLotNo').value = v.lotNo; filled++; }
+    if (v.line) { document.getElementById('vLine').value = v.line; filled++; }
     compareLabels();
   } else if (mode === 'multi') {
     if (parsed.product) { document.getElementById('mProduct').value = parsed.product; filled++; }
@@ -175,9 +250,10 @@ function applyOcrToMode(mode, parsed) {
         '자동인식 완료 · ' + blanks.join('/') + '는 잘못 읽힐 수 있어 비워뒀습니다. 직접 확인해 입력하세요.', 'warn'), 0);
     }
   }
+  const eng = lastOcrEngine ? ' [' + lastOcrEngine + ']' : '';
   return filled > 0
-    ? '자동인식 완료 · ' + filled + '개 항목 채움 (내용 확인 후 수정하세요)'
-    : '글자는 읽었지만 항목을 찾지 못했습니다. 아래 "인식된 글자 보기"를 눌러 확인하고 직접 입력해주세요.';
+    ? '자동인식 완료 · ' + filled + '개 항목 채움' + eng + ' (내용 확인 후 수정하세요)'
+    : '글자는 읽었지만 항목을 찾지 못했습니다' + eng + '. 아래 "인식된 글자 보기"를 눌러 확인하고 직접 입력해주세요.';
 }
 
 function showOcrRaw(mode) {
@@ -217,148 +293,197 @@ async function labelPhotoSelected(event, mode) {
   }
 }
 
-function parseLabelText(raw) {
+
+/* ---- 라벨 글자 해석 도우미 ----
+   라벨이 표 형태라 "수/량"처럼 항목명이 줄로 쪼개지거나,
+   한 줄에 항목이 두 개씩 들어오는 경우가 많다.
+   그래서 줄 단위가 아니라 "항목명을 기준으로 전체 글자를 잘라내는" 방식을 쓴다. */
+
+const WMS_LABELS = [
+  { key: 'inboundNo',    pat: '입\\s*고\\s*번\\s*호' },
+  { key: 'itemCode',     pat: '품\\s*목\\s*코\\s*드|자\\s*재\\s*코\\s*드' },
+  { key: 'product',      pat: '품\\s*명|자\\s*재\\s*명' },
+  { key: 'qty',          pat: '수\\s*량|수' },
+  { key: 'manufacturer', pat: '제\\s*조\\s*원|제\\s*조\\s*사' },
+  { key: 'supplier',     pat: '공\\s*급\\s*업\\s*체|거\\s*래\\s*처|납\\s*품\\s*처' },
+  { key: 'inboundDate',  pat: '입\\s*고\\s*일\\s*자|입\\s*고\\s*일' },
+  { key: 'expiryDate',   pat: '사\\s*용\\s*기\\s*한|유\\s*효\\s*기\\s*한|유\\s*통\\s*기\\s*한' },
+  { key: 'containerNo',  pat: '용\\s*기\\s*번\\s*호' },
+  { key: 'warehouse',    pat: '공\\s*병\\s*창\\s*고' }
+];
+
+const VENDOR_LABELS = [
+  { key: 'qty',       pat: '1\\s*P\\s*T\\s*수\\s*량|포\\s*장\\s*사\\s*양|수\\s*량|수' },
+  { key: 'product',   pat: '제\\s*품\\s*명|품\\s*명' },
+  { key: 'spec',      pat: '규\\s*격' },
+  { key: 'prodDate',  pat: '생\\s*산\\s*일\\s*자|제\\s*조\\s*일\\s*자|생\\s*산\\s*일|제\\s*조\\s*일' },
+  { key: 'time',      pat: '시\\s*간' },
+  { key: 'lotNo',     pat: '라\\s*인\\s*[/·]\\s*L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*[-–]\\s*번\\s*호|L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*/\\s*L\\s*N\\s*o\\.?|로\\s*트\\s*번\\s*호|제\\s*조\\s*번\\s*호' },
+  { key: 'line',      pat: '생\\s*산\\s*라\\s*인|라\\s*인' },
+  { key: 'maker',     pat: '제\\s*조\\s*회\\s*사|제\\s*조\\s*원' },
+  { key: 'producer',  pat: '생\\s*산\\s*자|생\\s*산\\s*Q\\s*/?\\s*C' },
+  { key: 'packer',    pat: '포\\s*장\\s*자' },
+  { key: 'inspector', pat: '검\\s*사\\s*자' },
+  { key: 'deliverTo', pat: '납\\s*품\\s*처' },
+  { key: 'color',     pat: '색\\s*상' },
+  { key: 'note',      pat: '비\\s*고' },
+  { key: 'judge',     pat: '판\\s*정' }
+];
+
+// 항목명들을 찾아, 각 항목명 다음부터 그 다음 항목명 직전까지를 값으로 본다
+function segmentByLabels(raw, labels) {
   const t = String(raw || '')
-    .replace(/\r/g, '\n')
     .replace(/[：﹕]/g, ':')
     .replace(/[|｜]/g, ' ')
-    .replace(/[ \t]+/g, ' ');
-  const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!t) return {};
+
+  // 긴 항목명을 먼저 맞춰야 "품목코드"가 "품명"으로 잘못 잡히지 않는다
+  const pats = labels.slice().sort((a, b) => b.pat.length - a.pat.length);
+  const union = pats.map(l => '(?:' + l.pat + ')').join('|');
+  const re = new RegExp('(' + union + ')\\s*[:\\-]?\\s*', 'gi');
+
+  const hits = [];
+  const KO = /[가-힣]/;
+  let m;
+  while ((m = re.exec(t)) !== null) {
+    const key = labelKeyOf(m[1], pats);
+    // 다른 낱말 안에 파묻힌 글자는 항목명이 아니다 (예: 까스활명'수'75ml)
+    const prev = m.index > 0 ? t[m.index - 1] : ' ';
+    const after = t[m.index + m[1].length];
+    const buried = KO.test(prev) || (after !== undefined && KO.test(after) && !/\s/.test(after));
+    if (key && !buried) {
+      hits.push({ key: key, start: m.index, end: m.index + m[0].length });
+    }
+    if (re.lastIndex === m.index) re.lastIndex++;
+  }
+
+  const out = {};
+  for (let i = 0; i < hits.length; i++) {
+    const h = hits[i];
+    const stop = i + 1 < hits.length ? hits[i + 1].start : t.length;
+    const val = t.slice(h.end, stop).trim();
+    if (val && !out[h.key]) out[h.key] = val;
+  }
+  return out;
+}
+
+function labelKeyOf(text, pats) {
+  for (let i = 0; i < pats.length; i++) {
+    if (new RegExp('^(?:' + pats[i].pat + ')$', 'i').test(text)) return pats[i].key;
+  }
+  return null;
+}
+
+function firstMatch(text, re) {
+  const m = String(text || '').match(re);
+  return m ? (m[1] !== undefined ? m[1] : m[0]).trim() : '';
+}
+
+// 값 뒤에 딸려온 잡음(전화번호, 창고명 등) 정리
+function cleanText(v) {
+  return String(v || '')
+    .replace(/\s*[0-9]{2,4}-[0-9]{3,4}-[0-9]{4}.*$/, '')
+    .replace(/\s*(공\s*병\s*창\s*고|TEL|Tel|전화).*$/i, '')
+    .replace(/[:\-]\s*$/, '')
+    .trim();
+}
+
+function parseLabelText(raw) {
+  const g = segmentByLabels(raw, WMS_LABELS);
   const out = {};
 
-  // 항목명 뒤의 값을 찾되, 같은 줄에 없으면 다음 줄에서 찾는다.
-  // 콜론/하이픈이 없어도 동작하도록 구분자를 선택적으로 처리.
-  function grab(labelRe, valueRe) {
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(new RegExp(labelRe.source + '\\s*[:\\-]?\\s*(.*)$', 'i'));
-      if (!m) continue;
-      const rest = (m[1] || '').trim();
-      if (rest) {
-        const v = valueRe ? rest.match(valueRe) : [rest];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
-      }
-      // 같은 줄에 값이 없으면 다음 줄을 값으로 간주
-      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-        const nxt = lines[j].trim();
-        if (!nxt) continue;
-        const v = valueRe ? nxt.match(valueRe) : [nxt];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
-      }
+  out.inboundNo = firstMatch(g.inboundNo, /([0-9]{5,})/);
+  out.product = cleanText(g.product);
+  out.itemCode = firstMatch(g.itemCode, /([A-Za-z0-9\-]{3,})/);
+
+  const q = firstMatch(g.qty, /([0-9][0-9,]*(?:\.[0-9]+)?)/);
+  if (q) {
+    const n = Number(fixDigits(q).replace(/,/g, ''));
+    if (n > 0) out.displayQty = String(n);
+  }
+  const u = firstMatch(g.qty, /(?:[0-9,.]+)\s*(EA|개|본|BOX|박스)/i);
+  if (u) out.unit = u.toUpperCase() === 'EA' ? 'EA' : u;
+
+  out.manufacturer = cleanText(g.manufacturer);
+  out.supplier = cleanText(g.supplier);
+  out.inboundDate = normalizeDate(g.inboundDate);
+  out.expiryDate = normalizeDate(g.expiryDate);
+
+  // 용기번호 0015 / 0028
+  if (g.containerNo) {
+    const c = g.containerNo.match(/([0-9]{2,8})\s*[\/～~\-]\s*([0-9]{2,8})/);
+    if (c) { out.containerFrom = c[1]; out.containerTo = c[2]; }
+    else {
+      const c1 = g.containerNo.match(/([0-9]{2,8})/);
+      if (c1) out.containerFrom = c1[1];
     }
-    return '';
   }
 
-  const NUM = /([0-9][0-9,]*(?:\.[0-9]+)?)/;
-  const DATE = /([0-9]{4}\s*[-.\/년]\s*[0-9]{1,2}\s*[-.\/월]\s*[0-9]{1,2}|[0-9]{8})/;
-
-  out.inboundNo = fixDigits(grab(/입\s*고\s*번\s*호/, /([0-9OolIiSsBbZzgq]{5,})/)).replace(/[^0-9]/g, '');
-  out.product = grab(/품\s*명|제\s*품\s*명/);
-  out.itemCode = fixDigits(grab(/품\s*목\s*코\s*드|자\s*재\s*코\s*드/, /([A-Za-z0-9\-]{3,})/)).replace(/[^0-9A-Za-z\-]/g, '');
-  out.manufacturer = grab(/제\s*조\s*원|제\s*조\s*사/);
-  out.supplier = grab(/공\s*급\s*업\s*체|거\s*래\s*처|납\s*품\s*처/);
-  out.inboundDate = normalizeDate(grab(/입\s*고\s*일\s*자?|납\s*품\s*일\s*자?/, DATE));
-  out.expiryDate = normalizeDate(grab(/사\s*용\s*기\s*한|유\s*효\s*기\s*한/, DATE));
-
-  const qtyStr = grab(/수\s*량/, NUM);
-  if (qtyStr) {
-    const q = fixDigits(qtyStr).replace(/[^0-9.]/g, '');
-    if (q && Number(q) > 0) out.displayQty = String(Number(q));
-  }
-  const unitLine = t.match(/수\s*량\s*[:\-]?\s*[0-9][0-9,]*(?:\.[0-9]+)?\s*([A-Za-z가-힣]{1,4})/i);
-  if (unitLine) out.unit = unitLine[1];
-
-  const c = t.match(/용\s*기\s*번\s*호\s*[:\-]?\s*([0-9]{1,8})\s*[\/～~\-]\s*([0-9]{1,8})/i);
-  if (c) { out.containerFrom = c[1]; out.containerTo = c[2]; }
-  else {
-    const c1 = grab(/용\s*기\s*번\s*호/, /([0-9]{1,8})/);
-    if (c1) out.containerFrom = c1;
-  }
-
-  const code = t.match(/(?<!\d)([0-9]{6,12}-[0-9]{3,8})(?!\d)/);
+  // 바코드 형식(26003973-0033)이 글자에 섞여 있으면 보완
+  const code = String(raw || '').match(/(?<!\d)([0-9]{6,12}-[0-9]{3,8})(?!\d)/);
   if (code) {
     out.codeRaw = code[1];
     if (!out.inboundNo) out.inboundNo = code[1].split('-')[0];
     if (!out.containerFrom) out.containerFrom = code[1].split('-')[1];
   }
-
-  // 항목명이 값 뒤에 딸려온 경우 잘라내기
-  ['product', 'manufacturer', 'supplier'].forEach(k => {
-    if (out[k]) {
-      out[k] = out[k]
-        .replace(/\s*(품\s*목\s*코\s*드|수\s*량|제\s*조\s*원|공\s*급\s*업\s*체|사\s*용\s*기\s*한|입\s*고\s*번\s*호).*$/i, '')
-        .replace(/[:\-]\s*$/, '')
-        .trim();
-    }
-  });
-
   return out;
 }
 
 
-// 업체 라벨: 회사마다 항목명이 달라서 별도 사전으로 처리
-// (KC Glass: 제품명/규격/1PT 수량/라인·Lot No. · 동아에코팩: 품명/P/L No./포장사양 · 동화지앤피: 품명/P-번호/수량)
+// 업체 라벨: 회사마다 항목명이 달라 사진에서 확인된 형식을 모두 반영
+// (KC Glass: 제품명/규격/1PT 수량/생산일자/라인·Lot No.
+//  동아에코팩: 품명/생산라인/P/L No./포장사양/생산일자/시간
+//  동화지앤피: 품명/생산일자/P-번호/수량 40*41*13단)
 function parseVendorLabel(raw) {
-  const t = String(raw || '')
-    .replace(/\r/g, '\n').replace(/[：﹕]/g, ':').replace(/[|｜]/g, ' ').replace(/[ \t]+/g, ' ');
-  const lines = t.split('\n').map(s => s.trim()).filter(Boolean);
+  const g = segmentByLabels(raw, VENDOR_LABELS);
   const out = {};
 
-  function grab(labelRe, valueRe) {
-    for (let i = 0; i < lines.length; i++) {
-      const m = lines[i].match(new RegExp(labelRe.source + '\\s*[:\\-]?\\s*(.*)$', 'i'));
-      if (!m) continue;
-      const rest = (m[1] || '').trim();
-      if (rest) {
-        const v = valueRe ? rest.match(valueRe) : [rest];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
-      }
-      for (let j = i + 1; j < Math.min(i + 3, lines.length); j++) {
-        const nxt = lines[j].trim();
-        if (!nxt) continue;
-        const v = valueRe ? nxt.match(valueRe) : [nxt];
-        if (v) return (v[1] !== undefined ? v[1] : v[0]).trim();
+  out.product = cleanText(g.product);
+  const spec = cleanText(g.spec);
+  if (spec && out.product && out.product.indexOf(spec) === -1) {
+    out.product = (out.product + ' ' + spec).trim();
+  }
+
+  // 수량: "40 * 41 * 13 단= 21,320 본" 처럼 계산식이면 마지막 큰 수를 쓴다
+  let qtyRaw = g.qty || g.packSpec || '';
+  let qty = '';
+  const eq = qtyRaw.match(/[=:]\s*([0-9][0-9,]{2,})/);
+  if (eq) qty = eq[1];
+  if (!qty) {
+    const all = (qtyRaw.match(/[0-9][0-9,]{2,}/g) || []);
+    if (all.length) qty = all.sort((a, b) =>
+      Number(b.replace(/,/g, '')) - Number(a.replace(/,/g, '')))[0];
+  }
+  if (qty) {
+    const n = Number(fixDigits(qty).replace(/,/g, ''));
+    if (n > 0) out.qty = String(n);
+  }
+
+  // 생산일자 + 시간 (같은 칸에 섞여 들어오는 경우가 많음)
+  const dtText = [g.prodDate, g.time].filter(Boolean).join(' ');
+  if (dtText) {
+    out.prodDate = normalizeDate(dtText);
+    const tm = dtText.match(/([0-9]{1,2})\s*[:시]\s*([0-9]{1,2})/);
+    if (tm) {
+      const hh = Number(tm[1]), mi = Number(tm[2]);
+      if (hh >= 0 && hh <= 23 && mi >= 0 && mi <= 59) {
+        out.prodTime = ('0' + hh).slice(-2) + ':' + ('0' + mi).slice(-2);
       }
     }
-    return '';
   }
 
-  out.product = grab(/제\s*품\s*명|품\s*명/);
-  const spec = grab(/규\s*격/);
-  if (spec && out.product && out.product.indexOf(spec) === -1) out.product = (out.product + ' ' + spec).trim();
-
-  // 수량: "1PT 수량 9,072" / "40*41*13단 = 21,320본" / "900 x 12단 : 10,800본"
-  let qty = grab(/1\s*PT\s*수\s*량|수\s*량/, /([0-9][0-9,]{2,})\s*(?:본|EA|개)?\s*$/);
-  if (!qty) {
-    const eq = t.match(/[=:]\s*([0-9][0-9,]{2,})\s*(?:본|EA|개)/i);
-    if (eq) qty = eq[1];
+  // Lot / P-번호 : "1F / 224" 형태면 앞은 라인, 뒤가 Lot
+  if (g.lotNo) {
+    const pair = g.lotNo.match(/^([A-Za-z0-9]{1,4})\s*[\/]\s*([A-Za-z0-9\-]{1,10})/);
+    if (pair) { out.line = pair[1]; out.lotNo = pair[2]; }
+    else out.lotNo = firstMatch(g.lotNo, /([A-Za-z0-9\-]{2,})/);
   }
-  if (!qty) {
-    const pk = grab(/포\s*장\s*사\s*양/, /([0-9][0-9,]{2,})\s*(?:본|EA|개)/);
-    if (pk) qty = pk;
-  }
-  if (qty) out.qty = qty.replace(/,/g, '');
+  if (!out.line) out.line = cleanText(g.line);
 
-  out.prodDate = normalizeDate(
-    grab(/생\s*산\s*일\s*자?|제\s*조\s*일\s*자?/,
-      /([0-9]{2,4}\s*[-.\/년]\s*[0-9]{1,2}\s*[-.\/월]\s*[0-9]{1,2}|[0-9]{8})/)
-  );
-
-  // Lot: "1F / 224" 형태는 뒤 숫자, "P-번호 742", "P/L No. 4"
-  out.lotNo = grab(/라\s*인\s*[\/·]?\s*lot\s*no\.?/, /([A-Za-z0-9]+)\s*[\/]\s*([A-Za-z0-9\-]+)$/)
-    || grab(/lot\s*no\.?|로\s*트\s*번\s*호|제\s*조\s*번\s*호/, /([A-Za-z0-9\-]{2,})/)
-    || grab(/p\s*[-–]\s*번\s*호/, /([A-Za-z0-9\-]{2,})/)
-    || grab(/p\s*\/\s*l\s*no\.?/, /([A-Za-z0-9\-]+)/);
-  const lotPair = t.match(/라\s*인\s*[\/·]?\s*lot\s*no\.?\s*[:\-]?\s*([A-Za-z0-9]+)\s*[\/]\s*([A-Za-z0-9\-]+)/i);
-  if (lotPair) out.lotNo = lotPair[2];
-
-  out.maker = grab(/제\s*조\s*회\s*사|제\s*조\s*원|생\s*산\s*자/);
-  out.deliverTo = grab(/납\s*품\s*처/);
-
-  if (out.product) {
-    out.product = out.product
-      .replace(/\s*(규\s*격|수\s*량|생\s*산\s*일\s*자?|생\s*산\s*라\s*인|포\s*장|라\s*인).*$/i, '')
-      .replace(/[:\-]\s*$/, '').trim();
-  }
+  out.maker = cleanText(g.maker) || cleanText(g.producer);
+  out.deliverTo = cleanText(g.deliverTo);
   return out;
 }
 
@@ -987,7 +1112,8 @@ async function saveSingleRecord() {
     photo: lastPhotoDataUrl.wms || lastPhotoDataUrl.single, ocrRaw: lastOcrText.wms || lastOcrText.single,
     vendorPhoto: lastPhotoDataUrl.vendor, vendorOcrRaw: lastOcrText.vendor,
     vendorProduct: get('vProduct'), vendorQty: get('vQty'),
-    vendorProdDate: get('vProdDate'), vendorLotNo: get('vLotNo'),
+    vendorProdDate: get('vProdDate'), vendorProdTime: get('vProdTime'),
+    vendorLotNo: get('vLotNo'), vendorLine: get('vLine'),
     labelMatch: singleMatchOk === true ? '일치' : (singleMatchOk === false ? '불일치' : '미대조'),
     itemPhotos: itemPhotos.single
   };
@@ -1102,7 +1228,7 @@ function clearSingle() {
   stopLiveOcr('single');
   document.getElementById('btnPrintSingle').classList.add('hidden');
   lastSavedRecord.single = null;
-  ['vProduct', 'vQty', 'vProdDate', 'vLotNo'].forEach(id => document.getElementById(id).value = '');
+  ['vProduct', 'vQty', 'vProdDate', 'vProdTime', 'vLotNo', 'vLine'].forEach(id => document.getElementById(id).value = '');
   ['wmsPreview', 'vendorPreview'].forEach(id => document.getElementById(id).classList.add('hidden'));
   ['ocrBoxWms', 'ocrBoxVendor', 'ocrRawWms', 'ocrRawVendor'].forEach(id => document.getElementById(id).classList.add('hidden'));
   lastPhotoDataUrl.wms = ''; lastPhotoDataUrl.vendor = '';
@@ -1143,8 +1269,9 @@ function clearMulti() {
   setStatus('saveMultiStatus', '파레트 등록 후 저장하세요.', '');
 }
 
-/* ============ 생산 기록 (파레트 → 제품/제조번호 추적) ============ */
+/* ============ 생산 기록 (작업 세션 방식) ============ */
 
+let prodSession = null;          // { id, productName, lotNo }
 let prodSelectedPallets = [];
 let prodSearchResultsList = [];
 
@@ -1152,14 +1279,76 @@ function palletKey(p) {
   return (p.inboundNo || '') + '-' + (p.containerNo || '') + '-' + (p.code || '');
 }
 
+// 최근 제품명·제조번호를 버튼으로 띄워 타이핑을 줄인다
+async function loadRecentProducts() {
+  try {
+    const res = await apiGet('recentProducts');
+    if (!res.ok) return;
+    const box = document.getElementById('recentProducts');
+    box.innerHTML = (res.products || []).map((name, i) =>
+      `<button type="button" class="chip-btn" onclick="pickProduct(${i})">${esc(name)}</button>`).join('');
+    window.__recentProducts = res.products || [];
+
+    const lotBox = document.getElementById('lastLotChip');
+    lotBox.innerHTML = res.lastLot
+      ? `<button type="button" class="chip-btn" onclick="pickLot()">직전 제조번호: ${esc(res.lastLot)}</button>`
+      : '';
+    window.__lastLot = res.lastLot || '';
+  } catch (e) { /* 목록을 못 불러와도 직접 입력하면 됨 */ }
+}
+
+function pickProduct(i) {
+  const n = (window.__recentProducts || [])[i];
+  if (n) document.getElementById('prodProductName').value = n;
+}
+function pickLot() {
+  if (window.__lastLot) document.getElementById('prodLotNo').value = window.__lastLot;
+}
+
+async function startProductionSession() {
+  const get = id => document.getElementById(id).value.trim();
+  const productName = get('prodProductName');
+  const lotNo = get('prodLotNo');
+  if (!productName) { setStatus('prodSetupStatus', '제품명을 입력하세요.', 'bad'); return; }
+  if (!lotNo) { setStatus('prodSetupStatus', '제조번호를 입력하세요.', 'bad'); return; }
+  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
+    setStatus('prodSetupStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad'); return;
+  }
+
+  setStatus('prodSetupStatus', '작업을 시작하는 중...', 'warn');
+  try {
+    const res = await apiPost('startProduction', {
+      productName, lotNo, prodDate: get('prodDate'), prodQty: get('prodQty'),
+      note: get('prodNote'), registrant: get('prodRegistrant')
+    });
+    if (!res.ok) { setStatus('prodSetupStatus', '시작 실패: ' + res.message, 'bad'); return; }
+
+    prodSession = { id: res.id, productName, lotNo };
+    prodSelectedPallets = [];
+    rememberInspector(get('prodRegistrant'));
+
+    document.getElementById('prodSetupCard').classList.add('hidden');
+    document.getElementById('prodRunCard').classList.remove('hidden');
+    document.getElementById('runProduct').textContent = productName;
+    document.getElementById('runLot').textContent = lotNo;
+    renderProdSelected();
+    setStatus('prodSearchStatus', '파레트의 WMS 라벨 바코드를 찍으면 바로 등록됩니다.', '');
+    setStatus('saveProdStatus', '스캔할 때마다 자동으로 저장됩니다.', '');
+  } catch (e) {
+    setStatus('prodSetupStatus', '시작 실패: ' + e, 'bad');
+  }
+}
+
 function startProdScan() {
+  if (!prodSession) { setStatus('prodSearchStatus', '먼저 작업을 시작하세요.', 'bad'); return; }
   startScanner('prodpick');
 }
 
-// 스캔한 바코드로 검수 이력을 찾아 바로 투입 목록에 추가
+// 스캔 즉시 검수 이력을 찾아 등록 (확인 버튼 없음)
 async function onProdCode(text) {
   await stopScanner();
-  setStatus('prodSearchStatus', '검수 이력 확인 중...', 'warn');
+  if (!prodSession) return;
+  setStatus('prodSearchStatus', '확인 중... ' + text, 'warn');
   try {
     const res = await apiGet('searchPallets', { keyword: text });
     const hit = (res.items || [])[0];
@@ -1167,9 +1356,41 @@ async function onProdCode(text) {
       setStatus('prodSearchStatus', '검수 이력이 없는 파레트입니다: ' + text + ' (먼저 입고 검수를 진행하세요)', 'bad');
       return;
     }
-    addProdPallet(hit);
+    await addProdPallet(hit);
   } catch (e) {
     setStatus('prodSearchStatus', '조회 실패: ' + e, 'bad');
+  }
+}
+
+async function addProdPallet(it) {
+  if (!it || !prodSession) return;
+  if (prodSelectedPallets.some(x => palletKey(x) === palletKey(it))) {
+    setStatus('prodSearchStatus', '이미 등록된 파레트입니다: ' + it.inboundNo + '-' + it.containerNo, 'warn');
+    return;
+  }
+
+  prodSelectedPallets.push(it);
+  if (navigator.vibrate) navigator.vibrate(60);
+  renderProdSelected();
+  setStatus('prodSearchStatus',
+    '등록됨 · ' + it.inboundNo + '-' + it.containerNo + ' (' + (it.product || '') + ') · 다음 파레트를 스캔하세요.', 'ok');
+
+  // 서버에 바로 기록 (작업 중 앱이 꺼져도 남음)
+  try {
+    const res = await apiPost('addProductionPallet',
+      Object.assign({ productionId: prodSession.id }, it));
+    if (!res.ok && !res.duplicate) {
+      it.saveError = true;
+      renderProdSelected();
+      setStatus('saveProdStatus', '저장 실패: ' + res.message + ' (작업 종료 시 다시 시도합니다)', 'bad');
+    } else {
+      it.saved = true;
+      renderProdSelected();
+    }
+  } catch (e) {
+    it.saveError = true;
+    renderProdSelected();
+    setStatus('saveProdStatus', '저장 실패: ' + e + ' (작업 종료 시 다시 시도합니다)', 'bad');
   }
 }
 
@@ -1189,13 +1410,13 @@ async function searchPalletsForProd() {
       setStatus('prodSearchStatus', '검수한 파레트를 찾지 못했습니다.', 'bad');
       return;
     }
-    setStatus('prodSearchStatus', prodSearchResultsList.length + '개 파레트 검색됨 · 눌러서 추가하세요.', 'ok');
+    setStatus('prodSearchStatus', prodSearchResultsList.length + '개 검색됨 · 눌러서 추가하세요.', 'ok');
     addAll.classList.remove('hidden');
     box.innerHTML = prodSearchResultsList.map((it, i) => `
       <div class="result-item" onclick="addProdPallet(prodSearchResultsList[${i}])">
         <div>
           <div>${esc(it.inboundNo)}-${esc(it.containerNo)} · ${esc(it.product || '')}</div>
-          <div class="meta">${esc(String(it.qty || ''))}${esc(it.unit || '')} · ${esc(it.result || '')} · ${esc(it.source || '')}</div>
+          <div class="meta">${esc(String(it.qty || ''))}${esc(it.unit || '')} · ${esc(it.result || '')}</div>
         </div>
         <div>+</div>
       </div>
@@ -1205,32 +1426,18 @@ async function searchPalletsForProd() {
   }
 }
 
-function addAllSearchResults() {
-  let added = 0;
-  prodSearchResultsList.forEach(it => {
+async function addAllSearchResults() {
+  for (const it of prodSearchResultsList) {
     if (!prodSelectedPallets.some(x => palletKey(x) === palletKey(it))) {
-      prodSelectedPallets.push(it); added++;
+      await addProdPallet(it);
     }
-  });
-  renderProdSelected();
-  setStatus('prodSearchStatus', added + '개 추가됨 (중복 제외)', 'ok');
-}
-
-function addProdPallet(it) {
-  if (!it) return;
-  if (prodSelectedPallets.some(x => palletKey(x) === palletKey(it))) {
-    setStatus('prodSearchStatus', '이미 추가된 파레트입니다: ' + it.inboundNo + '-' + it.containerNo, 'warn');
-    return;
   }
-  prodSelectedPallets.push(it);
-  if (navigator.vibrate) navigator.vibrate(60);
-  renderProdSelected();
-  setStatus('prodSearchStatus', '추가됨 · ' + it.inboundNo + '-' + it.containerNo + ' (' + (it.product || '') + ')', 'ok');
 }
 
 function removeProdPallet(key) {
   prodSelectedPallets = prodSelectedPallets.filter(x => palletKey(x) !== key);
   renderProdSelected();
+  setStatus('saveProdStatus', '목록에서 제외했습니다. 이미 저장된 기록은 시트에서 수정해야 합니다.', 'warn');
 }
 
 function renderProdSelected() {
@@ -1238,75 +1445,82 @@ function renderProdSelected() {
     (s, p) => s + (Number(String(p.qty || '').replace(/,/g, '')) || 0), 0);
   document.getElementById('prodPalletCount').textContent = prodSelectedPallets.length;
   document.getElementById('prodPalletTotal').textContent = total.toLocaleString();
+  const rc = document.getElementById('runCount');
+  if (rc) rc.textContent = prodSelectedPallets.length;
 
   const box = document.getElementById('prodSelected');
   if (!prodSelectedPallets.length) {
-    box.innerHTML = '<div class="status">아직 선택한 파레트가 없습니다.</div>';
+    box.innerHTML = '<div class="status">아직 등록한 파레트가 없습니다.</div>';
     return;
   }
-  box.innerHTML = prodSelectedPallets.map(p => `
+  box.innerHTML = prodSelectedPallets.slice().reverse().map(p => `
     <div class="pallet-item">
       <div>
         <div>${esc(p.inboundNo)}-${esc(p.containerNo)} · ${esc(p.product || '')}</div>
-        <div class="code">${esc(String(p.qty || ''))}${esc(p.unit || '')} · ${esc(p.result || '')}</div>
+        <div class="code">${Number(String(p.qty || '').replace(/,/g, '') || 0).toLocaleString()}${esc(p.unit || '')} · ${esc(p.result || '')}</div>
       </div>
-      <button type="button" class="btn ghost" style="width:auto;padding:4px 10px;"
-        onclick="removeProdPallet('${palletKey(p)}')">삭제</button>
+      ${p.saveError ? '<div class="flag">저장 실패</div>'
+        : '<button type="button" class="btn ghost" style="width:auto;padding:4px 10px;" onclick="removeProdPallet(\'' + palletKey(p) + '\')">삭제</button>'}
     </div>
   `).join('');
 }
 
-async function saveProduction() {
+async function finishProductionSession() {
+  if (!prodSession) return;
+
+  // 저장 실패한 건이 있으면 다시 시도
+  const failed = prodSelectedPallets.filter(p => p.saveError);
+  if (failed.length) {
+    setStatus('saveProdStatus', '저장 실패한 ' + failed.length + '건을 다시 시도합니다...', 'warn');
+    for (const it of failed) {
+      try {
+        const r = await apiPost('addProductionPallet', Object.assign({ productionId: prodSession.id }, it));
+        if (r.ok || r.duplicate) { it.saveError = false; it.saved = true; }
+      } catch (e) { /* 아래에서 안내 */ }
+    }
+    renderProdSelected();
+  }
+
   const get = id => document.getElementById(id).value.trim();
-  if (!get('prodProductName')) {
-    setStatus('saveProdStatus', '제품명을 입력하세요.', 'bad'); return;
-  }
-  if (!get('prodLotNo')) {
-    setStatus('saveProdStatus', '제조번호를 입력하세요.', 'bad'); return;
-  }
-  if (!prodSelectedPallets.length) {
-    setStatus('saveProdStatus', '투입한 파레트를 최소 1개 선택하세요.', 'bad'); return;
-  }
-  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
-    setStatus('saveProdStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad'); return;
-  }
-
-  const payload = {
-    productName: get('prodProductName'), lotNo: get('prodLotNo'),
-    prodDate: get('prodDate'), prodQty: get('prodQty'),
-    note: get('prodNote'), registrant: get('prodRegistrant'),
-    pallets: prodSelectedPallets
-  };
-
-  setStatus('saveProdStatus', '저장 중...', 'warn');
   try {
-    const res = await apiPost('saveProduction', payload);
+    const res = await apiPost('finishProduction', {
+      productionId: prodSession.id,
+      note: get('prodNote'), prodQty: get('prodQty'), prodDate: get('prodDate')
+    });
+    const still = prodSelectedPallets.filter(p => p.saveError).length;
     if (res.ok) {
       setStatus('saveProdStatus',
-        '저장 완료 · 파레트 ' + res.palletCount + '개 (총 ' + Number(res.total).toLocaleString() + ') 투입 기록됨', 'ok');
-      rememberInspector(payload.registrant);
-    } else {
-      setStatus('saveProdStatus', '저장 실패: ' + res.message, 'bad');
+        '작업 종료 · ' + prodSession.productName + ' / ' + prodSession.lotNo +
+        ' · 파레트 ' + res.palletCount + '개 (' + Number(res.total || 0).toLocaleString() + '개)' +
+        (still ? ' · 저장 실패 ' + still + '건 남음' : ''), still ? 'bad' : 'ok');
     }
   } catch (e) {
-    setStatus('saveProdStatus', '저장 실패: ' + e, 'bad');
+    setStatus('saveProdStatus', '종료 처리 실패: ' + e, 'bad');
   }
+
+  prodSession = null;
+  document.getElementById('prodRunCard').classList.add('hidden');
+  document.getElementById('prodSetupCard').classList.remove('hidden');
+  document.getElementById('prodLotNo').value = '';
+  loadRecentProducts();
+  setStatus('prodSetupStatus', '다음 로트를 시작하려면 제조번호를 입력하세요.', '');
 }
 
 function clearProduction() {
   stopScanner();
+  prodSession = null;
   prodSelectedPallets = [];
   prodSearchResultsList = [];
   ['prodSearchKw', 'prodProductName', 'prodLotNo', 'prodDate', 'prodQty', 'prodNote']
-    .forEach(id => document.getElementById(id).value = '');
+    .forEach(id => { const el = document.getElementById(id); if (el) el.value = ''; });
   document.getElementById('prodRegistrant').value = getRememberedInspector();
   document.getElementById('prodSearchResults').innerHTML = '';
   document.getElementById('btnAddAll').classList.add('hidden');
+  document.getElementById('prodRunCard').classList.add('hidden');
+  document.getElementById('prodSetupCard').classList.remove('hidden');
   renderProdSelected();
-  setStatus('prodSearchStatus', '검수 완료된 파레트를 스캔하거나 검색해서 추가하세요.', '');
-  setStatus('saveProdStatus', '제품명·제조번호와 투입 파레트를 입력하면 저장할 수 있습니다.', '');
+  setStatus('prodSetupStatus', '제품명과 제조번호를 입력하고 시작하세요.', '');
 }
-
 
 /* ============ 현황 (대시보드) ============ */
 
