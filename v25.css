@@ -1,0 +1,79 @@
+/* V22.6 글자 크기 조절 버튼 — 화면 오른쪽 아래 고정 */
+
+.v25-size-host{
+  position:fixed;
+  right:14px;
+  bottom:calc(14px + env(safe-area-inset-bottom, 0px));
+  z-index:9500;
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+  /* 버튼 크기는 글자 배율의 영향을 받지 않게 px로 고정 */
+  font-size:14px;
+}
+
+.v25-size-btn{
+  width:52px;height:52px;
+  border-radius:50%;
+  border:1px solid var(--line, #DDD7C8);
+  background:var(--primary, #1F4B5F);
+  color:#fff;
+  box-shadow:0 4px 14px rgba(0,0,0,.18);
+  cursor:pointer;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  line-height:1;
+  padding:0;
+}
+.v25-size-btn:active{transform:scale(.96);}
+.v25-size-btn .v25-ga{font-size:19px;font-weight:700;}
+.v25-size-btn .v25-badge{font-size:8px;opacity:.8;margin-top:2px;}
+
+.v25-size-panel{
+  display:none;
+  background:#fff;
+  border:1px solid var(--line, #DDD7C8);
+  border-radius:12px;
+  padding:12px;
+  box-shadow:0 10px 32px rgba(0,0,0,.18);
+  min-width:210px;
+}
+.v25-size-panel.open{display:block;}
+
+.v25-size-title{
+  font-size:12px;
+  color:var(--muted, #6B6659);
+  margin-bottom:8px;
+}
+
+.v25-size-row{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:6px;
+}
+
+.v25-size-opt{
+  padding:11px 8px;
+  border:1px solid var(--line, #DDD7C8);
+  border-radius:8px;
+  background:#fff;
+  color:var(--ink, #1C1B19);
+  font-size:13px;
+  font-weight:600;
+  cursor:pointer;
+  white-space:nowrap;
+}
+.v25-size-opt:active{transform:scale(.97);}
+.v25-size-opt.active{
+  background:var(--primary, #1F4B5F);
+  border-color:var(--primary, #1F4B5F);
+  color:#fff;
+}
+
+/* 인쇄할 때는 보이지 않게 */
+@media print{
+  .v25-size-host{display:none !important;}
+}
