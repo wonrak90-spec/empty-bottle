@@ -1,5 +1,5 @@
-const CACHE = '공병입고-v30';
-const SHELL = ['./', './index.html', './app.js', './config.js', './manifest.json', './icon-192.png', './icon-512.png'];
+const CACHE = '공병입고-v31';
+const SHELL = ['./', './index.html', './app.js', './config.js', './manual-mode.js', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil((async () => {
