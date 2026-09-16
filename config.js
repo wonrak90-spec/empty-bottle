@@ -1,18 +1,16 @@
-// Apps Script 배포 후 나온 /exec 로 끝나는 URL을 아래에 붙여넣으세요.
-// 예: 'https://script.google.com/macros/s/AKfycbw.../exec'
-//
-// API_TOKEN은 backend/Code.gs의 API_TOKEN 값과 정확히 같아야 합니다.
-// (이미 backend/Code.gs에 무작위 문자열이 들어가 있으니, 그대로 복사해서 아래에 붙여넣으면 됩니다.
-//  더 안전하게 하려면 두 곳 모두 본인만 아는 새 문자열로 바꿔도 됩니다.)
+// Apps Script Web App 연결 설정
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbwTBf3oHI88yvATBX1usuoSY4iCx5Q2G8Rsmvchx1jsdTkq1yEM03QXMJxUSPJYdcstLA/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbyaSwlQcaxvJE8d3zI3hQoHGQz4KgXIGTDWYSIsuB7wQY1BoJq1Ahh2PbTkh-EWQTY0ew/exec',
   API_TOKEN: 'lkC4e4hdWJIu2MOAckRurQC94hyc1cB-'
 };
 
-// 기존 app.js를 건드리지 않고 코드 없는 일반 라벨/직접입력 동선을 보강한다.
-(function loadManualModeEnhancement() {
-  const s = document.createElement('script');
-  s.src = 'manual-mode.js?v=20260916';
-  s.async = true;
-  document.head.appendChild(s);
+// V22는 V21 핵심 코드를 보존하고 확장 파일을 뒤에서 로드합니다.
+(function loadV22(){
+  const link=document.createElement('link');
+  link.rel='stylesheet'; link.href='v22.css?v=20260916'; document.head.appendChild(link);
+  const boot=()=>{
+    if(document.getElementById('v22Loader')) return;
+    const s=document.createElement('script'); s.id='v22Loader'; s.src='v22.js?v=20260916'; s.async=false; document.body.appendChild(s);
+  };
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',boot,{once:true}); else boot();
 })();
