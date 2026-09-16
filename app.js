@@ -199,23 +199,64 @@ async function preprocessForOcr(dataUrl) {
 // 어떤 엔진으로 읽었는지도 함께 돌려준다 (문제 파악용)
 let lastOcrEngine = '';
 
+let lastOcrError = '';
+
 async function runOcr(dataUrl, progressId) {
-  // 서버(구글 Drive OCR)는 원본을 그대로 보내는 편이 정확하다
+  lastOcrError = '';
+
   if (CONFIG.API_URL && CONFIG.API_URL.indexOf('PUT_YOUR') !== 0) {
     try {
-      const res = await apiPost('ocr', { image: dataUrl });
-      if (res.ok && (res.text || '').trim()) {
-        lastOcrEngine = '구글 인식';
-        return res.text;
+      // 카메라 원본은 수 MB라 그대로 보내면 서버 요청이 실패한다.
+      // 글자가 뭉개지지 않는 선에서 줄여 보낸다.
+      const sizes = [[2200, 0.85], [1400, 0.8]];
+      for (let i = 0; i < sizes.length; i++) {
+        const sending = await shrinkForUpload(dataUrl, sizes[i][0], sizes[i][1]);
+        try {
+          const res = await apiPost('ocr', { image: sending });
+          if (res.ok && (res.text || '').trim()) {
+            lastOcrEngine = '구글 인식';
+            return res.text;
+          }
+          lastOcrError = res.message || '서버가 글자를 읽지 못함';
+        } catch (inner) {
+          lastOcrError = String(inner && inner.message ? inner.message : inner);
+        }
       }
-    } catch (e) { /* 서버 OCR 실패 → 아래 기기 인식으로 진행 */ }
+    } catch (e) {
+      lastOcrError = String(e && e.message ? e.message : e);
+    }
+  } else {
+    lastOcrError = 'API 주소 미설정';
   }
-  // 기기 인식(Tesseract)은 전처리를 거쳐야 그나마 읽는다
+
   lastOcrEngine = '기기 인식';
   const prepped = await preprocessForOcr(dataUrl);
   const worker = await getOcrWorker(progressId);
   const ret = await worker.recognize(prepped);
   return ret.data.text || '';
+}
+
+// 긴 변 기준으로 축소 (원본이 이미 작으면 그대로 둔다)
+function shrinkForUpload(dataUrl, maxSide, quality) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.onload = () => {
+      try {
+        const long = Math.max(img.width, img.height);
+        if (long <= maxSide) { resolve(dataUrl); return; }
+        const scale = maxSide / long;
+        const c = document.createElement('canvas');
+        c.width = Math.round(img.width * scale);
+        c.height = Math.round(img.height * scale);
+        const ctx = c.getContext('2d');
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', quality));
+      } catch (e) { resolve(dataUrl); }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
 }
 
 function applyOcrToMode(mode, parsed) {
@@ -251,9 +292,11 @@ function applyOcrToMode(mode, parsed) {
     }
   }
   const eng = lastOcrEngine ? ' [' + lastOcrEngine + ']' : '';
+  const why = (lastOcrEngine === '기기 인식' && lastOcrError)
+    ? ' · 서버 인식 실패: ' + lastOcrError : '';
   return filled > 0
-    ? '자동인식 완료 · ' + filled + '개 항목 채움' + eng + ' (내용 확인 후 수정하세요)'
-    : '글자는 읽었지만 항목을 찾지 못했습니다' + eng + '. 아래 "인식된 글자 보기"를 눌러 확인하고 직접 입력해주세요.';
+    ? '자동인식 완료 · ' + filled + '개 항목 채움' + eng + why + ' (내용 확인 후 수정하세요)'
+    : '글자는 읽었지만 항목을 찾지 못했습니다' + eng + why + '. 아래 "인식된 글자 보기"를 눌러 확인하고 직접 입력해주세요.';
 }
 
 function showOcrRaw(mode) {
@@ -270,8 +313,10 @@ async function labelPhotoSelected(event, mode) {
   if (!file) return;
 
   const dataUrl = await fileToDataUrl(file);
-  lastPhotoDataUrl[mode] = dataUrl;
-  if (mode === 'wms') lastPhotoDataUrl.single = dataUrl;
+  // 저장·전송 실패를 막기 위해 보관용 사진도 줄인다
+  const stored = await shrinkForUpload(dataUrl, 1600, 0.8);
+  lastPhotoDataUrl[mode] = stored;
+  if (mode === 'wms') lastPhotoDataUrl.single = stored;
 
   const ui = MODE_UI[mode];
   const preview = document.getElementById(ui.preview);
