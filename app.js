@@ -1,5 +1,7 @@
 /* ============ 공통 ============ */
 
+const APP_VERSION = 'V21';   // 화면 상단에 표시 — 어떤 코드가 도는지 바로 확인용
+
 function showTab(tab) {
   ['dash', 'single', 'multi', 'prod', 'view'].forEach(t => {
     document.getElementById(t).classList.toggle('active', t === tab);
@@ -333,6 +335,7 @@ async function labelPhotoSelected(event, mode) {
     const parsed = (mode === 'vendor') ? {} : parseLabelText(raw);
     const msg = applyOcrToMode(mode, parsed);
     setStatus(ui.status, msg, 'ok');
+    if (parsed && parsed.itemCode) loadItemInfo(parsed.itemCode);
   } catch (e) {
     setStatus(ui.status, '자동인식 실패: ' + e + ' (필드에 직접 입력해주세요)', 'bad');
   }
@@ -541,11 +544,55 @@ function normProductName(s) {
     .replace(/㎖/g, 'ml');
 }
 
+let currentItemInfo = null;   // 자재마스터에서 찾은 정식 자재 정보
+
+// 업체명 비교용 정규화 ((주)/주식회사/공백 차이 무시)
+function normCompany(s) {
+  return String(s || '')
+    .replace(/\(주\)|\（주\）|주식회사|㈜/g, '')
+    .replace(/[\s.\-()]/g, '')
+    .toLowerCase();
+}
+
+// 용량 추출 (100ML, 30ml, 75 mL)
+function volumeOf(s) {
+  const m = String(s || '').match(/([0-9]{1,4})\s*(?:ml|mL|ML|㎖)/);
+  return m ? m[1] : '';
+}
+
+// 자재코드로 정식 자재 정보를 불러온다
+async function loadItemInfo(code) {
+  const c = String(code || '').trim();
+  if (!c) { currentItemInfo = null; return; }
+  try {
+    const res = await apiGet('lookupItem', { code: c });
+    currentItemInfo = (res.ok && res.found) ? res.data : null;
+  } catch (e) { currentItemInfo = null; }
+  renderItemInfo();
+  compareLabels();
+}
+
+function renderItemInfo() {
+  const box = document.getElementById('itemInfoBox');
+  if (!box) return;
+  if (!currentItemInfo) { box.innerHTML = ''; return; }
+  const d = currentItemInfo;
+  box.innerHTML = '<div class="status ok">자재마스터: <b>' + esc(d.itemName) + '</b>' +
+    (d.suppliers.length ? ' · 허용 공급업체: ' + esc(d.suppliers.join(', ')) : '') + '</div>';
+}
+
+/* 두 라벨 대조
+   회사 자재명(판콜액 병)과 업체 품명(판콜에이병)은 체계가 달라 글자 비교가 무의미하다.
+   그래서 수량·공급업체·용량을 대조하고, 품명은 등록된 별칭으로만 확인한다. */
 function compareLabels() {
   const wmsProduct = document.getElementById('product').value.trim();
   const wmsQty = num(document.getElementById('displayQty').value);
+  const wmsSupplier = document.getElementById('supplier').value.trim();
   const vProduct = document.getElementById('vProduct').value.trim();
   const vQty = num(document.getElementById('vQty').value);
+
+  const aliasBtn = document.getElementById('btnAddAlias');
+  if (aliasBtn) aliasBtn.classList.add('hidden');
 
   if (!wmsProduct && !vProduct) {
     setStatus('matchResult', '두 라벨을 모두 입력하면 자동으로 대조합니다.', '');
@@ -559,17 +606,78 @@ function compareLabels() {
   }
 
   const issues = [];
-  const a = normProductName(wmsProduct), b = normProductName(vProduct);
-  const nameOk = a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0;
-  if (!nameOk) issues.push('품명 불일치 (WMS: ' + wmsProduct + ' / 업체: ' + vProduct + ')');
-  if (wmsQty && vQty && wmsQty !== vQty) issues.push('수량 불일치 (WMS: ' + wmsQty + ' / 업체: ' + vQty + ')');
+  const okMsgs = [];
+
+  // 1) 수량 — 가장 확실한 대조 기준
+  if (wmsQty && vQty) {
+    if (wmsQty === vQty) okMsgs.push('수량 일치(' + wmsQty.toLocaleString() + ')');
+    else issues.push('수량 다름 (WMS ' + wmsQty.toLocaleString() + ' / 업체 ' + vQty.toLocaleString() + ')');
+  }
+
+  // 2) 용량 (100mL 등) — 양쪽에서 읽히면 비교
+  const vol1 = volumeOf(wmsProduct) || (currentItemInfo && currentItemInfo.volume) || '';
+  const vol2 = volumeOf(vProduct);
+  if (vol1 && vol2) {
+    if (String(vol1) === String(vol2)) okMsgs.push('용량 일치(' + vol1 + 'mL)');
+    else issues.push('용량 다름 (' + vol1 + 'mL / ' + vol2 + 'mL)');
+  }
+
+  // 3) 공급업체가 이 자재의 허용 업체인지
+  if (currentItemInfo && currentItemInfo.suppliers.length && wmsSupplier) {
+    const ok = currentItemInfo.suppliers.some(x => {
+      const a = normCompany(x), b = normCompany(wmsSupplier);
+      return a === b || a.indexOf(b) >= 0 || b.indexOf(a) >= 0;
+    });
+    if (!ok) issues.push('공급업체가 이 자재의 등록 업체가 아님 (' + wmsSupplier + ')');
+  }
+
+  // 4) 품명 — 등록된 별칭이 있을 때만 확인 (글자 비교는 하지 않음)
+  let nameKnown = false;
+  if (currentItemInfo) {
+    const b = normProductName(vProduct);
+    nameKnown = (currentItemInfo.aliases || []).some(a => {
+      const x = normProductName(a);
+      return x && (x === b || b.indexOf(x) >= 0 || x.indexOf(b) >= 0);
+    });
+    if (nameKnown) okMsgs.push('업체 품명 확인됨');
+    else if (aliasBtn) aliasBtn.classList.remove('hidden');
+  }
 
   if (issues.length) {
-    setStatus('matchResult', '⚠ ' + issues.join(' · '), 'bad');
+    setStatus('matchResult', '⚠ ' + issues.join(' · ') + ' — 실물을 확인하세요 (저장은 가능)', 'bad');
     singleMatchOk = false;
-  } else {
-    setStatus('matchResult', '✓ 두 라벨 정보가 일치합니다.', 'ok');
+  } else if (okMsgs.length) {
+    setStatus('matchResult', '✓ ' + okMsgs.join(' · ') +
+      (nameKnown ? '' : ' · 업체 품명은 미등록(참고용)'), 'ok');
     singleMatchOk = true;
+  } else {
+    setStatus('matchResult', '대조할 수 있는 항목이 없습니다. 내용을 직접 확인하세요.', 'warn');
+    singleMatchOk = null;
+  }
+}
+
+// 업체 품명을 이 자재코드의 별칭으로 등록 → 다음부터 자동 확인
+async function registerAlias() {
+  const itemCode = document.getElementById('itemCode').value.trim();
+  const alias = document.getElementById('vProduct').value.trim();
+  if (!itemCode) { setStatus('matchResult', '품목코드가 있어야 별칭을 등록할 수 있습니다.', 'bad'); return; }
+  if (!alias) { setStatus('matchResult', '업체라벨 품명이 비어 있습니다.', 'bad'); return; }
+
+  setStatus('matchResult', '별칭 등록 중...', 'warn');
+  try {
+    const res = await apiPost('addItemAlias', {
+      itemCode: itemCode, alias: alias,
+      itemName: document.getElementById('product').value.trim(),
+      supplier: document.getElementById('supplier').value.trim()
+    });
+    if (res.ok) {
+      await loadItemInfo(itemCode);
+      setStatus('matchResult', '등록 완료 · "' + alias + '"는 이제 이 자재로 자동 확인됩니다.', 'ok');
+    } else {
+      setStatus('matchResult', '등록 실패: ' + res.message, 'bad');
+    }
+  } catch (e) {
+    setStatus('matchResult', '등록 실패: ' + e, 'bad');
   }
 }
 
@@ -1135,8 +1243,14 @@ function updateSingleQty() {
 async function saveSingleRecord() {
   compareLabels();
   if (singleMatchOk === false) {
-    setStatus('saveSingleStatus', '두 라벨 정보가 일치하지 않아 저장할 수 없습니다. 2단계의 대조 결과를 확인하고 수정하세요.', 'bad');
-    return;
+    const go = window.confirm(
+      '두 라벨 내용이 다릅니다.\n' +
+      document.getElementById('matchResult').textContent + '\n\n' +
+      '실물을 확인하셨다면 이대로 저장합니다. (기록에 "불일치"로 남습니다)');
+    if (!go) {
+      setStatus('saveSingleStatus', '저장을 취소했습니다. 내용을 확인 후 다시 저장하세요.', 'warn');
+      return;
+    }
   }
   const get = id => document.getElementById(id).value.trim();
   const disp = num(get('displayQty'));
@@ -2058,15 +2172,23 @@ function initInspector() {
     el.addEventListener('change', () => rememberInspector(el.value));
   });
   // 두 라벨 관련 필드를 수정하면 즉시 재대조
-  ['product', 'displayQty', 'vProduct', 'vQty'].forEach(id => {
+  ['product', 'displayQty', 'vProduct', 'vQty', 'supplier'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.addEventListener('input', compareLabels);
   });
+  const codeEl = document.getElementById('itemCode');
+  if (codeEl) codeEl.addEventListener('change', () => loadItemInfo(codeEl.value));
 }
 
 /* ============ PWA 설치 ============ */
 
-window.addEventListener('DOMContentLoaded', () => { initInspector(); renderLoop(); renderProdSelected(); });
+window.addEventListener('DOMContentLoaded', () => {
+  initInspector();
+  renderLoop();
+  renderProdSelected();
+  const sub = document.querySelector('header .sub');
+  if (sub) sub.textContent = sub.textContent + ' · ' + APP_VERSION;
+});
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {

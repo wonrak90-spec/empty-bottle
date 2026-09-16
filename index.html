@@ -301,6 +301,12 @@
       <div class="field"><label>생산라인</label><input id="vLine" placeholder="예: 1F, 당진 3F"></div>
     </div>
     <div id="matchResult" class="status">두 라벨을 모두 입력하면 자동으로 대조합니다.</div>
+    <div id="itemInfoBox"></div>
+    <button class="btn outline hidden" id="btnAddAlias" onclick="registerAlias()">이 업체 품명을 우리 자재로 등록</button>
+    <p style="font-size:0.75rem;color:var(--muted);margin:8px 0 0;">
+      업체 품명(예: 판콜에이병)과 우리 자재명(예: 판콜액 병)은 표기가 달라 수량·용량·공급업체로 대조합니다.
+      한 번 등록해두면 다음부터 품명도 자동으로 확인됩니다.
+    </p>
   </div>
 
   <div class="card">
