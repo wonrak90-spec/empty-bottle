@@ -8,3 +8,11 @@ const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbwTBf3oHI88yvATBX1usuoSY4iCx5Q2G8Rsmvchx1jsdTkq1yEM03QXMJxUSPJYdcstLA/exec',
   API_TOKEN: 'lkC4e4hdWJIu2MOAckRurQC94hyc1cB-'
 };
+
+// 기존 app.js를 건드리지 않고 코드 없는 일반 라벨/직접입력 동선을 보강한다.
+(function loadManualModeEnhancement() {
+  const s = document.createElement('script');
+  s.src = 'manual-mode.js?v=20260916';
+  s.async = true;
+  document.head.appendChild(s);
+})();
