@@ -60,7 +60,7 @@
     const card=document.createElement('div');
     card.className='card'; card.id='v22Quick';
     card.innerHTML=`<p class="step-title">빠른 작업</p><div class="v22-quick">
-      ${quickButton('📷 단건 입고','single')}${quickButton('▦ 다중 파레트','multi')}
+      ${quickButton('📷 단건 입고','single')}
       ${quickButton('🏭 생산 투입','prod')}${quickButton('🖨 조회·보고','view')}
     </div><div class="status">작업자는 필요한 업무만 선택하면 됩니다. 스캔·촬영 후 자동입력되고, 틀린 항목만 수정하세요.</div>`;
     dash.insertBefore(card,dash.firstChild);
@@ -103,7 +103,7 @@
   function structuredScore(mode,text){
     const p=parseForMode(mode,text||''); let n=0;
     if(mode==='vendor'){
-      if(p.product)n+=4;if(p.qty)n+=4;if(p.lotNo)n+=4;if(p.prodDate)n+=2;if(p.prodTime)n+=1;if(p.line)n+=2;
+      if(p.product)n+=4;if(p.qty)n+=4;if(p.lotNo)n+=3;if(p.palletNo)n+=5;if(p.prodDate)n+=2;if(p.prodTime)n+=1;if(p.line)n+=2;
     }else{
       if(p.inboundNo)n+=5;if(p.itemCode)n+=5;if(p.product)n+=3;if(p.displayQty)n+=4;if(p.supplier)n+=2;if(p.containerFrom)n+=4;if(p.inboundDate)n+=1;
     }
@@ -113,7 +113,7 @@
   function synthText(mode,p){
     if(mode==='vendor') return [
       p.product&&('제품명: '+p.product),p.qty&&('수량: '+p.qty),p.prodDate&&('생산일자: '+p.prodDate),
-      p.prodTime&&('시간: '+p.prodTime),p.lotNo&&('Lot No.: '+p.lotNo),p.line&&('생산라인: '+p.line),p.maker&&('제조원: '+p.maker)
+      p.prodTime&&('시간: '+p.prodTime),p.lotNo&&('Lot No.: '+p.lotNo),p.palletNo&&('Pallet No.: '+p.palletNo),p.line&&('생산라인: '+p.line),p.maker&&('제조원: '+p.maker)
     ].filter(Boolean).join('\n');
     return [
       p.inboundNo&&('입고번호: '+p.inboundNo),p.itemCode&&('품목코드: '+p.itemCode),p.product&&('품명: '+p.product),
@@ -213,7 +213,7 @@
       lastOcrText.vendor=raw; lastPhotoDataUrl.vendor=dataUrl;
       if(parsed.product)$('vProduct').value=parsed.product;if(parsed.qty)$('vQty').value=parsed.qty;
       if(parsed.prodDate)$('vProdDate').value=parsed.prodDate;if(parsed.prodTime)$('vProdTime').value=parsed.prodTime;
-      if(parsed.lotNo)$('vLotNo').value=parsed.lotNo;if(parsed.line)$('vLine').value=parsed.line;compareLabels();
+      if(parsed.lotNo)$('vLotNo').value=parsed.lotNo;if(parsed.palletNo&&$('vPalletNo'))$('vPalletNo').value=parsed.palletNo;if(parsed.line)$('vLine').value=parsed.line;compareLabels();
     }else{
       const key=mode==='wms'?'wms':'multi';lastOcrText[key]=raw;lastPhotoDataUrl[key]=dataUrl;if(mode==='wms'){lastOcrText.single=raw;lastPhotoDataUrl.single=dataUrl;}
       applyOcrToMode(mode,parsed);if(parsed.itemCode&&typeof loadItemInfo==='function')loadItemInfo(parsed.itemCode);
@@ -226,7 +226,7 @@
   // 사진 촬영/갤러리 OCR도 동일한 다중전처리 파이프라인을 사용한다.
   window.labelPhotoSelected=async function(event,mode){
     const file=event.target.files&&event.target.files[0];if(!file)return;event.target.value='';
-    const dataUrl=await fileToDataUrl(file),stored=await shrinkForUpload(dataUrl,1800,.84);
+    const dataUrl=await fileToDataUrl(file),stored=await shrinkForUpload(dataUrl,1400,.72);
     const preview=mode==='vendor'?$('vendorPreview'):(mode==='wms'?$('wmsPreview'):$('multiPreview'));if(preview){preview.src=dataUrl;preview.classList.remove('hidden');}
     const sid=mode==='vendor'?'vendorStatus':(mode==='wms'?'wmsStatus':'multiBaseStatus');setStatus(sid,'라벨 정밀 인식 중 · 대비/이진화 결과를 비교합니다...','warn');
     try{
@@ -313,7 +313,7 @@
     setStatus(sid,'촬영 화면 정밀 인식 중...','warn');
     try{
       const r=await enhancedOcr(data,mode,modeProgress(mode),false);lastOcrEngine=r.engine;
-      const stored=await shrinkForUpload(data,1800,.84);
+      const stored=await shrinkForUpload(data,1400,.72);
       applyStructured(mode,r.parsed,r.raw,stored,'촬영 확정 ('+r.engine+')');
       if(r.fieldCount<2)setStatus(sid,'인식 항목이 적습니다. 라벨을 정면/가까이 맞춘 뒤 다시 촬영하세요.','warn');
     }catch(err){setStatus(sid,'인식 실패: '+err,'bad');}
@@ -341,7 +341,7 @@
     const files=Array.from(event.target.files||[]);
     for(const file of files){
       const raw=await fileToDataUrl(file);
-      const small=await shrinkForUpload(raw,1400,.78);
+      const small=await shrinkForUpload(raw,1200,.70);
       itemPhotos[mode].push(small);
     }
     event.target.value='';renderItemPhotos(mode);
@@ -480,8 +480,12 @@
     $('view').insertBefore(card,$('view').children[1]||null);
 
     const detail=$('viewDetailCard');if(detail && !$('btnPrintPhotoCurrent')){
-      const b=document.createElement('button');b.id='btnPrintPhotoCurrent';b.className='btn outline';b.textContent='📷 사진 포함 A4 출력';b.onclick=()=>V22.printCurrentWithPhotos();
-      detail.appendChild(b);
+      const b=document.createElement('button');b.id='btnPrintPhotoCurrent';b.className='btn outline';b.textContent='📷 사진 포함 A4 출력';b.onclick=()=>V22.printCurrentWithPhotos();detail.appendChild(b);
+      const edit=document.createElement('button');edit.id='btnEditCurrent';edit.className='btn outline';edit.textContent='✏️ 기록 수정';edit.onclick=()=>V22.openEditCurrent();detail.appendChild(edit);
+      const del=document.createElement('button');del.id='btnDeleteCurrent';del.className='btn danger';del.textContent='🗑 기록 삭제';del.onclick=()=>V22.deleteCurrent();detail.appendChild(del);
+    }
+    if(!$('v22EditCard')){
+      const ec=document.createElement('div');ec.id='v22EditCard';ec.className='card hidden';ec.innerHTML=`<p class="step-title">기록 수정 <span style="font-weight:400;color:var(--muted);font-size:.75rem">변경 전/후 내용은 Audit에 남습니다.</span></p><div id="v22EditFields"></div><div class="field"><label>수정자 *</label><input id="v22EditActor"></div><div class="field"><label>수정 사유 *</label><textarea id="v22EditReason" placeholder="OCR 오인식 정정 등"></textarea></div><div class="v22-action-row"><button class="btn primary" onclick="V22.saveEditCurrent()">수정 저장</button><button class="btn ghost" onclick="$('v22EditCard').classList.add('hidden')">취소</button></div><div id="v22EditStatus" class="status"></div>`;$('view').appendChild(ec);
     }
   }
 
@@ -502,6 +506,27 @@
       setStatus('viewSearchStatus',viewSearchResultsList.length+'건 검색됨 · 여러 건을 체크해서 한 번에 출력할 수 있습니다.','ok');
       box.innerHTML=viewSearchResultsList.map((it,i)=>`<div class="v22-result"><input class="v22-record-check" type="checkbox" value="${e(it.id)}" onchange="V22.toggleResult(this.value,this.checked)"><div class="main" onclick="openRecordDetail(${i})"><div><b>${e(it.product)}</b> · ${e(String(it.qty))}${e(it.unit||'')}</div><div class="meta">입고번호 ${e(it.inboundNo)} · ${e(it.mode)} · ${e(it.regDate)}</div></div><button class="go" onclick="openRecordDetail(${i})">›</button></div>`).join('');
     }catch(err){setStatus('viewSearchStatus','검색 실패: '+err,'bad');}
+  };
+
+
+  const EDIT_FIELDS=[['inboundNo','입고번호'],['inboundDate','입고일자'],['product','품명'],['itemCode','품목코드'],['manufacturer','제조원'],['supplier','공급업체'],['displayQty','표시수량'],['unit','단위'],['expiryDate','사용기한'],['containerFrom','WMS 파레트/용기번호 시작'],['containerTo','WMS 파레트/용기번호 종료'],['actualQty','실제 확인수량'],['finalResult','최종결과'],['vendorProduct','업체라벨 품명'],['vendorQty','업체라벨 수량'],['vendorProdDate','업체 생산일자'],['vendorProdTime','업체 생산시간'],['vendorLotNo','업체 Lot No.'],['vendorPalletNo','업체 파레트 No.'],['vendorLine','생산라인'],['note','특이사항'],['inspector','검수자']];
+  V22.openEditCurrent=function(){
+    const r=currentViewRecord&&currentViewRecord.record;if(!r)return;
+    if(String(r.mode||'').indexOf('다중')===0){alert('다중 파레트는 현재 운영 보류 상태라 수정 기능도 보류합니다.');return;}
+    const box=$('v22EditFields');box.innerHTML=EDIT_FIELDS.map(([k,l])=>`<div class="field"><label>${e(l)}</label>${k==='note'?`<textarea data-edit="${k}">${e(r[k]||'')}</textarea>`:`<input data-edit="${k}" value="${e(r[k]||'')}">`}</div>`).join('');
+    $('v22EditActor').value=r.inspector||getRememberedInspector()||'';$('v22EditReason').value='';$('v22EditCard').classList.remove('hidden');$('v22EditCard').scrollIntoView({behavior:'smooth',block:'start'});
+  };
+  V22.saveEditCurrent=async function(){
+    const r=currentViewRecord&&currentViewRecord.record;if(!r)return;const actor=$('v22EditActor').value.trim(),reason=$('v22EditReason').value.trim();if(!actor||!reason){setStatus('v22EditStatus','수정자와 수정 사유를 입력하세요.','bad');return;}
+    const changes={};document.querySelectorAll('#v22EditFields [data-edit]').forEach(el=>changes[el.dataset.edit]=el.value.trim());
+    setStatus('v22EditStatus','수정 저장 중...','warn');try{const res=await apiPost('updateRecord',{id:r.id,actor,reason,changes});if(!res.ok){setStatus('v22EditStatus','수정 실패: '+res.message,'bad');return;}setStatus('v22EditStatus','수정 완료 · Audit 이력 저장됨','ok');const fresh=await apiGet('getRecord',{id:r.id});if(fresh.ok){currentViewRecord=fresh;Object.assign(r,fresh.record);}setTimeout(()=>{$('v22EditCard').classList.add('hidden');searchViewRecords();},500);}catch(err){setStatus('v22EditStatus','수정 실패: '+err,'bad');}
+  };
+  V22.deleteCurrent=async function(){
+    const r=currentViewRecord&&currentViewRecord.record;if(!r)return;if(String(r.mode||'').indexOf('다중')===0){alert('다중 파레트 기록은 현재 운영 보류 중이라 삭제도 잠금 상태입니다.');return;}
+    if(!confirm('기록을 삭제하면 DB 기록과 연결된 Google Drive 사진도 삭제됩니다.\nAudit 이력은 남습니다.\n\n계속할까요?'))return;
+    const actor=prompt('삭제자 이름을 입력하세요.',r.inspector||getRememberedInspector()||'');if(actor===null)return;const reason=prompt('삭제 사유를 입력하세요. (필수)','오등록');if(reason===null)return;if(!actor.trim()||!reason.trim()){alert('삭제자와 삭제 사유는 필수입니다.');return;}
+    const check=prompt('최종 확인을 위해 DELETE 를 입력하세요.','');if(check!=='DELETE')return;
+    showBusy('기록 및 사진 삭제 중...');try{const res=await apiPost('deleteRecord',{id:r.id,actor:actor.trim(),reason:reason.trim()});if(!res.ok){alert('삭제 실패: '+res.message);return;}V22.selectedIds.delete(String(r.id));currentViewRecord=null;$('viewDetailCard').classList.add('hidden');$('v22EditCard').classList.add('hidden');setStatus('viewSearchStatus','삭제 완료 · 사진 '+Number(res.deletedPhotos||0)+'개 삭제 · Audit 기록 완료','ok');await searchViewRecords();}catch(err){alert('삭제 실패: '+err);}finally{hideBusy();}
   };
 
   function selectedIds(){
@@ -543,7 +568,7 @@
   function recordPage(item,withPhotos){
     const r=item.record,p=item.pallets||[];
     const tr=(a,b)=>`<tr><th>${e(a)}</th><td>${e(b==null?'':b)}</td></tr>`;
-    const singleWms=[r.containerFrom,r.containerTo].filter(Boolean).join(' ~ '), singleVendor=r.vendorLotNo||'';
+    const singleWms=[r.containerFrom,r.containerTo].filter(Boolean).join(' ~ '), singleVendor=r.vendorPalletNo||r.vendorLotNo||'';
     const photos=[];
     if(withPhotos){
       if(r.labelPhotoUrl)photos.push(photoHtml(String(r.labelPhotoUrl).split(',')[0],'WMS 라벨'+(singleWms?' · P.No '+singleWms:'')));
@@ -663,9 +688,10 @@
     // 기존 V21 실시간 OCR 코드에 화면이 없던 부분을 실제 UI로 연결
     insertLiveUi('wms','readerWrapSingle','WMS 라벨');
     insertLiveUi('vendor','vendorPreview','업체 라벨');
-    insertLiveUi('multi','readerWrapMulti','기준 라벨');
-    const sub=document.querySelector('header .sub');if(sub)sub.textContent='스캔 · 실시간 OCR · 촬영 · 입고/생산 추적';
-    const labels={tabDash:'홈/현황',tabSingle:'단건',tabMulti:'다중',tabProd:'생산',tabView:'조회/보고'};Object.keys(labels).forEach(id=>{if($(id))$(id).textContent=labels[id];});
+    // 다중 파레트는 V22.2에서 운영 보류: 기존 코드는 유지하되 화면에서는 숨김
+    if($('tabMulti'))$('tabMulti').style.display='none';if($('multi'))$('multi').style.display='none';
+    const sub=document.querySelector('header .sub');if(sub)sub.textContent='단건 중심 · OCR · 수정/삭제 Audit · 입고/생산 추적';
+    const labels={tabDash:'홈/현황',tabSingle:'단건',tabMulti:'다중(보류)',tabProd:'생산',tabView:'조회/보고'};Object.keys(labels).forEach(id=>{if($(id))$(id).textContent=labels[id];});
     try{showTab('dash');}catch(_){}
     // OCR worker 사전 로딩: 첫 촬영 때 대기시간 감소
     setTimeout(()=>{try{getOcrWorker('ocrProgressWms');}catch(_){ }},800);

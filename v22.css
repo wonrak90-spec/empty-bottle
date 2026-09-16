@@ -41,3 +41,5 @@
   .v22-live-actions .btn:first-child{grid-column:1/-1}
 }
 @media(min-width:900px){main{max-width:920px}.v22-quick{grid-template-columns:repeat(4,1fr)}}
+
+.btn.danger{background:#fff;border:1px solid #b42318;color:#b42318}.btn.danger:hover{background:#fff1f0}

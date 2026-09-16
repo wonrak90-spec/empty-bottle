@@ -366,7 +366,8 @@ const VENDOR_LABELS = [
   { key: 'spec',      pat: '규\\s*격' },
   { key: 'prodDate',  pat: '생\\s*산\\s*일\\s*자|제\\s*조\\s*일\\s*자|생\\s*산\\s*일|제\\s*조\\s*일' },
   { key: 'time',      pat: '시\\s*간' },
-  { key: 'lotNo',     pat: '라\\s*인\\s*[/·]\\s*L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*[-–]\\s*번\\s*호|L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*/\\s*L\\s*N\\s*o\\.?|로\\s*트\\s*번\\s*호|제\\s*조\\s*번\\s*호' },
+  { key: 'palletNo',  pat: 'P\\s*[/.-]?\\s*(?:N\\s*O\\.?|번\\s*호)|P\\s*A\\s*L\\s*L\\s*E\\s*T\\s*(?:N\\s*O\\.?|번\\s*호)?|파\\s*레\\s*트\\s*(?:N\\s*O\\.?|번\\s*호)?|팔\\s*레\\s*트\\s*(?:N\\s*O\\.?|번\\s*호)?' },
+  { key: 'lotNo',     pat: '라\\s*인\\s*[/·]\\s*L\\s*o\\s*t\\s*N\\s*o\\.?|L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*/\\s*L\\s*N\\s*o\\.?|로\\s*트\\s*번\\s*호|제\\s*조\\s*번\\s*호' },
   { key: 'line',      pat: '생\\s*산\\s*라\\s*인|라\\s*인' },
   { key: 'maker',     pat: '제\\s*조\\s*회\\s*사|제\\s*조\\s*원' },
   { key: 'producer',  pat: '생\\s*산\\s*자|생\\s*산\\s*Q\\s*/?\\s*C' },
@@ -529,6 +530,7 @@ function parseVendorLabel(raw) {
     else out.lotNo = firstMatch(g.lotNo, /([A-Za-z0-9\-]{2,})/);
   }
   if (!out.line) out.line = cleanText(g.line);
+  if (g.palletNo) out.palletNo = firstMatch(g.palletNo, /([A-Za-z0-9][A-Za-z0-9_.\/-]{0,20})/);
 
   out.maker = cleanText(g.maker) || cleanText(g.producer);
   out.deliverTo = cleanText(g.deliverTo);
@@ -1016,7 +1018,7 @@ async function loopVendorSelected(event) {
     if (!target || target.vendorPhoto !== small) return;
     const v = parseVendorLabel(text);
     target.vendorProduct = v.product || '';
-    target.vendorPalletNo = v.lotNo || '';
+    target.vendorPalletNo = v.palletNo || v.lotNo || '';
     target.vendorOcr = text;
     const base = document.getElementById('mProduct').value.trim();
     if (base && v.product) {
@@ -1109,7 +1111,7 @@ async function pendingVendorSelected(event) {
   runOcr(small, 'loopOcrDummy').then(text => {
     const v = parseVendorLabel(text);
     target.vendorProduct = v.product || '';
-    target.vendorPalletNo = v.lotNo || '';
+    target.vendorPalletNo = v.palletNo || v.lotNo || '';
     target.vendorOcr = text;
     const base = document.getElementById('mProduct').value.trim();
     if (base && v.product) {
@@ -1274,7 +1276,7 @@ async function saveSingleRecord() {
     vendorPhoto: lastPhotoDataUrl.vendor, vendorOcrRaw: lastOcrText.vendor,
     vendorProduct: get('vProduct'), vendorQty: get('vQty'),
     vendorProdDate: get('vProdDate'), vendorProdTime: get('vProdTime'),
-    vendorLotNo: get('vLotNo'), vendorLine: get('vLine'),
+    vendorLotNo: get('vLotNo'), vendorPalletNo: get('vPalletNo'), vendorLine: get('vLine'),
     labelMatch: singleMatchOk === true ? '일치' : (singleMatchOk === false ? '불일치' : '미대조'),
     itemPhotos: itemPhotos.single
   };
@@ -1298,12 +1300,13 @@ async function saveSingleRecord() {
           infoMatch: payload.infoMatch, mixed: payload.mixed, actualQty: payload.actualQty,
           finalResult: payload.finalResult, note: payload.note, inspector: payload.inspector,
           labelMatch: payload.labelMatch, vendorProduct: payload.vendorProduct,
-          vendorQty: payload.vendorQty, vendorLotNo: payload.vendorLotNo
+          vendorQty: payload.vendorQty, vendorLotNo: payload.vendorLotNo, vendorPalletNo: payload.vendorPalletNo
         },
         pallets: []
       };
       document.getElementById('btnPrintSingle').classList.remove('hidden');
       rememberInspector(payload.inspector);
+      prepareNextSingleAfterSave(res.id);
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
     }
@@ -1389,7 +1392,7 @@ function clearSingle() {
   stopLiveOcr('single');
   document.getElementById('btnPrintSingle').classList.add('hidden');
   lastSavedRecord.single = null;
-  ['vProduct', 'vQty', 'vProdDate', 'vProdTime', 'vLotNo', 'vLine'].forEach(id => document.getElementById(id).value = '');
+  ['vProduct', 'vQty', 'vProdDate', 'vProdTime', 'vLotNo', 'vPalletNo', 'vLine'].forEach(id => document.getElementById(id).value = '');
   ['wmsPreview', 'vendorPreview'].forEach(id => document.getElementById(id).classList.add('hidden'));
   ['ocrBoxWms', 'ocrBoxVendor', 'ocrRawWms', 'ocrRawVendor'].forEach(id => document.getElementById(id).classList.add('hidden'));
   lastPhotoDataUrl.wms = ''; lastPhotoDataUrl.vendor = '';
@@ -1408,6 +1411,31 @@ function clearSingle() {
   document.getElementById('inspector').value = getRememberedInspector();
   setStatus('qtyStatus', '수량을 입력하면 일치 여부를 계산합니다.', '');
   setStatus('saveSingleStatus', '저장 전 자동입력 내용을 확인하세요.', '');
+}
+
+
+// 저장 성공 후 다음 단건을 즉시 입력할 수 있게 준비한다.
+// 검수자와 방금 저장한 출력 대상은 유지한다.
+function prepareNextSingleAfterSave(savedId) {
+  const inspector = getRememberedInspector() || (document.getElementById('inspector') ? document.getElementById('inspector').value.trim() : '');
+  try { stopLiveOcr('single'); } catch (_) {}
+  try { if (window.V22 && V22.stopLive) { V22.stopLive('wms', false); V22.stopLive('vendor', false); } } catch (_) {}
+  ['vProduct','vQty','vProdDate','vProdTime','vLotNo','vPalletNo','vLine','inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty','expiryDate','containerFrom','containerTo','codeRaw','actualQty','note']
+    .forEach(id => { const el=document.getElementById(id); if(el) el.value=''; });
+  const unit=document.getElementById('unit'); if(unit) unit.value='EA';
+  ['matchYes','matchNo','mixYes','mixNo'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('sel-ok','sel-bad');});
+  ['wmsPreview','vendorPreview'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.add('hidden');});
+  ['ocrBoxWms','ocrBoxVendor','ocrRawWms','ocrRawVendor'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.add('hidden');});
+  lastPhotoDataUrl.wms=''; lastPhotoDataUrl.vendor=''; lastPhotoDataUrl.single='';
+  lastOcrText.wms=''; lastOcrText.vendor=''; lastOcrText.single='';
+  itemPhotos.single=[]; renderItemPhotos('single'); singleMatchOk=null; currentItemInfo=null; try{renderItemInfo();}catch(_){}
+  const ins=document.getElementById('inspector'); if(ins) ins.value=inspector;
+  setStatus('wmsStatus','다음 입고 건을 스캔하거나 WMS 라벨을 촬영하세요.','');
+  setStatus('vendorStatus','업체 라벨을 촬영하면 자동으로 대조합니다.','');
+  setStatus('matchResult','두 라벨을 모두 입력하면 자동으로 대조합니다.','');
+  setStatus('qtyStatus','수량을 입력하면 일치 여부를 계산합니다.','');
+  setStatus('saveSingleStatus','저장 완료'+(savedId?' (ID: '+savedId+')':'')+' · 다음 건을 바로 입력할 수 있습니다. · 검수자는 유지됩니다.','ok');
+  const p=document.getElementById('btnPrintSingle'); if(p) p.classList.remove('hidden');
 }
 
 function clearMulti() {
