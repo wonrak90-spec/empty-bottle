@@ -1,4 +1,4 @@
-// Apps Script Web App 연결 설정 — V26 Web Improvement
+// Apps Script Web App 연결 설정 — V26 Korean Local OCR
 // 개인별 사번 + PIN → 서버 Session 인증. 정적 API 토큰은 사용하지 않습니다.
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbw6cRBWwrtwBiTlY6SShBRs5tFPaGwYio2xn7d3ebrBX2Eru4bNogFTiL8MM2IJ1SmUaw/exec',
@@ -31,6 +31,14 @@ const CONFIG = {
             sq.id='v26QtyLoader';
             sq.src='v26-qty.js?v=20260918a';
             sq.async=false;
+            sq.onload=()=>{
+              if(document.getElementById('v26KoreanOcrLoader'))return;
+              const sk=document.createElement('script');
+              sk.id='v26KoreanOcrLoader';
+              sk.src='v26-korean-ocr.js?v=20260918a';
+              sk.async=false;
+              document.body.appendChild(sk);
+            };
             document.body.appendChild(sq);
           };
           document.body.appendChild(s26);
