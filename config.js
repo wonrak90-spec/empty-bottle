@@ -1,7 +1,7 @@
 // Apps Script Web App 연결 설정 — V22.4
 // 개인별 사번 + PIN → 서버 Session 인증. 정적 API 토큰은 사용하지 않습니다.
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbzN1SH_mzK7_U1ylz4Ion9EBFtjs5rlOt_MpfGbJE4Sw5orNUQ6Vtqi4FdHSYjG4GPUuw/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwaq4JxAp_JCHam-SERSdyif5PEF092zCaOVQWoVsPLrL7vmAY1mhf6h0QNWwQzZaGSKA/exec',
   API_TOKEN: ''
 };
 
