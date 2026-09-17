@@ -41,7 +41,7 @@ const CONFIG = {
                 if(document.getElementById('v26WmsCardScanLoader'))return;
                 const sc=document.createElement('script');
                 sc.id='v26WmsCardScanLoader';
-                sc.src='v26-wms-cardscan.js?v=20260918b';
+                sc.src='v26-wms-cardscan.js?v=20260918c';
                 sc.async=false;
                 document.body.appendChild(sc);
               };
