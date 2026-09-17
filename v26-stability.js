@@ -48,30 +48,33 @@
     window.showTab=fn;
   }
 
-  function patchCurrentPhotoPrint(){
+  async function printCurrent(withPhotos){
     if(!window.V22||typeof V22.printSelected!=='function')return;
-    V22.printCurrentWithPhotos=async function(){
-      if(!window.currentViewRecord&&!currentViewRecord)return;
-      const rec=(window.currentViewRecord||currentViewRecord);
-      if(!rec||!rec.record)return;
-      const saved=new Set(V22.selectedIds);
-      try{
-        V22.selectedIds.clear();
-        V22.selectedIds.add(String(rec.record.id));
-        await V22.printSelected(true);
-      }finally{
-        V22.selectedIds.clear();
-        saved.forEach(id=>V22.selectedIds.add(id));
-        const el=document.getElementById('v23SelectedCount');
-        if(el)el.textContent='선택 '+V22.selectedIds.size+'건';
-        document.querySelectorAll('.v22-record-check').forEach(ch=>ch.checked=V22.selectedIds.has(String(ch.value)));
-      }
-    };
+    const rec=(typeof currentViewRecord!=='undefined'&&currentViewRecord)?currentViewRecord:null;
+    if(!rec||!rec.record)return;
+    const saved=new Set(V22.selectedIds);
+    try{
+      V22.selectedIds.clear();
+      V22.selectedIds.add(String(rec.record.id));
+      await V22.printSelected(!!withPhotos);
+    }finally{
+      V22.selectedIds.clear();
+      saved.forEach(id=>V22.selectedIds.add(id));
+      const el=document.getElementById('v23SelectedCount');
+      if(el)el.textContent='선택 '+V22.selectedIds.size+'건';
+      document.querySelectorAll('.v22-record-check').forEach(ch=>ch.checked=V22.selectedIds.has(String(ch.value)));
+    }
+  }
+
+  function patchCurrentPrint(){
+    if(!window.V22||typeof V22.printSelected!=='function')return;
+    V22.printCurrentWithPhotos=function(){return printCurrent(true);};
+    window.printCurrentViewRecord=function(){return printCurrent(false);};
   }
 
   function init(){
-    patchTab();patchCurrentPhotoPrint();
-    setTimeout(()=>{patchTab();patchCurrentPhotoPrint();},800);
+    patchTab();patchCurrentPrint();
+    setTimeout(()=>{patchTab();patchCurrentPrint();},800);
     document.addEventListener('visibilitychange',()=>{if(document.hidden)S.stopAllCameras();});
     window.addEventListener('pagehide',S.stopAllCameras);
     window.addEventListener('beforeunload',S.stopAllCameras);
