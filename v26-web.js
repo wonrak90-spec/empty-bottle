@@ -3,6 +3,7 @@
  * - Google Drive OCR 단일 엔진
  * - WMS 단건 바코드 스캔 제거
  * - 사진 OCR + 웹 연속 OCR 모두 Google OCR만 사용
+ * - 단건 화면 현장 작업 중심으로 단순화
  * - 기존 로그인/DB/조회/보고서/생산 로직은 유지
  */
 (function(){
@@ -13,7 +14,7 @@
 
   const $ = id => document.getElementById(id);
   const V26W = window.V26W = {
-    VERSION:'V26-WEB-1',
+    VERSION:'V26-WEB-2',
     live:{},
     busy:false,
     lastLatency:0,
@@ -54,8 +55,6 @@
     V26W.lastError='';
     const started=Date.now();
     try{
-      // Google OCR은 원본 특성을 잘 살리는 편이므로 대비/이진화는 하지 않는다.
-      // 실시간은 전송량을 줄이고, 촬영 확정은 글자 보존을 위해 조금 더 크게 보낸다.
       const maxSide=liveFast?1500:2200;
       const quality=liveFast?0.80:0.88;
       const sending=await shrinkForUpload(dataUrl,maxSide,quality);
@@ -119,7 +118,6 @@
     return {parsed,count:n};
   }
 
-  // 촬영/갤러리 OCR: Google OCR만 사용.
   window.labelPhotoSelected=async function(event,mode){
     const file=event.target.files&&event.target.files[0];
     if(!file)return;
@@ -138,13 +136,11 @@
     }
   };
 
-  // 기존 코드가 호출하는 runOcr도 Google OCR만 사용.
   window.runOcr=async function(dataUrl,progressId){
     const r=await googleOcr(dataUrl,false);
     return r.text;
   };
 
-  // Tesseract가 실수로 다시 호출되는 경로도 차단한다.
   window.getOcrWorker=async function(){
     throw new Error('V26에서는 Tesseract를 사용하지 않습니다.');
   };
@@ -152,7 +148,6 @@
   function cropLive(video,maxSide){
     const vw=video.videoWidth,vh=video.videoHeight;
     if(!vw||!vh)return '';
-    // 화면 중앙 라벨 영역을 넉넉하게 사용해 서버 전송량을 줄인다.
     const sx=Math.round(vw*.05),sy=Math.round(vh*.10),sw=Math.round(vw*.90),sh=Math.round(vh*.80);
     const scale=Math.min(1,(maxSide||1500)/Math.max(sw,sh));
     const c=document.createElement('canvas');
@@ -168,8 +163,6 @@
   }
 
   if(window.V22){
-    // 웹의 '실시간'은 카메라 프레임을 Google OCR 서버에 순차 전송한다.
-    // 요청을 겹치지 않게 해서 현장 네트워크/Apps Script 과부하를 막는다.
     V22.startLive=async function(mode){
       Object.keys(V26W.live).forEach(m=>{if(m!==mode)V22.stopLive(m,false);});
       V22.stopLive(mode,false);
@@ -203,7 +196,6 @@
             const count=fieldCount(parsed);
             if(sig){
               if(sig===st.lastSig)st.stableCount++;else{st.lastSig=sig;st.stableCount=1;}
-              // 첫 결과도 빠르게 보여주되, 같은 구조가 반복되면 '안정 인식'으로 표시.
               if(sig!==st.lastApplied && count>=2){
                 st.lastApplied=sig;
                 applyGoogleResult(mode,r.text,data,st.stableCount>=2?'Google OCR 안정 인식':'Google OCR 실시간 인식',r.latency);
@@ -239,24 +231,88 @@
     };
   }
 
+  function scrollToField(id){
+    const el=$(id);if(!el)return;
+    el.scrollIntoView({behavior:'smooth',block:'center'});
+    setTimeout(()=>el.focus(),250);
+  }
+
+  V26W.manualWms=function(){
+    try{if(window.V22)V22.stopLive('wms',false);}catch(_){ }
+    setStatus('wmsStatus','직접 입력 모드 · 아래 WMS 입고정보를 입력하세요.','warn');
+    scrollToField('inboundNo');
+  };
+
+  V26W.manualVendor=function(){
+    try{if(window.V22)V22.stopLive('vendor',false);}catch(_){ }
+    setStatus('vendorStatus','직접 입력 모드 · 아래 업체 라벨 정보를 입력하세요.','warn');
+    scrollToField('vProduct');
+  };
+
+  function createActionGrid(mode,card){
+    const id='v26Actions_'+mode;
+    if($(id)||!card)return;
+    const isVendor=mode==='vendor';
+    const wrap=document.createElement('div');
+    wrap.id=id;
+    wrap.style.cssText='display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;';
+    wrap.innerHTML=`
+      <button type="button" class="btn primary" onclick="V22.startLive('${mode}')">🎥 실시간 인식</button>
+      <button type="button" class="btn outline" onclick="document.getElementById('${isVendor?'vendorPhoto':'wmsPhoto'}').click()">📷 사진 촬영</button>
+      <button type="button" class="btn outline" onclick="document.getElementById('${isVendor?'vendorPhotoGallery':'wmsPhotoGallery'}').click()">🖼 갤러리</button>
+      <button type="button" class="btn outline" onclick="V26W.${isVendor?'manualVendor':'manualWms'}()">✍ 직접 입력</button>`;
+    const title=card.querySelector('.step-title');
+    if(title)title.insertAdjacentElement('afterend',wrap);else card.insertBefore(wrap,card.firstChild);
+  }
+
   function simplifySingleUi(){
+    const single=$('single');if(!single)return;
+    const cards=single.querySelectorAll(':scope > .card');
+    const wmsCard=cards[0],vendorCard=cards[1];
+
     const scan=$('btnScanSingle');if(scan)scan.classList.add('hidden');
     const reader=$('readerWrapSingle');if(reader)reader.classList.add('hidden');
-    const manual=$('v22ManualSingle');if(manual)manual.textContent='✍ 직접 입력';
-    const sub=document.querySelector('header .sub');if(sub)sub.textContent='WMS/업체 라벨 Google OCR · Google Sheets 저장';
-    const st=$('wmsStatus');if(st&&!st.dataset.v26){st.dataset.v26='1';st.textContent='WMS 입고라벨을 촬영하거나 실시간 Google OCR을 사용하세요.';}
 
-    // 과거 Tesseract Worker 핫픽스는 V26에서 사용하지 않는다.
+    // 기존 촬영/갤러리/실시간/직접입력 버튼은 숨기고 V26 4버튼으로 통일한다.
+    if(wmsCard){
+      Array.from(wmsCard.querySelectorAll('button')).forEach(b=>{
+        if(b.closest('#v26Actions_wms'))return;
+        if(b.id==='btnScanSingle'||/라벨 촬영|갤러리|실시간|직접 입력|코드 없음/.test(b.textContent||''))b.classList.add('hidden');
+      });
+      createActionGrid('wms',wmsCard);
+    }
+    if(vendorCard){
+      Array.from(vendorCard.querySelectorAll('button')).forEach(b=>{
+        if(b.closest('#v26Actions_vendor'))return;
+        if(/업체 라벨 촬영|갤러리|실시간|카메라 중지/.test(b.textContent||''))b.classList.add('hidden');
+      });
+      createActionGrid('vendor',vendorCard);
+    }
+
+    // V22 실시간 UI의 액션행은 숨기되 실제 video/wrap은 그대로 재사용한다.
+    single.querySelectorAll('.v22-action-row').forEach(row=>row.classList.add('hidden'));
+
+    // WMS 바코드는 더 이상 사용하지 않지만 DOM은 저장 호환성을 위해 유지한다.
+    const code=$('codeRaw');
+    if(code){const f=code.closest('.field');if(f)f.classList.add('hidden');}
+
+    const manual=$('v22ManualSingle');if(manual)manual.classList.add('hidden');
+    const sub=document.querySelector('header .sub');if(sub)sub.textContent='WMS/업체 라벨 Google OCR · Google Sheets 저장';
+
+    const wst=$('wmsStatus');
+    if(wst&&!wst.dataset.v26){wst.dataset.v26='1';wst.textContent='실시간 인식 또는 사진 촬영으로 WMS 라벨을 읽습니다.';}
+    const vst=$('vendorStatus');
+    if(vst&&!vst.dataset.v26){vst.dataset.v26='1';vst.textContent='실시간 인식 또는 사진 촬영으로 업체 라벨을 읽습니다.';}
+
     const old=document.getElementById('ocrHotfixLoader');if(old)old.remove();
     try{window.Tesseract=undefined;}catch(_){ }
   }
 
   function init(){
     simplifySingleUi();
-    // V22가 동적으로 추가하는 버튼이 늦게 생기는 경우 한 번 더 정리한다.
     setTimeout(simplifySingleUi,400);
     setTimeout(simplifySingleUi,1500);
-    console.info('[V26-WEB] Google-only OCR layer active');
+    console.info('[V26-WEB-2] Google-only OCR + simplified single UI active');
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
