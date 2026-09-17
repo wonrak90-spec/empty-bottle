@@ -12,10 +12,10 @@ const CONFIG = {
   const css25=document.createElement('link');css25.rel='stylesheet';css25.href='v25.css?v=20260918a';document.head.appendChild(css25);
   const boot=()=>{
     if(document.getElementById('v22Loader'))return;
-    const s22=document.createElement('script');s22.id='v22Loader';s22.src='v22.js?v=20260917d';s22.async=false;
+    const s22=document.createElement('script');s22.id='v22Loader';s22.src='v22.js?v=20260918e';s22.async=false;
     s22.onload=()=>{
       if(document.getElementById('v24Loader'))return;
-      const s24=document.createElement('script');s24.id='v24Loader';s24.src='v24.js?v=20260917d';s24.async=false;
+      const s24=document.createElement('script');s24.id='v24Loader';s24.src='v24.js?v=20260918e';s24.async=false;
       s24.onload=()=>{
         if(document.getElementById('v25Loader'))return;
         const s25=document.createElement('script');s25.id='v25Loader';s25.src='v25.js?v=20260918a';s25.async=false;
@@ -41,7 +41,7 @@ const CONFIG = {
                 if(document.getElementById('v26WmsCardScanLoader'))return;
                 const sc=document.createElement('script');
                 sc.id='v26WmsCardScanLoader';
-                sc.src='v26-wms-cardscan.js?v=20260918c';
+                sc.src='v26-wms-cardscan.js?v=20260918d';
                 sc.async=false;
                 sc.onload=()=>{
                   if(document.getElementById('v26VendorCardScanLoader'))return;
@@ -49,6 +49,22 @@ const CONFIG = {
                   sv.id='v26VendorCardScanLoader';
                   sv.src='v26-vendor-cardscan.js?v=20260918a';
                   sv.async=false;
+                  sv.onload=()=>{
+                    if(document.getElementById('v26ProductionWmsLoader'))return;
+                    const sp=document.createElement('script');
+                    sp.id='v26ProductionWmsLoader';
+                    sp.src='v26-production-wms.js?v=20260918a';
+                    sp.async=false;
+                    sp.onload=()=>{
+                      if(document.getElementById('v26StabilityLoader'))return;
+                      const ss=document.createElement('script');
+                      ss.id='v26StabilityLoader';
+                      ss.src='v26-stability.js?v=20260918a';
+                      ss.async=false;
+                      document.body.appendChild(ss);
+                    };
+                    document.body.appendChild(sp);
+                  };
                   document.body.appendChild(sv);
                 };
                 document.body.appendChild(sc);
