@@ -174,6 +174,19 @@
     return out;
   }
 
+  // 생산 등록 등 다른 화면에서도 동일한 WMS 해석 규칙을 재사용한다.
+  S.parseWms=function(text,items){
+    return layoutAssist(parseLabelText(text||'')||{},items||[]);
+  };
+  S.lookupCandidates=function(parsed){
+    const p=parsed||{}, out=[];
+    const push=v=>{v=String(v||'').trim();if(v&&out.indexOf(v)<0)out.push(v);};
+    if(p.inboundNo&&p.containerFrom)push(p.inboundNo+'-'+p.containerFrom);
+    if(p.inboundNo&&p.containerTo&&p.containerTo!==p.containerFrom)push(p.inboundNo+'-'+p.containerTo);
+    push(p.containerFrom);push(p.containerTo);push(p.inboundNo);
+    return out;
+  };
+
   function guideCrop(video,maxSide){
     const vw=video.videoWidth,vh=video.videoHeight;
     if(!vw||!vh)return {dataUrl:'',canvas:null};
