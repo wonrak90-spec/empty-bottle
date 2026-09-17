@@ -43,6 +43,14 @@ const CONFIG = {
                 sc.id='v26WmsCardScanLoader';
                 sc.src='v26-wms-cardscan.js?v=20260918c';
                 sc.async=false;
+                sc.onload=()=>{
+                  if(document.getElementById('v26VendorCardScanLoader'))return;
+                  const sv=document.createElement('script');
+                  sv.id='v26VendorCardScanLoader';
+                  sv.src='v26-vendor-cardscan.js?v=20260918a';
+                  sv.async=false;
+                  document.body.appendChild(sv);
+                };
                 document.body.appendChild(sc);
               };
               document.body.appendChild(sk);
