@@ -23,7 +23,7 @@ const CONFIG = {
           if(document.getElementById('v26WebLoader'))return;
           const s26=document.createElement('script');
           s26.id='v26WebLoader';
-          s26.src='v26-web.js?v=20260918b';
+          s26.src='v26-web.js?v=20260918c';
           s26.async=false;
           document.body.appendChild(s26);
         };
