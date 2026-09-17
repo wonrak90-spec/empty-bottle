@@ -22,7 +22,7 @@
   const prevCapture=V22.captureLive.bind(V22);
 
   const S=window.V26WmsCardScan={
-    VERSION:'V26-WMS-CARDSCAN-1',
+    VERSION:'V26-WMS-CARDSCAN-2',
     state:null,
     timeoutMs:12000
   };
@@ -185,6 +185,11 @@
     let g=$('v26WmsScanGuide');
     if(g)return g;
     wrap.style.position='relative';
+    // V22 기본 가이드와 겹치지 않도록 WMS에서는 기존 프레임을 숨긴다.
+    const legacyGuide=wrap.querySelector('.v22-guide');
+    if(legacyGuide)legacyGuide.style.display='none';
+    const legacyHint=wrap.querySelector('.v22-live-hint');
+    if(legacyHint)legacyHint.style.display='none';
     g=document.createElement('div');
     g.id='v26WmsScanGuide';
     g.style.cssText='position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:5;';
@@ -230,9 +235,9 @@
       const cap=track.getCapabilities();
       const adv={};
       if(Array.isArray(cap.focusMode)&&cap.focusMode.includes('continuous'))adv.focusMode='continuous';
-      if(cap.zoom&&Number.isFinite(cap.zoom.min)&&Number.isFinite(cap.zoom.max)){
-        adv.zoom=Math.min(cap.zoom.max,Math.max(cap.zoom.min,1.15));
-      }
+      if(Array.isArray(cap.exposureMode)&&cap.exposureMode.includes('continuous'))adv.exposureMode='continuous';
+      if(Array.isArray(cap.whiteBalanceMode)&&cap.whiteBalanceMode.includes('continuous'))adv.whiteBalanceMode='continuous';
+      // 손-held 현장 촬영에서는 자동 줌이 흔들림을 키울 수 있어 강제 줌하지 않는다.
       if(Object.keys(adv).length)await track.applyConstraints({advanced:[adv]});
     }catch(_){}
   }
@@ -249,14 +254,14 @@
         video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false
       });
       await tuneCamera(stream);
-      S.state={stream,running:true,started:Date.now(),prev:null,stable:0,processing:false};
+      S.state={stream,running:true,started:Date.now(),prev:null,processing:false,samples:0,goodSamples:0,bestScore:-Infinity,bestData:'',bestAt:0};
       KO.live.wms=S.state;
       video.srcObject=stream;await video.play();
       wrap.classList.remove('hidden');ensureGuide(wrap);
       const g=$('v26WmsScanGuide');if(g)g.style.display='flex';
-      guideState('라벨 정렬 확인 중',false);
-      setStatus('wmsStatus','WMS 자동 스캔 · 라벨을 흰 프레임 안에 맞추고 잠시 유지하세요.','warn');
-      setTimeout(()=>V22.liveTick('wms'),180);
+      guideState('라벨을 프레임 안에 맞춰주세요',false);
+      setStatus('wmsStatus','WMS 자동 스캔 · 완전히 고정할 필요 없이 프레임 안에 맞춰주세요. 가장 선명한 순간을 자동 선택합니다.','warn');
+      setTimeout(()=>V22.liveTick('wms'),220);
     }catch(err){
       setStatus('wmsStatus','카메라 실행 실패 · '+String(err&&err.message?err.message:err),'bad');
     }
@@ -274,36 +279,60 @@
     }
 
     const cur=sampleFrame(video);
-    if(!cur){setTimeout(()=>V22.liveTick('wms'),180);return;}
+    if(!cur){setTimeout(()=>V22.liveTick('wms'),160);return;}
     const diff=frameDiff(cur,st.prev);
     st.prev=cur;
+    st.samples++;
 
-    let msg='',quality=false;
-    if(cur.brightness<45)msg='조금 더 밝게 비춰주세요';
-    else if(cur.brightness>238)msg='반사가 강합니다 · 각도를 조금 바꿔주세요';
-    else if(cur.contrast<18)msg='라벨을 더 가까이 맞춰주세요';
-    else if(cur.sharpness<8)msg='초점을 맞추고 흔들림을 줄여주세요';
-    else if(diff>8)msg='라벨을 잠시 그대로 유지해주세요';
-    else{quality=true;msg='라벨 감지됨 · 자동 촬영 준비';}
+    // 손-held 촬영용 품질 점수: 흔들림은 약한 감점만 주고 선명도/대비를 더 크게 본다.
+    const exposurePenalty=Math.abs(cur.brightness-155)*0.12;
+    const motionPenalty=Math.min(Number.isFinite(diff)?diff:30,45)*0.35;
+    const score=(Math.min(cur.sharpness,30)*3.2)+(Math.min(cur.contrast,65)*1.1)-exposurePenalty-motionPenalty;
+    const acceptable=cur.brightness>=42&&cur.brightness<=242&&cur.contrast>=14&&cur.sharpness>=6.2;
 
-    st.stable=quality?st.stable+1:0;
-    guideState(msg,st.stable>=2);
+    if(acceptable){
+      st.goodSamples++;
+      if(score>st.bestScore){
+        const best=guideCrop(video,2200);
+        if(best.dataUrl){st.bestScore=score;st.bestData=best.dataUrl;st.bestAt=Date.now();}
+      }
+    }
+
+    let msg='';
+    if(cur.brightness<42)msg='조금 더 밝게 비춰주세요';
+    else if(cur.brightness>242)msg='반사가 강합니다 · 각도를 조금 바꿔주세요';
+    else if(cur.contrast<14)msg='라벨을 조금 더 가까이 맞춰주세요';
+    else if(cur.sharpness<6.2)msg='초점을 맞추는 중입니다';
+    else if(diff>24)msg='움직여도 괜찮습니다 · 프레임 안에만 유지해주세요';
+    else msg='좋은 프레임을 찾았습니다 · 자동 선택 중';
+
+    const elapsed=Date.now()-st.started;
+    const ready=!!st.bestData && (
+      (elapsed>=900&&st.goodSamples>=2&&st.bestScore>=42) ||
+      (elapsed>=1600&&st.goodSamples>=1) ||
+      elapsed>=2600
+    );
+
+    guideState(msg,acceptable);
     setStatus('wmsStatus','WMS 자동 스캔 · '+msg,'warn');
 
-    if(st.stable<3){
-      setTimeout(()=>V22.liveTick('wms'),180);return;
+    if(!ready){
+      setTimeout(()=>V22.liveTick('wms'),160);return;
+    }
+
+    if(!st.bestData){
+      setTimeout(()=>V22.liveTick('wms'),160);return;
     }
 
     st.processing=true;
-    guideState('자동 촬영 · 한국어 OCR 인식 중',true);
-    const cap=guideCrop(video,2200);
-    if(!cap.dataUrl){st.processing=false;setTimeout(()=>V22.liveTick('wms'),180);return;}
-    const preview=$('wmsPreview');if(preview){preview.src=cap.dataUrl;preview.classList.remove('hidden');}
-    setStatus('wmsStatus','WMS 라벨 자동 촬영 완료 · 한국어 로컬 OCR 인식 중...','warn');
+    guideState('가장 선명한 화면 선택 완료 · OCR 인식 중',true);
+    const bestData=st.bestData;
+    const preview=$('wmsPreview');if(preview){preview.src=bestData;preview.classList.remove('hidden');}
+    setStatus('wmsStatus','WMS 최적 프레임 자동 선택 완료 · 한국어 로컬 OCR 인식 중...','warn');
 
     try{
-      const r=await KO.recognize(cap.dataUrl,false,'wmsStatus');
-      applyResult(r.text,r.items,cap.dataUrl,r.latency);
+      const r=await KO.recognize(bestData,false,'wmsStatus');
+      applyResult(r.text,r.items,bestData,r.latency);
     }catch(err){
       setStatus('wmsStatus','한국어 OCR 실패 · '+String(err&&err.message?err.message:err),'bad');
     }finally{
