@@ -1,0 +1,38 @@
+name: Build V26 Android OCR APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - v26-realtime-ocr
+    paths:
+      - 'mobile-v26/**'
+      - '.github/workflows/v26-android-apk.yml'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Gradle 8.13
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.13'
+
+      - name: Build debug APK
+        run: gradle -p mobile-v26 :app:assembleDebug --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: EmptyBottle-V26-Realtime-OCR-debug
+          path: mobile-v26/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
