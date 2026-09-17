@@ -1,4 +1,4 @@
-// Apps Script Web App 연결 설정 — V22.4 + OCR V22.4.1 Hotfix
+// Apps Script Web App 연결 설정 — V26 Web Improvement
 // 개인별 사번 + PIN → 서버 Session 인증. 정적 API 토큰은 사용하지 않습니다.
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbw6cRBWwrtwBiTlY6SShBRs5tFPaGwYio2xn7d3ebrBX2Eru4bNogFTiL8MM2IJ1SmUaw/exec',
@@ -20,12 +20,12 @@ const CONFIG = {
         if(document.getElementById('v25Loader'))return;
         const s25=document.createElement('script');s25.id='v25Loader';s25.src='v25.js?v=20260918a';s25.async=false;
         s25.onload=()=>{
-          if(document.getElementById('ocrHotfixLoader'))return;
-          const so=document.createElement('script');
-          so.id='ocrHotfixLoader';
-          so.src='ocr-hotfix.js?v=20260917-1246';
-          so.async=false;
-          document.body.appendChild(so);
+          if(document.getElementById('v26WebLoader'))return;
+          const s26=document.createElement('script');
+          s26.id='v26WebLoader';
+          s26.src='v26-web.js?v=20260918b';
+          s26.async=false;
+          document.body.appendChild(s26);
         };
         document.body.appendChild(s25);
       };
