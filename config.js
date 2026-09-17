@@ -37,6 +37,14 @@ const CONFIG = {
               sk.id='v26KoreanOcrLoader';
               sk.src='v26-korean-ocr.js?v=20260918a';
               sk.async=false;
+              sk.onload=()=>{
+                if(document.getElementById('v26WmsCardScanLoader'))return;
+                const sc=document.createElement('script');
+                sc.id='v26WmsCardScanLoader';
+                sc.src='v26-wms-cardscan.js?v=20260918a';
+                sc.async=false;
+                document.body.appendChild(sc);
+              };
               document.body.appendChild(sk);
             };
             document.body.appendChild(sq);
