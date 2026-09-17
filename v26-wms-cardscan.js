@@ -22,10 +22,55 @@
   const prevCapture=V22.captureLive.bind(V22);
 
   const S=window.V26WmsCardScan={
-    VERSION:'V26-WMS-CARDSCAN-2',
+    VERSION:'V26-WMS-CARDSCAN-3',
     state:null,
     timeoutMs:12000
   };
+
+  function enterFullscreenScan(wrap){
+    if(!wrap||S.fullscreen)return;
+    const mobile=window.matchMedia&&window.matchMedia('(max-width: 720px)').matches;
+    if(!mobile)return;
+    const y=window.scrollY||document.documentElement.scrollTop||0;
+    S.fullscreen={scrollY:y,bodyStyle:document.body.getAttribute('style')||'',wrapStyle:wrap.getAttribute('style')||''};
+    document.body.style.position='fixed';
+    document.body.style.top=(-y)+'px';
+    document.body.style.left='0';
+    document.body.style.right='0';
+    document.body.style.width='100%';
+    document.body.style.overflow='hidden';
+
+    wrap.style.cssText='position:fixed!important;inset:0!important;z-index:9999!important;margin:0!important;border:0!important;border-radius:0!important;background:#000!important;height:100dvh!important;max-height:none!important;overflow:hidden!important;display:block!important;';
+    const video=$('v22LiveVideo_wms');
+    if(video)video.style.cssText='display:block;width:100%!important;height:100%!important;max-height:none!important;object-fit:cover!important;background:#000;';
+
+    const actions=wrap.querySelector('.v22-live-actions');
+    if(actions)actions.style.cssText='position:absolute;left:0;right:0;bottom:0;z-index:20;display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:10px calc(10px + env(safe-area-inset-right)) calc(10px + env(safe-area-inset-bottom)) calc(10px + env(safe-area-inset-left));background:linear-gradient(transparent,rgba(0,0,0,.78));';
+  }
+
+  function exitFullscreenScan(){
+    if(!S.fullscreen)return;
+    const fs=S.fullscreen;
+    const wrap=$('v22LiveWrap_wms'),video=$('v22LiveVideo_wms');
+    if(wrap){
+      if(fs.wrapStyle)wrap.setAttribute('style',fs.wrapStyle);else wrap.removeAttribute('style');
+    }
+    if(video)video.removeAttribute('style');
+    if(fs.bodyStyle)document.body.setAttribute('style',fs.bodyStyle);else document.body.removeAttribute('style');
+    S.fullscreen=null;
+    requestAnimationFrame(()=>window.scrollTo(0,fs.scrollY||0));
+  }
+
+  function setOverlayStatus(text,ok){
+    guideState(text,!!ok);
+    const top=$('v26WmsScanTop');
+    if(top){
+      top.textContent=text;
+      top.style.background=ok?'rgba(20,120,65,.86)':'rgba(0,0,0,.68)';
+    }
+  }
+
+  function sleep(ms){return new Promise(r=>setTimeout(r,ms));}
 
   function rectOf(poly){
     const pts=Array.isArray(poly)?poly:[];
@@ -193,7 +238,8 @@
     g=document.createElement('div');
     g.id='v26WmsScanGuide';
     g.style.cssText='position:absolute;inset:0;pointer-events:none;display:flex;align-items:center;justify-content:center;z-index:5;';
-    g.innerHTML='<div id="v26WmsGuideBox" style="width:90%;aspect-ratio:1.55/1;border:3px solid rgba(255,255,255,.96);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.28),0 0 18px rgba(0,0,0,.35) inset;position:relative;">'
+    g.innerHTML='<div id="v26WmsScanTop" style="position:absolute;left:12px;right:12px;top:max(12px,env(safe-area-inset-top));padding:10px 12px;border-radius:10px;background:rgba(0,0,0,.68);color:#fff;text-align:center;font-size:14px;font-weight:700;text-shadow:0 1px 2px #000;z-index:8;">WMS 자동 스캔 준비</div>'
+      +'<div id="v26WmsGuideBox" style="width:90%;aspect-ratio:1.55/1;border:3px solid rgba(255,255,255,.96);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.28),0 0 18px rgba(0,0,0,.35) inset;position:relative;">'
       +'<div style="position:absolute;left:0;right:0;top:-34px;text-align:center;color:white;font-weight:700;text-shadow:0 1px 3px #000;">WMS 라벨을 프레임에 맞춰주세요</div>'
       +'<div id="v26WmsGuideState" style="position:absolute;left:8px;right:8px;bottom:8px;padding:6px 10px;border-radius:9px;background:rgba(0,0,0,.62);color:#fff;text-align:center;font-size:13px;">정렬 확인 중</div>'
       +'</div>';
@@ -257,9 +303,9 @@
       S.state={stream,running:true,started:Date.now(),prev:null,processing:false,samples:0,goodSamples:0,bestScore:-Infinity,bestData:'',bestAt:0};
       KO.live.wms=S.state;
       video.srcObject=stream;await video.play();
-      wrap.classList.remove('hidden');ensureGuide(wrap);
+      wrap.classList.remove('hidden');ensureGuide(wrap);enterFullscreenScan(wrap);
       const g=$('v26WmsScanGuide');if(g)g.style.display='flex';
-      guideState('라벨을 프레임 안에 맞춰주세요',false);
+      setOverlayStatus('라벨을 프레임 안에 맞춰주세요',false);
       setStatus('wmsStatus','WMS 자동 스캔 · 완전히 고정할 필요 없이 프레임 안에 맞춰주세요. 가장 선명한 순간을 자동 선택합니다.','warn');
       setTimeout(()=>V22.liveTick('wms'),220);
     }catch(err){
@@ -313,7 +359,7 @@
       elapsed>=2600
     );
 
-    guideState(msg,acceptable);
+    setOverlayStatus(msg,acceptable);
     setStatus('wmsStatus','WMS 자동 스캔 · '+msg,'warn');
 
     if(!ready){
@@ -325,16 +371,21 @@
     }
 
     st.processing=true;
-    guideState('가장 선명한 화면 선택 완료 · OCR 인식 중',true);
+    setOverlayStatus('가장 선명한 화면 선택 완료 · OCR 인식 중',true);
     const bestData=st.bestData;
     const preview=$('wmsPreview');if(preview){preview.src=bestData;preview.classList.remove('hidden');}
     setStatus('wmsStatus','WMS 최적 프레임 자동 선택 완료 · 한국어 로컬 OCR 인식 중...','warn');
 
     try{
       const r=await KO.recognize(bestData,false,'wmsStatus');
-      applyResult(r.text,r.items,bestData,r.latency);
+      const out=applyResult(r.text,r.items,bestData,r.latency);
+      setOverlayStatus('인식 완료 · '+out.count+'개 항목 확인',true);
+      await sleep(800);
     }catch(err){
-      setStatus('wmsStatus','한국어 OCR 실패 · '+String(err&&err.message?err.message:err),'bad');
+      const msg='한국어 OCR 실패 · '+String(err&&err.message?err.message:err);
+      setOverlayStatus('인식 실패 · 다시 촬영해주세요',false);
+      setStatus('wmsStatus',msg,'bad');
+      await sleep(900);
     }finally{
       V22.stopLive('wms',false);
     }
@@ -366,6 +417,7 @@
     if(KO.live&&KO.live.wms)delete KO.live.wms;
     const wrap=$('v22LiveWrap_wms');if(wrap)wrap.classList.add('hidden');
     const g=$('v26WmsScanGuide');if(g)g.style.display='none';
+    exitFullscreenScan();
     if(showStatus!==false&&$('wmsStatus'))setStatus('wmsStatus','카메라 중지 · 입력 내용을 확인하세요.','');
   };
 
@@ -380,5 +432,5 @@
   }
 
   updateUi();setTimeout(updateUi,500);setTimeout(updateUi,1600);
-  console.info('[V26-WMS-CARDSCAN-1] guided stable-frame local OCR active');
+  console.info('[V26-WMS-CARDSCAN-3] mobile fullscreen guided OCR active');
 })();
