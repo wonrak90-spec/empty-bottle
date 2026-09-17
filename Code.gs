@@ -7,9 +7,10 @@
 const DB_NAME = '공병_입고확인_DB_V11';
 const PHOTO_FOLDER_NAME = '공병_입고라벨_사진_V11';
 
-// 프론트엔드(config.js)의 API_TOKEN과 반드시 동일해야 합니다.
-// 아래 값을 본인만 아는 문자열로 바꾸고, frontend/config.js에도 똑같이 넣어주세요.
-const API_TOKEN = 'lkC4e4hdWJIu2MOAckRurQC94hyc1cB-';
+// [LEGACY V11] 공개 저장소에 인증값을 하드코딩하지 않습니다.
+// 이 파일을 별도 테스트 배포할 경우 Script Properties의 LEGACY_API_TOKEN을 설정해야 합니다.
+// 현재 운영 세션 인증 백엔드와는 별개의 구버전 소스이므로 운영본에 덮어쓰지 마세요.
+const API_TOKEN = PropertiesService.getScriptProperties().getProperty('LEGACY_API_TOKEN') || '';
 
 const RECORD_HEADERS = [
   'ID','등록일시','모드','입고번호','입고일자','품명','품목코드','제조원','공급업체',
