@@ -693,8 +693,8 @@
     const sub=document.querySelector('header .sub');if(sub)sub.textContent='단건 중심 · OCR · 수정/삭제 Audit · 입고/생산 추적';
     const labels={tabDash:'홈/현황',tabSingle:'단건',tabMulti:'다중(보류)',tabProd:'생산',tabView:'조회/보고'};Object.keys(labels).forEach(id=>{if($(id))$(id).textContent=labels[id];});
     try{showTab('dash');}catch(_){}
-    // OCR worker 사전 로딩: 첫 촬영 때 대기시간 감소
-    setTimeout(()=>{try{getOcrWorker('ocrProgressWms');}catch(_){ }},800);
+    // Tesseract legacy worker는 운영에서 사용하지 않는다.
+    // 한국어 로컬 OCR(PP-OCRv5)은 실제 스캔 시 초기화하여 불필요한 로딩/오류를 방지한다.
     setTimeout(()=>{try{if(typeof loadDashboard==='function')loadDashboard();}catch(_){ }},200);
   }
 
