@@ -25,6 +25,14 @@ const CONFIG = {
           s26.id='v26WebLoader';
           s26.src='v26-web.js?v=20260918c';
           s26.async=false;
+          s26.onload=()=>{
+            if(document.getElementById('v26QtyLoader'))return;
+            const sq=document.createElement('script');
+            sq.id='v26QtyLoader';
+            sq.src='v26-qty.js?v=20260918a';
+            sq.async=false;
+            document.body.appendChild(sq);
+          };
           document.body.appendChild(s26);
         };
         document.body.appendChild(s25);
