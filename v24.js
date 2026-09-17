@@ -121,9 +121,9 @@
         <input class="v22-record-check" type="checkbox" value="${esc(it.id)}" ${checked?'checked':''} onchange="V22.toggleResult(this.value,this.checked)">
         <div class="v23-record-main" onclick="openRecordDetail(${i})">
           <div class="v23-record-top"><b>${esc(it.product||'-')}</b>${resultChip(it.finalResult)}<span class="v23-date">${esc(it.regDate||'')}</span></div>
-          <div class="v23-record-grid"><div><span>WMS</span><b>${esc(it.inboundNo||'-')}</b><small>${esc(it.itemCode||'-')} · P.No ${esc(it.wmsPalletNo||'-')}</small></div>
+          <div class="v23-record-grid"><div><span>WMS</span><b>${esc(it.inboundNo||'-')}</b><small>${esc(it.itemCode||'-')} · P.No ${esc(it.wmsPalletNo||it.containerFrom||it.containerNo||'-')}</small></div>
           <div><span>업체</span><b>${esc(it.vendorProduct||'-')}</b><small>Lot ${esc(it.vendorLotNo||'-')} · P.No ${esc(it.vendorPalletNo||'-')}</small></div>
-          <div><span>수량</span><b>${esc(fmt(it.qty))} ${esc(it.unit||'')}</b><small>${esc(it.supplier||'-')}</small></div>
+          <div><span>수량</span><b>${esc(fmt(it.qty!=null?it.qty:it.displayQty))} ${esc(it.unit||'')}</b><small>${esc(it.supplier||'-')}</small></div>
           <div><span>검수</span><b>${esc(it.inspector||'-')}</b><small>라벨대조 ${esc(it.labelMatch||'-')}</small></div></div>
         </div><button class="go" onclick="openRecordDetail(${i})">›</button></div>`;
     }).join('');
@@ -133,29 +133,53 @@
     if($('viewDetailCard'))$('viewDetailCard').classList.add('hidden');
     if(typeof setStatus==='function')setStatus('viewSearchStatus','등록 목록을 불러오는 중...','warn');
     try{
-      const res=await apiGet('listRecords',{keyword:V24.keyword,page:V24.page,pageSize:V24.pageSize});if(!res.ok)throw new Error(res.message||'조회 실패');
-      V24.page=res.page||1;V24.pageSize=res.pageSize||V24.pageSize;V24.total=res.total||0;V24.totalPages=res.totalPages||1;V24.listLoaded=true;
-      viewSearchResultsList=res.items||[];
-      const box=$('viewSearchResults');box.innerHTML=renderRecordRows(viewSearchResultsList);
+      let res=null, usedFallback=false;
+      try{res=await apiGet('listRecords',{keyword:V24.keyword,page:V24.page,pageSize:V24.pageSize});}catch(_){res=null;}
+      if(!res||!res.ok){
+        if(!V24.keyword)throw new Error((res&&res.message)||'최근 목록 API를 사용할 수 없습니다. 검색어를 입력해 조회하세요.');
+        const legacy=await apiGet('searchRecords',{keyword:V24.keyword});
+        if(!legacy||!legacy.ok)throw new Error((legacy&&legacy.message)||(res&&res.message)||'조회 실패');
+        const all=legacy.items||[],start=(V24.page-1)*V24.pageSize;
+        res={ok:true,page:V24.page,pageSize:V24.pageSize,total:all.length,totalPages:Math.max(1,Math.ceil(all.length/V24.pageSize)),items:all.slice(start,start+V24.pageSize)};
+        usedFallback=true;
+      }
+      V24.page=Math.max(1,Number(res.page)||1);V24.pageSize=Number(res.pageSize)||V24.pageSize;V24.total=Number(res.total)||0;V24.totalPages=Math.max(1,Number(res.totalPages)||1);V24.listLoaded=true;
+      if(V24.page>V24.totalPages&&V24.total>0)return V24.loadRecords(V24.totalPages);
+      viewSearchResultsList=Array.isArray(res.items)?res.items:[];
+      const box=$('viewSearchResults');box.innerHTML=viewSearchResultsList.length?renderRecordRows(viewSearchResultsList):'<div class="status">조회된 기록이 없습니다.</div>';
       const tools=$('v22ViewTools');if(tools)tools.classList.toggle('hidden',!viewSearchResultsList.length);
-      $('v23ListSummary').textContent=`총 ${Number(V24.total).toLocaleString()}건 · ${V24.page}/${V24.totalPages}페이지`;
-      $('v23Pager').innerHTML=pageButtons();updateSelectedCount();
-      if(typeof setStatus==='function')setStatus('viewSearchStatus',V24.keyword?`“${V24.keyword}” 검색 ${V24.total}건`:`최근 등록순 ${V24.total}건`,'ok');
-    }catch(e){if(typeof setStatus==='function')setStatus('viewSearchStatus','조회 실패: '+e.message,'bad');}
+      if($('v23ListSummary'))$('v23ListSummary').textContent=`총 ${Number(V24.total).toLocaleString()}건 · ${V24.page}/${V24.totalPages}페이지`;
+      if($('v23Pager'))$('v23Pager').innerHTML=V24.total?pageButtons():'';
+      updateSelectedCount();
+      if(typeof setStatus==='function'){
+        const label=V24.keyword?`“${V24.keyword}” 검색 ${V24.total}건`:`최근 등록순 ${V24.total}건`;
+        setStatus('viewSearchStatus',label+(usedFallback?' · 호환 조회모드':''),V24.total?'ok':'');
+      }
+    }catch(e){
+      viewSearchResultsList=[];
+      const box=$('viewSearchResults');if(box)box.innerHTML='';
+      const tools=$('v22ViewTools');if(tools)tools.classList.add('hidden');
+      if($('v23Pager'))$('v23Pager').innerHTML='';
+      if(typeof setStatus==='function')setStatus('viewSearchStatus','조회 실패: '+(e.message||e),'bad');
+    }
   };
   window.searchViewRecords=function(){return V24.loadRecords(1);};
 
   function patchSelection(){
     if(!window.V22)return;
     V22.toggleResult=function(id,checked){if(checked)V22.selectedIds.add(String(id));else V22.selectedIds.delete(String(id));resetReportState();updateSelectedCount();};
-    V22.toggleAll=function(flag){document.querySelectorAll('.v22-record-check').forEach(ch=>{ch.checked=flag;if(flag)V22.selectedIds.add(ch.value);else V22.selectedIds.delete(ch.value);});resetReportState();updateSelectedCount();};
+    V22.toggleAll=function(flag){
+      if(!flag)V22.selectedIds.clear();
+      document.querySelectorAll('.v22-record-check').forEach(ch=>{ch.checked=flag;if(flag)V22.selectedIds.add(ch.value);});
+      resetReportState();updateSelectedCount();
+    };
   }
 
   function enhanceDetail(){
     if(!currentViewRecord||!currentViewRecord.record)return;const r=currentViewRecord.record,box=$('viewDetailBox');if(!box||$('v23DetailSummary'))return;
     const d=document.createElement('div');d.id='v23DetailSummary';d.className='v23-detail-summary';
     d.innerHTML=`<div class="v23-detail-head"><b>${esc(r.product||'-')}</b>${resultChip(r.finalResult)}<span>${esc(r.regDate||'')}</span></div>
-      <div class="v23-detail-grid"><section><h4>WMS 입고정보</h4><p><b>입고번호</b>${esc(r.inboundNo||'-')}</p><p><b>품목코드</b>${esc(r.itemCode||'-')}</p><p><b>WMS P.No</b>${esc(r.containerFrom||'-')}</p><p><b>수량</b>${esc(fmt(r.displayQty))} ${esc(r.unit||'')}</p></section>
+      <div class="v23-detail-grid"><section><h4>WMS 입고정보</h4><p><b>입고번호</b>${esc(r.inboundNo||'-')}</p><p><b>품목코드</b>${esc(r.itemCode||'-')}</p><p><b>WMS P.No</b>${esc([r.containerFrom,r.containerTo].filter(Boolean).join(' ~ ')||'-')}</p><p><b>수량</b>${esc(fmt(r.displayQty))} ${esc(r.unit||'')}</p></section>
       <section><h4>업체 라벨</h4><p><b>품명</b>${esc(r.vendorProduct||'-')}</p><p><b>Lot</b>${esc(r.vendorLotNo||'-')}</p><p><b>업체 P.No</b>${esc(r.vendorPalletNo||'-')}</p><p><b>수량</b>${esc(fmt(r.vendorQty))}</p></section>
       <section><h4>검수 판정</h4><p><b>정보</b>${esc(r.infoMatch||'-')}</p><p><b>라벨</b>${esc(r.labelMatch||'-')}</p><p><b>혼입</b>${esc(r.mixed||'-')}</p><p><b>검수자</b>${esc(r.inspector||'-')}</p></section></div>`;
     box.insertBefore(d,box.firstChild);
@@ -167,13 +191,33 @@
 
   /* ==================== 보고서 V24 ==================== */
   function selectedIds(){const ids=window.V22?Array.from(V22.selectedIds):[];if(ids.length)return ids;if(currentViewRecord&&currentViewRecord.record)return [String(currentViewRecord.record.id)];return [];}
-  async function batchRecords(ids){const res=await apiPost('batchGetRecords',{ids:ids.slice(0,100)});if(!res.ok)throw new Error(res.message||'기록 조회 실패');return res.items||[];}
+  async function batchRecords(ids){
+    const target=(ids||[]).slice(0,100);if(!target.length)return [];
+    try{const res=await apiPost('batchGetRecords',{ids:target});if(res&&res.ok&&Array.isArray(res.items))return res.items;}catch(_){}
+    const items=[];
+    for(const id of target){
+      try{const one=await apiGet('getRecord',{id});if(one&&one.ok&&one.record)items.push({record:one.record,pallets:one.pallets||[]});}catch(_){}
+    }
+    if(!items.length)throw new Error('선택 기록을 불러오지 못했습니다.');
+    return items;
+  }
   function photoRefs(items,opt){
     const refs=[],seen=new Set();const add=(url,label,type,record)=>{String(url||'').split(',').map(x=>x.trim()).filter(Boolean).forEach(u=>{if(!seen.has(u)){seen.add(u);refs.push({url:u,label,type,record});}});};
     items.forEach(it=>{const r=it.record;if(opt.wms)add(r.labelPhotoUrl,'WMS 입고라벨','wms',r);if(opt.vendor)add(r.vendorPhotoUrl,'업체 라벨','vendor',r);if(opt.item)add(r.itemPhotoUrl,'공병 실물','item',r);(it.pallets||[]).forEach((p,i)=>{if(opt.wms)add(p.wmsPhotoUrl,`P${i+1} WMS`, 'wms',r);if(opt.vendor)add(p.vendorPhotoUrl,`P${i+1} 업체`, 'vendor',r);});});return refs;
   }
   async function loadPhotoData(refs){
-    const map=new Map(),errors={};for(let i=0;i<refs.length;i+=6){const part=refs.slice(i,i+6),urls=part.map(x=>x.url);const res=await apiPost('photoDataBatchV24',{urls});if(res&&res.items)Object.keys(res.items).forEach(u=>map.set(u,res.items[u]));if(res&&res.errors)Object.assign(errors,res.errors);}return {map,errors};
+    const map=new Map(),errors={};
+    for(let i=0;i<refs.length;i+=6){
+      const part=refs.slice(i,i+6),urls=part.map(x=>x.url);let res=null;
+      try{res=await apiPost('photoDataBatchV24',{urls});}catch(_){res=null;}
+      if(!res||(!res.ok&&!res.items)){
+        try{res=await apiPost('photoDataBatch',{urls});}catch(e){res={ok:false,message:String(e&&e.message?e.message:e)};}
+      }
+      if(res&&res.items)Object.keys(res.items).forEach(u=>{if(res.items[u])map.set(u,res.items[u]);});
+      if(res&&res.errors)Object.assign(errors,res.errors);
+      for(const u of urls){if(!map.has(u)&&!(u in errors))errors[u]=(res&&res.message)||'사진 불러오기 실패';}
+    }
+    return {map,errors};
   }
   function reportCounts(items){const recs=items.map(x=>x.record),issue=recs.filter(r=>!/적합/.test(String(r.finalResult||''))).length;return {n:recs.length,issue,inbound:new Set(recs.map(r=>String(r.inboundNo||'')).filter(Boolean)).size,products:new Set(recs.map(r=>String(r.product||'')).filter(Boolean)).size};}
   function clearBuilder(){const f=$('v22ReportFields');if(f)f.innerHTML='';const t=$('v22ReportTitle');if(t)t.textContent='보고서 작성';const b=$('v22ReportBadge');if(b)b.textContent='';}
@@ -206,7 +250,7 @@
   function getVal(id){return esc($(id)&&$(id).value||'');}
   function opt(){return {wms:!!($('v23PhotoWms')&&$('v23PhotoWms').checked),vendor:!!($('v23PhotoVendor')&&$('v23PhotoVendor').checked),item:!!($('v23PhotoItem')&&$('v23PhotoItem').checked)};}
   function reportCss(){return `<style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Malgun Gothic',sans-serif;color:#111;margin:0;font-size:10px}.sheet{min-height:270mm;page-break-after:always;padding:1mm}.sheet:last-child{page-break-after:auto}h1{font-size:18px;margin:0 0 7px;padding-bottom:6px;border-bottom:2px solid #1f4b5f}h2{font-size:13px;margin:11px 0 5px}.sub{color:#666;margin-bottom:8px}.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:5px;margin:7px 0}.kpi{border:1px solid #bbb;padding:7px}.kpi small{display:block;color:#666}.kpi b{font-size:16px}.sec{border:1px solid #aaa;margin:7px 0}.row{display:grid;grid-template-columns:28mm 1fr;border-bottom:1px solid #ccc}.row:last-child{border-bottom:0}.row b{background:#f1f0eb;padding:6px}.row div{padding:6px;white-space:pre-wrap}.title{font-size:13px;font-weight:700;margin:10px 0 4px;border-left:4px solid #1f4b5f;padding-left:6px}table{width:100%;border-collapse:collapse;margin:5px 0;font-size:9px}th,td{border:1px solid #aaa;padding:4px;vertical-align:top}th{background:#f1f0eb}.chip{display:inline-block;border:1px solid #aaa;padding:1px 5px;border-radius:9px}.photos{display:grid;grid-template-columns:repeat(2,1fr);gap:6px}.photos figure{margin:0;border:1px solid #bbb;padding:3px;break-inside:avoid}.photos img{width:100%;height:75mm;object-fit:contain}.photos figcaption{text-align:center;font-size:9px}.photo-sheet{page-break-before:always}.warn{border:1px solid #c77;background:#fff4f4;padding:6px;margin:6px 0}.sign{display:flex;justify-content:flex-end;gap:25px;margin-top:16px}.sign div{width:95px;border-top:1px solid #333;text-align:center;padding-top:4px}</style>`;}
-  function recordTable(items){return `<table><tr><th>등록일시</th><th>입고번호</th><th>품명/품목코드</th><th>WMS P.No</th><th>업체 P.No / Lot</th><th>수량</th><th>판정</th><th>검수자</th></tr>${items.map(it=>{const r=it.record;return `<tr><td>${esc(r.regDate||'')}</td><td>${esc(r.inboundNo||'')}</td><td><b>${esc(r.product||'')}</b><br>${esc(r.itemCode||'')}</td><td>${esc(r.containerFrom||'')}</td><td>${esc(r.vendorPalletNo||'')}<br>${esc(r.vendorLotNo||'')}</td><td>${esc(fmt(r.displayQty))} ${esc(r.unit||'')}</td><td>${esc(r.finalResult||'')}</td><td>${esc(r.inspector||'')}</td></tr>`;}).join('')}</table>`;}
+  function recordTable(items){return `<table><tr><th>등록일시</th><th>입고번호</th><th>품명/품목코드</th><th>WMS P.No</th><th>업체 P.No / Lot</th><th>수량</th><th>판정</th><th>검수자</th></tr>${items.map(it=>{const r=it.record;return `<tr><td>${esc(r.regDate||'')}</td><td>${esc(r.inboundNo||'')}</td><td><b>${esc(r.product||'')}</b><br>${esc(r.itemCode||'')}</td><td>${esc([r.containerFrom,r.containerTo].filter(Boolean).join(' ~ ')||'')}</td><td>${esc(r.vendorPalletNo||'')}<br>${esc(r.vendorLotNo||'')}</td><td>${esc(fmt(r.displayQty))} ${esc(r.unit||'')}</td><td>${esc(r.finalResult||'')}</td><td>${esc(r.inspector||'')}</td></tr>`;}).join('')}</table>`;}
   function photoFigures(refs,data,max){const arr=[];for(const r of refs){const src=data.get(r.url);if(src)arr.push(`<figure><img src="${src}"><figcaption>${esc(r.label)} · ${esc(r.record.inboundNo||'')} · ${esc(r.record.product||'')}</figcaption></figure>`);if(max&&arr.length>=max)break;}return arr;}
   function executiveHtml(items,refs,data,errors){const c=reportCounts(items),fig=photoFigures(refs,data,2),errN=Object.keys(errors||{}).length;return `<section class="sheet"><h1>공병 입고 검수 임원보고</h1><div class="sub">대상 기록 ${c.n}건 · 입고번호 ${c.inbound}건</div><div class="kpis"><div class="kpi"><small>대상</small><b>${c.n}건</b></div><div class="kpi"><small>입고번호</small><b>${c.inbound}건</b></div><div class="kpi"><small>확인 필요</small><b>${c.issue}건</b></div><div class="kpi"><small>품목</small><b>${c.products}종</b></div></div><div class="sec"><div class="row"><b>목적</b><div>${getVal('rPurpose')}</div></div><div class="row"><b>결론</b><div>${getVal('rConclusion')}</div></div><div class="row"><b>Impact</b><div>${getVal('rImpact')}</div></div><div class="row"><b>Risk</b><div>${getVal('rRisk')}</div></div><div class="row"><b>근본원인</b><div>${getVal('rCause')}</div></div><div class="row"><b>후속조치</b><div>${getVal('rAction')}</div></div></div><div class="title">대상 기록</div>${recordTable(items)}${fig.length?`<div class="title">대표 증빙사진</div><div class="photos">${fig.join('')}</div>`:''}${errN?`<div class="warn">불러오지 못한 사진 ${errN}건</div>`:''}</section>`;}
   function investigationHtml(items,refs,data,errors){const fig=photoFigures(refs,data),errN=Object.keys(errors||{}).length;const main=`<section class="sheet"><h1>공병 입고 이상 조사보고서</h1><div class="sub">일탈 수준 사실조사 · 6하원칙 / 영향평가 / 근본원인 / CAPA</div><div class="title">1. 조사 개요 (6하원칙)</div><table><tr><th>조사 제목</th><td colspan="3">${getVal('iTitle')}</td></tr><tr><th>언제</th><td>${getVal('iWhen')}</td><th>어디서</th><td>${getVal('iWhere')}</td></tr><tr><th>누가</th><td>${getVal('iWho')}</td><th>무엇을</th><td>${getVal('iWhat')}</td></tr></table><div class="sec"><div class="row"><b>어떻게</b><div>${getVal('iHow')}</div></div><div class="row"><b>왜</b><div>${getVal('iWhy')}</div></div></div><div class="title">2. 즉시조치 및 영향 범위</div><div class="sec"><div class="row"><b>즉시조치</b><div>${getVal('iImmediate')}</div></div><div class="row"><b>영향 범위</b><div>${getVal('iScope')}</div></div><div class="row"><b>영향평가</b><div>${getVal('iImpact')}</div></div></div><div class="title">3. 조사 근거 및 결과</div><div class="sec"><div class="row"><b>증빙</b><div>${getVal('iEvidence')}</div></div><div class="row"><b>근본원인</b><div>${getVal('iRootCause')}</div></div><div class="row"><b>CAPA</b><div>${getVal('iCapa')}</div></div></div><div class="sign"><div>조사자</div><div>검토자</div><div>승인자</div></div></section>`;
