@@ -566,24 +566,63 @@
   function photoHtml(url,label){const src=dataImg(url);return src?`<figure><img src="${src}"><figcaption>${e(label)}</figcaption></figure>`:'';}
 
   function recordPage(item,withPhotos){
-    const r=item.record,p=item.pallets||[];
+    const r=(item&&item.record)||{},p=(item&&item.pallets)||[];
     const tr=(a,b)=>`<tr><th>${e(a)}</th><td>${e(b==null?'':b)}</td></tr>`;
-    const singleWms=[r.containerFrom,r.containerTo].filter(Boolean).join(' ~ '), singleVendor=r.vendorPalletNo||r.vendorLotNo||'';
+    const wmsPno=[r.containerFrom,r.containerTo].filter(Boolean).join(' ~ ');
+    const vendorDate=[r.vendorProdDate,r.vendorProdTime].filter(Boolean).join(' ');
+    const qtyText=[r.displayQty,r.unit].filter(Boolean).join(' ');
+    const vendorQty=[r.vendorQty,r.unit].filter(Boolean).join(' ');
     const photos=[];
+
     if(withPhotos){
-      if(r.labelPhotoUrl)photos.push(photoHtml(String(r.labelPhotoUrl).split(',')[0],'WMS 라벨'+(singleWms?' · P.No '+singleWms:'')));
-      if(r.vendorPhotoUrl)photos.push(photoHtml(String(r.vendorPhotoUrl).split(',')[0],'업체 라벨'+(singleVendor?' · P.No '+singleVendor:'')));
-      String(r.itemPhotoUrl||'').split(',').slice(0,4).forEach((u,i)=>photos.push(photoHtml(u,'공병 실물 '+(i+1))));
-      p.slice(0,6).forEach((x,i)=>{const wp=x.wmsPalletNo||x.containerNo||x.code||'',vp=x.vendorPalletNo||'';if(x.wmsPhotoUrl)photos.push(photoHtml(x.wmsPhotoUrl,'P'+(i+1)+' WMS'+(wp?' · '+wp:'')));if(x.vendorPhotoUrl)photos.push(photoHtml(x.vendorPhotoUrl,'P'+(i+1)+' 업체'+(vp?' · '+vp:'')));});
+      String(r.labelPhotoUrl||'').split(',').filter(Boolean).slice(0,2).forEach((u,i)=>photos.push(photoHtml(u,'WMS 라벨'+(wmsPno?' · P.No '+wmsPno:'')+(i?' · '+(i+1):''))));
+      String(r.vendorPhotoUrl||'').split(',').filter(Boolean).slice(0,2).forEach((u,i)=>photos.push(photoHtml(u,'업체 라벨'+(r.vendorPalletNo?' · P.No '+r.vendorPalletNo:'')+(i?' · '+(i+1):''))));
+      String(r.itemPhotoUrl||'').split(',').filter(Boolean).slice(0,4).forEach((u,i)=>photos.push(photoHtml(u,'공병 실물 '+(i+1))));
+      p.slice(0,6).forEach((x,i)=>{
+        const wp=x.wmsPalletNo||x.containerNo||x.code||'',vp=x.vendorPalletNo||'';
+        if(x.wmsPhotoUrl)photos.push(photoHtml(x.wmsPhotoUrl,'P'+(i+1)+' WMS'+(wp?' · '+wp:'')));
+        if(x.vendorPhotoUrl)photos.push(photoHtml(x.vendorPhotoUrl,'P'+(i+1)+' 업체'+(vp?' · '+vp:'')));
+      });
     }
-    return `<section class="sheet"><h1>공병 입고 확인 기록서</h1><div class="meta">기록 ID ${e(r.id)} · ${e(r.regDate)} · ${e(r.mode)}</div>
-      <table class="info">${tr('입고번호',r.inboundNo)}${tr('입고일자',r.inboundDate)}${tr('품명',r.product)}${tr('품목코드',r.itemCode)}${tr('공급업체',r.supplier)}${tr('표시수량',r.displayQty)}${!p.length&&singleWms?tr('WMS 파레트 No.',singleWms):''}${!p.length&&singleVendor?tr('업체 파레트 No.',singleVendor):''}${r.actualQty?tr('실제 확인수량',r.actualQty):''}${r.palletCount?tr('파레트 수',r.palletCount):''}${r.totalQty?tr('총 수량',r.totalQty):''}${tr('최종 결과',r.finalResult)}${tr('검수자',r.inspector)}${tr('특이사항',r.note)}</table>
-      ${p.length?`<table><tr><th>#</th><th>WMS 파레트 No.</th><th>업체 파레트 No.</th><th>품명</th><th>수량</th><th>판정</th></tr>${p.map(x=>`<tr><td>${e(x.seq)}</td><td>${e(x.wmsPalletNo||x.containerNo||x.code||'')}</td><td>${e(x.vendorPalletNo||'')}</td><td>${e(x.product)}</td><td>${e(x.qty)}${e(x.unit||'')}</td><td>${e(x.result)}</td></tr>`).join('')}</table>`:''}
+
+    const vendorRows=[
+      r.vendorProduct?tr('업체라벨 품명',r.vendorProduct):'',
+      r.vendorQty?tr('업체라벨 수량',vendorQty):'',
+      vendorDate?tr('업체 생산일시',vendorDate):'',
+      r.vendorLotNo?tr('업체 Lot / P-L No.',r.vendorLotNo):'',
+      r.vendorPalletNo?tr('업체 파레트 No.',r.vendorPalletNo):'',
+      r.vendorLine?tr('업체 생산라인',r.vendorLine):''
+    ].join('');
+
+    return `<section class="sheet"><h1>공병 입고 확인 기록서</h1>
+      <div class="meta">기록 ID ${e(r.id||'')} · ${e(r.regDate||'')} · ${e(r.mode||'')}</div>
+      <h2>WMS / 입고정보</h2>
+      <table class="info">
+        ${tr('입고번호',r.inboundNo)}${tr('입고일자',r.inboundDate)}
+        ${tr('품명',r.product)}${tr('품목코드',r.itemCode)}
+        ${tr('제조원',r.manufacturer)}${tr('공급업체',r.supplier)}
+        ${tr('표시수량',qtyText)}${tr('사용기한',r.expiryDate)}
+        ${wmsPno?tr('WMS 파레트 / 용기번호',wmsPno):''}
+      </table>
+      ${vendorRows?`<h2>업체 라벨</h2><table class="info">${vendorRows}</table>`:''}
+      <h2>검수 결과</h2>
+      <table class="info">
+        ${r.infoMatch?tr('입고정보 일치',r.infoMatch):''}
+        ${r.labelMatch?tr('라벨 대조',r.labelMatch):''}
+        ${r.mixed?tr('혼입 여부',r.mixed):''}
+        ${r.actualQty?tr('실제 확인수량',r.actualQty):''}
+        ${r.qtyResult?tr('수량 판정',r.qtyResult):''}
+        ${r.palletCount?tr('파레트 수',r.palletCount):''}
+        ${r.totalQty?tr('총 수량',r.totalQty):''}
+        ${tr('최종 결과',r.finalResult)}${tr('검수자',r.inspector)}${tr('특이사항',r.note)}
+      </table>
+      ${p.length?`<h2>파레트 상세</h2><table><tr><th>#</th><th>WMS 파레트 No.</th><th>업체 파레트 No.</th><th>품명</th><th>수량</th><th>판정</th></tr>${p.map(x=>`<tr><td>${e(x.seq)}</td><td>${e(x.wmsPalletNo||x.containerNo||x.code||'')}</td><td>${e(x.vendorPalletNo||'')}</td><td>${e(x.product)}</td><td>${e(x.qty)} ${e(x.unit||'')}</td><td>${e(x.result)}</td></tr>`).join('')}</table>`:''}
       ${withPhotos&&photos.filter(Boolean).length?`<h2>증빙 사진</h2><div class="photos">${photos.join('')}</div>`:''}
-      <div class="sign"><div>검수자</div><div>확인자</div></div></section>`;
+      <div class="sign"><div>검수자</div><div>확인자</div></div>
+    </section>`;
   }
 
-  function printCss(){return `<style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Malgun Gothic',sans-serif;color:#111;margin:0} .sheet{page-break-after:always;min-height:270mm;padding:2mm}.sheet:last-child{page-break-after:auto}h1{font-size:18px;margin:0 0 6px;border-bottom:2px solid #1F4B5F;padding-bottom:6px}h2{font-size:13px;margin:12px 0 5px}.meta{font-size:10px;color:#666;margin-bottom:7px}table{width:100%;border-collapse:collapse;font-size:10px;margin:7px 0}th,td{border:1px solid #aaa;padding:4px 5px}th{background:#f1f0eb}.info th{width:25%}.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.photos figure{margin:0;border:1px solid #ccc;padding:3px}.photos img{width:100%;height:42mm;object-fit:contain;display:block}.photos figcaption{text-align:center;font-size:9px;margin-top:2px}.sign{display:flex;justify-content:flex-end;gap:25px;margin-top:16px;font-size:10px}.sign div{width:100px;border-top:1px solid #333;text-align:center;padding-top:4px}.report-box{border:1px solid #999;margin:7px 0}.report-row{display:grid;grid-template-columns:26mm 1fr;border-bottom:1px solid #bbb}.report-row:last-child{border-bottom:0}.report-row b{background:#f1f0eb;padding:6px}.report-row div{padding:6px;white-space:pre-wrap}.timeline{display:flex;gap:8px;font-size:10px;align-items:center;flex-wrap:wrap}.timeline span{padding:4px 7px;border:1px solid #bbb;border-radius:20px}.dev-title{font-size:14px;font-weight:700;margin:10px 0 5px}.dev-note{font-size:9px;color:#555}.dev-table th{width:25mm}.pno{font-family:monospace;font-weight:700}</style>`;}
+  function printCss(){return `<style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Malgun Gothic',sans-serif;color:#111;margin:0} .sheet{page-break-after:always;min-height:270mm;padding:2mm}.sheet:last-child{page-break-after:auto}h1{font-size:18px;margin:0 0 6px;border-bottom:2px solid #1F4B5F;padding-bottom:6px}h2{font-size:13px;margin:12px 0 5px}.meta{font-size:10px;color:#666;margin-bottom:7px}table{width:100%;border-collapse:collapse;font-size:10px;margin:7px 0}th,td{border:1px solid #aaa;padding:4px 5px}th{background:#f1f0eb}.info th{width:25%}tr{break-inside:avoid}td{word-break:break-word}.photos{display:grid;grid-template-columns:repeat(3,1fr);gap:5px}.photos figure{margin:0;border:1px solid #ccc;padding:3px}.photos img{width:100%;height:42mm;object-fit:contain;display:block}.photos figcaption{text-align:center;font-size:9px;margin-top:2px}.sign{display:flex;justify-content:flex-end;gap:25px;margin-top:16px;font-size:10px}.sign div{width:100px;border-top:1px solid #333;text-align:center;padding-top:4px}.report-box{border:1px solid #999;margin:7px 0}.report-row{display:grid;grid-template-columns:26mm 1fr;border-bottom:1px solid #bbb}.report-row:last-child{border-bottom:0}.report-row b{background:#f1f0eb;padding:6px}.report-row div{padding:6px;white-space:pre-wrap}.timeline{display:flex;gap:8px;font-size:10px;align-items:center;flex-wrap:wrap}.timeline span{padding:4px 7px;border:1px solid #bbb;border-radius:20px}.dev-title{font-size:14px;font-weight:700;margin:10px 0 5px}.dev-note{font-size:9px;color:#555}.dev-table th{width:25mm}.pno{font-family:monospace;font-weight:700}</style>`;}
 
   async function printItems(items,withPhotos,title,win){
     if(withPhotos)await hydratePhotos(items);
