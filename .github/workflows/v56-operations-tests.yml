@@ -11,6 +11,7 @@ on:
       - 'tests/v56-operations.test.js'
       - 'tests/v56-reporting.test.js'
       - 'tests/v56-production-collab.test.js'
+      - 'tests/v56-production-collab-backend.test.js'
       - 'V56_OPERATIONS_PLAN.md'
       - 'config.js'
       - 'sw.js'
@@ -44,7 +45,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              v56-operations.js|v56-reporting.js|v56-production-collab.js|V56_PRODUCTION_COLLAB.gs|V56_PRODUCTION_COLLAB_ROUTER.gs|V56_OPERATIONS_PLAN.md|config.js|sw.js|tests/v56-operations.test.js|tests/v56-reporting.test.js|tests/v56-production-collab.test.js|.github/workflows/v56-operations-tests.yml) ;;
+              v56-operations.js|v56-reporting.js|v56-production-collab.js|V56_PRODUCTION_COLLAB.gs|V56_PRODUCTION_COLLAB_ROUTER.gs|V56_OPERATIONS_PLAN.md|config.js|sw.js|tests/v56-operations.test.js|tests/v56-reporting.test.js|tests/v56-production-collab.test.js|tests/v56-production-collab-backend.test.js|.github/workflows/v56-operations-tests.yml) ;;
               *) bad="${bad}${file}"$'\n' ;;
             esac
           done <<< "$changed"
@@ -62,6 +63,9 @@ jobs:
 
       - name: Run V56 production collaboration tests
         run: node tests/v56-production-collab.test.js
+
+      - name: Run V56 Apps Script collaboration tests
+        run: node tests/v56-production-collab-backend.test.js
 
       - name: Static syntax checks
         run: |
