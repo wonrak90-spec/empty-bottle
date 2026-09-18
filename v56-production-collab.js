@@ -244,9 +244,14 @@
     C.poll=setInterval(()=>{
       try{
         const prod=$('prod');
-        if(prod&&prod.classList.contains('active'))C.load(false);
+        if(prod&&prod.classList.contains('active')){
+          C.load(false);
+          // 목록에서 직접 참여한 작업자는 V22의 기존 poll을 거치지 않을 수 있으므로
+          // 같은 Production ID의 Pallet 목록도 주기적으로 다시 동기화한다.
+          if(currentSessionId()&&!(window.V22&&V22.prodPoll))syncJoinedSession();
+        }
       }catch(_){}
-    },8000);
+    },5000);
   }
 
   function boot(){
