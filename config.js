@@ -35,7 +35,7 @@ const CONFIG = {
               if(document.getElementById('v26KoreanOcrLoader'))return;
               const sk=document.createElement('script');
               sk.id='v26KoreanOcrLoader';
-              sk.src='v26-korean-ocr.js?v=20260918a';
+              sk.src='v26-korean-ocr.js?v=20260918b';
               sk.async=false;
               sk.onload=()=>{
                 if(document.getElementById('v26WmsCardScanLoader'))return;
@@ -44,12 +44,18 @@ const CONFIG = {
                 sc.src='v26-wms-cardscan.js?v=20260918d';
                 sc.async=false;
                 sc.onload=()=>{
-                  if(document.getElementById('v26VendorCardScanLoader'))return;
-                  const sv=document.createElement('script');
-                  sv.id='v26VendorCardScanLoader';
-                  sv.src='v26-vendor-cardscan.js?v=20260918a';
-                  sv.async=false;
-                  sv.onload=()=>{
+                  if(document.getElementById('v26VendorTemplatesLoader'))return;
+                  const st=document.createElement('script');
+                  st.id='v26VendorTemplatesLoader';
+                  st.src='v26-vendor-templates.js?v=20260918a';
+                  st.async=false;
+                  st.onload=()=>{
+                    if(document.getElementById('v26VendorCardScanLoader'))return;
+                    const sv=document.createElement('script');
+                    sv.id='v26VendorCardScanLoader';
+                    sv.src='v26-vendor-cardscan.js?v=20260918b';
+                    sv.async=false;
+                    sv.onload=()=>{
                     if(document.getElementById('v26ProductionWmsLoader'))return;
                     const sp=document.createElement('script');
                     sp.id='v26ProductionWmsLoader';
@@ -66,6 +72,8 @@ const CONFIG = {
                     document.body.appendChild(sp);
                   };
                   document.body.appendChild(sv);
+                  };
+                  document.body.appendChild(st);
                 };
                 document.body.appendChild(sc);
               };
