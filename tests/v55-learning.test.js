@@ -150,6 +150,23 @@ async function test(name,fn){
     assert.strictEqual(q[0].changedFields,0);
   });
 
+  await test('OCR 후 작업자 키인 수정 필드는 Learning Audit에 반드시 기록', async()=>{
+    const {ctx,state}=makeContext();
+    state.wmsParsed={
+      inboundNo:'26091801',product:'까스활명수75mL병',itemCode:'1234567',
+      displayQty:'13608000',unit:'EA'
+    };
+    ctx.V55OcrLearning.noteManualEdit('wms','displayQty','13608');
+    await ctx.apiPost('saveSingle',wmsPayload({displayQty:'13608'}));
+    const entry=ctx.V55OcrLearning.loadQueue()[0];
+    assert.deepStrictEqual(Array.from(entry.manualEditedFields),['displayQty']);
+    assert.deepStrictEqual(Array.from(entry.manualChangedFields),['displayQty']);
+    assert.strictEqual(entry.manualEditCount,1);
+    assert.strictEqual(entry.correctionType,'OCR_KEYIN_CORRECTION');
+    assert.strictEqual(entry.diff.displayQty.ocr,'13608000');
+    assert.strictEqual(entry.diff.displayQty.final,'13608');
+  });
+
   await test('사진 바이너리를 Learning queue에 저장하지 않음', async()=>{
     const {ctx,state}=makeContext();
     state.wmsParsed={inboundNo:'26091801',displayQty:'13608'};
@@ -219,6 +236,7 @@ async function test(name,fn){
     assert.ok(ctx.V55OcrLearning);
     assert.strictEqual(typeof ctx.V55OcrLearning.flush,'function');
     assert.strictEqual(typeof ctx.V55OcrLearning.loadQueue,'function');
+    assert.strictEqual(typeof ctx.V55OcrLearning.noteManualEdit,'function');
   });
 
   if(process.exitCode) process.exit(process.exitCode);
