@@ -244,8 +244,19 @@ function exportOcrDatasetManifestV1_(params, actor) {
   ocrAssertAdminV1_(actor);
   params = params || {};
   const version = String(params.datasetVersion || ocrActiveDatasetV1_());
-  const all = listOcrLearningV1_({ status:'APPROVED', datasetVersion:version, limit:200 }, actor);
-  return { ok:true, datasetVersion:version, count:all.items.length, items:all.items.map(x => ({
-    id:x.id, source:x.source, template:x.template, photoUrl:x.photoUrl, ocrRaw:x.ocrRaw, ocr:x.ocr, final:x.final, diff:x.diff
-  })) };
+  setupOcrLearningStoreV1_();
+  const sh = ocrLearningSsV1_().getSheetByName(OCR_LEARNING_LOG_SHEET_V1);
+  const rows = sh.getDataRange().getValues();
+  const items = [];
+  for (let i = 1; i < rows.length; i++) {
+    const r = rows[i];
+    if (String(r[17] || '').toUpperCase() !== 'APPROVED') continue;
+    if (String(r[6] || '') !== version) continue;
+    items.push({
+      id:String(r[0]||''), source:String(r[4]||''), template:String(r[5]||''),
+      photoUrl:String(r[7]||''), ocrRaw:String(r[11]||''),
+      ocr:ocrJsonV1_(r[12]), final:ocrJsonV1_(r[13]), diff:ocrJsonV1_(r[14])
+    });
+  }
+  return { ok:true, datasetVersion:version, count:items.length, items:items };
 }
