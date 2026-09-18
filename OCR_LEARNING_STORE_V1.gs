@@ -79,6 +79,10 @@ function setupOcrLearningStoreV1_() {
 function ocrDatasetRowsV1_() {
   const ss = ocrLearningSsV1_();
   const sh = ocrEnsureSheetV1_(ss, OCR_DATASET_SHEET_V1, OCR_DATASET_HEADERS_V1);
+  // API 호출 순서와 무관하게 기본 Dataset은 항상 존재해야 한다.
+  if (sh.getLastRow() === 1) {
+    sh.appendRow(['OCR-DS-V1', new Date(), 'ACTIVE', 0, 'Seed Dataset V1 이후 현장 Learning Log 누적', 'SYSTEM']);
+  }
   return sh.getDataRange().getValues();
 }
 
