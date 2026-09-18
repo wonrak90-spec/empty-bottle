@@ -31,16 +31,26 @@ jobs:
           git fetch origin main
           changed="$(git diff --name-only origin/main...HEAD)"
           echo "$changed"
-          bad="$(echo "$changed" | grep -Ev '^(OCR_LEARNING_.*\.(gs|md)|v55-ocr-learning[^/]*\.js|config\.js|sw\.js|tests/.*|\.github/workflows/v55-learning-tests\.yml) || true)"
+          bad=""
+          image_bad=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|v55-ocr-learning*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
+              *) bad="${bad}${file}"$'\n' ;;
+            esac
+            case "$file" in
+              *.png|*.jpg|*.jpeg|*.webp|*.gif|*.bmp|*.tif|*.tiff) image_bad="${image_bad}${file}"$'\n' ;;
+            esac
+          done <<< "$changed"
           if [ -n "$bad" ]; then
             echo "Frozen V54 core file changed:"
-            echo "$bad"
+            printf "%s" "$bad"
             exit 1
           fi
-          images="$(echo "$changed" | grep -Ei '\.(png|jpe?g|webp|gif|bmp|tiff?) || true)"
-          if [ -n "$images" ]; then
+          if [ -n "$image_bad" ]; then
             echo "Image files must not be committed for OCR Learning:"
-            echo "$images"
+            printf "%s" "$image_bad"
             exit 1
           fi
 
