@@ -12,10 +12,22 @@
     queueKey:'emptyBottle.ocrLearning.queue.v1',
     backendKey:'emptyBottle.ocrLearning.backend.v1',
     cache:{wms:null,vendor:null,multi:null,production_wms:null,other:null},
+    manual:{wms:{},vendor:{},multi:{}},
+    queueMax:1500,lastQueueError:'',
     nativePost:null,wrapped:false,syncing:false
   };
   const WMS=['inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty','unit','expiryDate','containerFrom','containerTo'];
   const VENDOR=['product','qty','prodDate','prodTime','lotNo','palletNo','line'];
+  const MANUAL_FIELDS={
+    inboundNo:['wms','inboundNo'],inboundDate:['wms','inboundDate'],product:['wms','product'],
+    itemCode:['wms','itemCode'],manufacturer:['wms','manufacturer'],supplier:['wms','supplier'],
+    displayQty:['wms','displayQty'],unit:['wms','unit'],expiryDate:['wms','expiryDate'],
+    containerFrom:['wms','containerFrom'],containerTo:['wms','containerTo'],
+    vProduct:['vendor','product'],vQty:['vendor','qty'],vProdDate:['vendor','prodDate'],
+    vProdTime:['vendor','prodTime'],vLotNo:['vendor','lotNo'],vPalletNo:['vendor','palletNo'],vLine:['vendor','line'],
+    mInboundNo:['multi','inboundNo'],mProduct:['multi','product'],mItemCode:['multi','itemCode'],
+    mSupplier:['multi','supplier'],mQty:['multi','displayQty']
+  };
 
   function txt(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
   function hash(s){s=String(s||'');let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h+=(h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24);}return (h>>>0).toString(16);}
@@ -69,21 +81,60 @@
     }catch(_){}
     return '';
   }
+  L.noteManualEdit=function(mode,key,value){
+    if(!mode||!key)return;
+    const bag=L.manual[mode]||(L.manual[mode]={});
+    const cur=bag[key]||{count:0,firstAt:'',lastAt:'',lastValue:''};
+    const now=new Date().toISOString();
+    if(!cur.firstAt)cur.firstAt=now;
+    cur.lastAt=now;cur.lastValue=String(value==null?'':value);cur.count++;
+    bag[key]=cur;
+  };
+  function manualSnapshot(mode){
+    const src=L.manual[mode]||{},out={};
+    Object.keys(src).forEach(k=>{out[k]=Object.assign({},src[k]);});
+    return out;
+  }
+  function resetManual(mode){L.manual[mode]={};}
+  function bindManualAudit(){
+    if(!document||typeof document.addEventListener!=='function'||L.__manualBound)return;
+    L.__manualBound=true;
+    document.addEventListener('input',ev=>{
+      try{
+        if(ev&&ev.isTrusted===false)return;
+        const t=ev&&ev.target,id=t&&t.id,m=MANUAL_FIELDS[id];
+        if(!m)return;
+        L.noteManualEdit(m[0],m[1],t.value);
+      }catch(_){}
+    },true);
+  }
+
   function makeEntry(source,recordId,raw,ocr,final,fields,extra){
-    const d=diff(ocr,final,fields);
+    const d=diff(ocr,final,fields),x=extra||{},manual=x.manualEdits||{};
+    const edited=Object.keys(manual).filter(k=>fields.indexOf(k)>=0);
+    const manualChanged=edited.filter(k=>d.out[k]&&d.out[k].changed);
+    const editCount=edited.reduce((n,k)=>n+Number(manual[k]&&manual[k].count||0),0);
     const e={
       captureKey:'',capturedAt:new Date().toISOString(),recordId:String(recordId||''),source,
       template:'',datasetVersion:'',photoUrl:'',palletSeq:'',productionId:'',
       ocrEngine:'PP-OCRv5 Korean local',ocrModel:'korean_PP-OCRv5_mobile_rec',
       frontendVersion:L.VERSION,ocrRaw:String(raw||''),ocr:pick(ocr,fields),final:pick(final,fields),
-      diff:d.out,comparedFields:d.compared,changedFields:d.changed
+      diff:d.out,comparedFields:d.compared,changedFields:d.changed,
+      manualEditedFields:edited,manualChangedFields:manualChanged,manualEditCount:editCount,
+      correctionType:manualChanged.length?'OCR_KEYIN_CORRECTION':(edited.length?'KEYIN_NO_FINAL_CHANGE':(d.changed?'NON_KEYIN_DIFFERENCE':'NO_CORRECTION'))
     };
-    Object.assign(e,extra||{});
+    Object.assign(e,x);delete e.manualEdits;
     e.captureKey=[e.recordId,e.source,e.palletSeq,hash(e.ocrRaw),hash(JSON.stringify(e.final))].join('|');
     return e;
   }
   function loadQueue(){try{const q=JSON.parse(localStorage.getItem(L.queueKey)||'[]');return Array.isArray(q)?q:[];}catch(_){return [];}}
-  function saveQueue(q){try{localStorage.setItem(L.queueKey,JSON.stringify((q||[]).slice(-500)));}catch(_){} if(typeof L.onQueueChange==='function')L.onQueueChange(loadQueue().length);}
+  function saveQueue(q){
+    let ok=true;
+    try{localStorage.setItem(L.queueKey,JSON.stringify((q||[]).slice(-L.queueMax)));L.lastQueueError='';}
+    catch(e){ok=false;L.lastQueueError=String(e&&e.message||e||'Learning Outbox 저장 실패');console.warn('[OCR Learning] outbox persist failed',e);}
+    if(typeof L.onQueueChange==='function')L.onQueueChange(loadQueue().length);
+    return ok;
+  }
   function enqueue(list){
     const q=loadQueue(),seen=new Set(q.map(x=>x.captureKey));
     for(const e of list||[]){if(e&&e.ocrRaw&&!seen.has(e.captureKey)){q.push(e);seen.add(e.captureKey);}}
@@ -117,9 +168,10 @@
   function finalWms(p){return {inboundNo:p.inboundNo||'',inboundDate:p.inboundDate||'',product:p.product||'',itemCode:p.itemCode||'',manufacturer:p.manufacturer||'',supplier:p.supplier||'',displayQty:p.displayQty||'',unit:p.unit||'',expiryDate:p.expiryDate||'',containerFrom:p.containerFrom||'',containerTo:p.containerTo||''};}
   function finalVendor(p){return {product:p.vendorProduct||'',qty:p.vendorQty||'',prodDate:p.vendorProdDate||'',prodTime:p.vendorProdTime||'',lotNo:p.vendorLotNo||'',palletNo:p.vendorPalletNo||'',line:p.vendorLine||''};}
   function singleEntries(p,r){
-    const out=[],id=r&&r.id||'';
-    if(p.ocrRaw)out.push(makeEntry('wms',id,p.ocrRaw,parseWms(p.ocrRaw,'wms'),finalWms(p),WMS,{photoUrl:String(r&&r.photoUrl||'')}));
-    if(p.vendorOcrRaw)out.push(makeEntry('vendor',id,p.vendorOcrRaw,parseVendor(p.vendorOcrRaw,'vendor'),finalVendor(p),VENDOR,{template:template(p.vendorOcrRaw,'vendor'),photoUrl:String(r&&r.vendorPhotoUrl||'')}));
+    const out=[],id=r&&r.id||'',mw=manualSnapshot('wms'),mv=manualSnapshot('vendor');
+    if(p.ocrRaw)out.push(makeEntry('wms',id,p.ocrRaw,parseWms(p.ocrRaw,'wms'),finalWms(p),WMS,{photoUrl:String(r&&r.photoUrl||''),manualEdits:mw}));
+    if(p.vendorOcrRaw)out.push(makeEntry('vendor',id,p.vendorOcrRaw,parseVendor(p.vendorOcrRaw,'vendor'),finalVendor(p),VENDOR,{template:template(p.vendorOcrRaw,'vendor'),photoUrl:String(r&&r.vendorPhotoUrl||''),manualEdits:mv}));
+    resetManual('wms');resetManual('vendor');
     return out;
   }
   function multiEntries(p,r){
@@ -127,7 +179,7 @@
     let raw=p.ocrRaw||'';try{if(typeof lastOcrText!=='undefined'&&lastOcrText.multi)raw=lastOcrText.multi;}catch(_){}
     if(raw){
       const f={inboundNo:p.inboundNo||'',product:p.product||'',itemCode:p.itemCode||'',supplier:p.supplier||'',displayQty:p.displayQty||'',unit:p.unit||''};
-      out.push(makeEntry('multi_wms',id,raw,parseWms(raw,'multi'),f,['inboundNo','product','itemCode','supplier','displayQty','unit'],{photoUrl:String(r&&r.photoUrl||'')}));
+      out.push(makeEntry('multi_wms',id,raw,parseWms(raw,'multi'),f,['inboundNo','product','itemCode','supplier','displayQty','unit'],{photoUrl:String(r&&r.photoUrl||''),manualEdits:manualSnapshot('multi')}));
     }
     try{
       if(typeof multiPallets!=='undefined')for(const x of multiPallets){
@@ -136,6 +188,7 @@
         out.push(makeEntry('multi_vendor',id,x.vendorOcr,o,f,['product','palletNo'],{palletSeq:String(x.seq||''),template:template(x.vendorOcr,'other'),photoUrl:String(x.vendorPhotoUrl||'')}));
       }
     }catch(_){}
+    resetManual('multi');
     return out;
   }
   function productionEntries(p){
@@ -166,7 +219,7 @@
     };
     L.wrapped=true;
   }
-  function boot(){wrapOcr();wrapApi();setTimeout(()=>L.flush(false),1500);setInterval(()=>{wrapOcr();wrapApi();},3000);}
+  function boot(){bindManualAudit();wrapOcr();wrapApi();setTimeout(()=>L.flush(false),1500);setInterval(()=>{wrapOcr();wrapApi();},3000);}
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
   console.info('[V55-OCR-LEARNING-1] passive learning capture active');
 })();
