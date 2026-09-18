@@ -103,12 +103,22 @@
       const img=new Image();
       img.onload=()=>{
         try{
-          const long=Math.max(img.naturalWidth||img.width,img.naturalHeight||img.height);
-          const scale=Math.min(1,(maxSide||2200)/Math.max(1,long));
+          const iw=img.naturalWidth||img.width, ih=img.naturalHeight||img.height;
+          const long=Math.max(iw,ih);
+          const limit=maxSide||2200;
+          // 작은 현장 사진은 글자 픽셀이 부족하므로 최대 2.4배까지 보간 확대한다.
+          // 고해상도 카메라 프레임은 기존처럼 limit까지만 축소한다.
+          let scale=Math.min(1,limit/Math.max(1,long));
+          if(long<1500){
+            const target=Math.min(limit,1600);
+            scale=Math.min(2.4,Math.max(1,target/Math.max(1,long)));
+          }
           const c=document.createElement('canvas');
-          c.width=Math.max(1,Math.round((img.naturalWidth||img.width)*scale));
-          c.height=Math.max(1,Math.round((img.naturalHeight||img.height)*scale));
+          c.width=Math.max(1,Math.round(iw*scale));
+          c.height=Math.max(1,Math.round(ih*scale));
           const ctx=c.getContext('2d',{alpha:false});
+          ctx.imageSmoothingEnabled=true;
+          ctx.imageSmoothingQuality='high';
           ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
           ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
           ctx.drawImage(img,0,0,c.width,c.height);
