@@ -52,6 +52,14 @@ function ocrActorLabelV1_(actor) {
   return name && emp ? name + ' (' + emp + ')' : (name || emp);
 }
 
+function ocrWithLockV1_(fn) {
+  if (typeof LockService === 'undefined') return fn();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try { return fn(); }
+  finally { lock.releaseLock(); }
+}
+
 function ocrAssertAdminV1_(actor) {
   if (!actor || String(actor.role || '').toLowerCase() !== 'admin') {
     throw new Error('관리자 권한이 필요합니다.');
@@ -112,6 +120,7 @@ function ocrFindCaptureV1_(sheet, captureKey) {
 }
 
 function saveOcrLearningV1_(payload, actor) {
+  return ocrWithLockV1_(function() {
   setupOcrLearningStoreV1_();
   const e = (payload && payload.entry) || payload || {};
   if (!e.captureKey) throw new Error('captureKey가 없습니다.');
@@ -135,6 +144,7 @@ function saveOcrLearningV1_(payload, actor) {
     Number(e.comparedFields || 0), Number(e.changedFields || 0), 'PENDING', '', '', '', ocrActorLabelV1_(actor)
   ]);
   return { ok: true, id: id, datasetVersion: version, photoUrl: photo };
+  });
 }
 
 function ocrLearningInfoV1_() {
@@ -184,6 +194,7 @@ function ocrJsonV1_(v) {
 }
 
 function verifyOcrLearningV1_(payload, actor) {
+  return ocrWithLockV1_(function() {
   ocrAssertAdminV1_(actor);
   payload = payload || {};
   const id = String(payload.id || '');
@@ -200,6 +211,7 @@ function verifyOcrLearningV1_(payload, actor) {
   sh.getRange(row, 18, 1, 4).setValues([[status, new Date(), ocrActorLabelV1_(actor), String(payload.note || '')]]);
   ocrRefreshDatasetCountV1_();
   return { ok: true, id, status };
+  });
 }
 
 function listOcrDatasetVersionsV1_(actor) {
@@ -211,6 +223,7 @@ function listOcrDatasetVersionsV1_(actor) {
 }
 
 function createOcrDatasetVersionV1_(payload, actor) {
+  return ocrWithLockV1_(function() {
   ocrAssertAdminV1_(actor);
   payload = payload || {};
   const version = String(payload.version || '').trim();
@@ -225,6 +238,7 @@ function createOcrDatasetVersionV1_(payload, actor) {
   }
   sh.appendRow([version, new Date(), payload.activate === false ? 'FROZEN' : 'ACTIVE', 0, String(payload.note || ''), ocrActorLabelV1_(actor)]);
   return { ok: true, version, status: payload.activate === false ? 'FROZEN' : 'ACTIVE' };
+  });
 }
 
 function ocrRefreshDatasetCountV1_() {
@@ -238,6 +252,69 @@ function ocrRefreshDatasetCountV1_() {
   if (ds.getLastRow() < 2) return;
   const vers = ds.getRange(2, 1, ds.getLastRow() - 1, 1).getValues();
   ds.getRange(2, 4, vers.length, 1).setValues(vers.map(r => [counts[String(r[0] || '')] || 0]));
+}
+
+function ocrLearningMetricsV1_(params, actor) {
+  ocrAssertAdminV1_(actor);
+  setupOcrLearningStoreV1_();
+  params = params || {};
+  const scope = String(params.scope || 'APPROVED').toUpperCase();
+  const version = String(params.datasetVersion || '');
+  const sh = ocrLearningSsV1_().getSheetByName(OCR_LEARNING_LOG_SHEET_V1);
+  const rows = sh.getDataRange().getValues();
+
+  const out = {
+    ok:true, scope:scope, datasetVersion:version || '',
+    samples:0, comparedFields:0, changedFields:0, accuracy:null,
+    bySource:{}, byTemplate:{}, fields:[]
+  };
+  const fieldMap = {};
+
+  function addBucket(map,key,compared,changed) {
+    key = String(key || '(미지정)');
+    if (!map[key]) map[key] = {samples:0,comparedFields:0,changedFields:0,accuracy:null};
+    const b = map[key];
+    b.samples++; b.comparedFields += compared; b.changedFields += changed;
+  }
+
+  for (let i=1;i<rows.length;i++) {
+    const r=rows[i];
+    const status=String(r[17]||'').toUpperCase();
+    if (scope !== 'ALL' && status !== scope) continue;
+    if (version && String(r[6]||'') !== version) continue;
+
+    const compared=Number(r[15]||0), changed=Number(r[16]||0);
+    out.samples++; out.comparedFields+=compared; out.changedFields+=changed;
+    addBucket(out.bySource,r[4],compared,changed);
+    addBucket(out.byTemplate,r[5] || r[4],compared,changed);
+
+    const d=ocrJsonV1_(r[14]);
+    Object.keys(d||{}).forEach(function(k){
+      const x=d[k]||{};
+      if (!fieldMap[k]) fieldMap[k]={field:k,compared:0,changed:0,accuracy:null};
+      fieldMap[k].compared++;
+      if (x.changed === true) fieldMap[k].changed++;
+    });
+  }
+
+  function finishBucket(map) {
+    Object.keys(map).forEach(function(k){
+      const b=map[k];
+      b.accuracy=b.comparedFields ? Number((((b.comparedFields-b.changedFields)/b.comparedFields)*100).toFixed(1)) : null;
+    });
+  }
+  finishBucket(out.bySource); finishBucket(out.byTemplate);
+  out.accuracy=out.comparedFields ? Number((((out.comparedFields-out.changedFields)/out.comparedFields)*100).toFixed(1)) : null;
+  out.fields=Object.keys(fieldMap).map(function(k){
+    const x=fieldMap[k];
+    x.accuracy=x.compared ? Number((((x.compared-x.changed)/x.compared)*100).toFixed(1)) : null;
+    x.correctionRate=x.compared ? Number(((x.changed/x.compared)*100).toFixed(1)) : null;
+    return x;
+  }).sort(function(a,b){
+    if (b.changed !== a.changed) return b.changed-a.changed;
+    return b.compared-a.compared;
+  });
+  return out;
 }
 
 function exportOcrDatasetManifestV1_(params, actor) {
