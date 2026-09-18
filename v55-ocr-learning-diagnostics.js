@@ -37,8 +37,11 @@
       if(admin){
         const v=await apiGet('ocrDatasetVersions',{});
         rows.push(row('Dataset version API',!!(v&&v.ok),v&&v.ok?String((v.items||[]).length)+' versions':(v&&v.message||'no response')));
+        const m=await apiGet('ocrLearningMetrics',{scope:'APPROVED'});
+        rows.push(row('OCR quality metrics API',!!(m&&m.ok),m&&m.ok?('approved '+String(m.samples||0)+' / accuracy '+String(m.accuracy==null?'-':m.accuracy+'%')):(m&&m.message||'no response')));
       }else{
         rows.push(row('Dataset version API',true,'operator session - admin check skipped'));
+        rows.push(row('OCR quality metrics API',true,'operator session - admin check skipped'));
       }
     }catch(e){
       rows.push(row('Dataset version API',false,e&&e.message||e));
