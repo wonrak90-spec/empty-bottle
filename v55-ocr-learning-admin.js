@@ -14,6 +14,7 @@
     el.innerHTML='<div style="max-width:980px;margin:20px auto;background:#fff;border-radius:16px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)">'+
       '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><b style="font-size:18px">OCR Learning Store V1</b><div style="font-size:12px;color:#666;margin-top:4px">OCR 인식값과 최종 수정값 검증</div></div><button class="btn outline" onclick="V55OcrLearning.closeAdmin()" style="width:auto">닫기</button></div>'+
       '<div id="v55LearningStats" class="status" style="margin-top:12px">불러오는 중...</div>'+
+      '<div id="v55LearningQuality" style="margin-top:10px"></div>'+
       '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn outline" onclick="V55OcrLearning.loadAdmin()" style="width:auto">새로고침</button><button class="btn outline" onclick="V55OcrLearning.flush(true).then(()=>V55OcrLearning.loadAdmin())" style="width:auto">대기 로그 동기화</button><button class="btn outline" onclick="V55OcrLearning.createDataset()" style="width:auto">Dataset 버전 생성</button><button class="btn outline" onclick="V55OcrLearning.renderDiagnostics(\'v55LearningDiag\')" style="width:auto">연동 진단</button></div>'+
       '<div id="v55LearningDiag" class="status hidden" style="margin-bottom:10px"></div><div id="v55DatasetList" style="font-size:12px;color:#555;margin-bottom:12px"></div><div id="v55LearningList"></div></div>';
     document.body.appendChild(el);
@@ -35,20 +36,36 @@
     ensureModal();document.getElementById('v55LearningModal').classList.remove('hidden');await L.loadAdmin();
   };
   L.closeAdmin=function(){const e=document.getElementById('v55LearningModal');if(e)e.classList.add('hidden');};
+  function renderQuality(m){
+    if(!m||!m.ok||!m.samples)return '<div class="status">관리자 승인 데이터가 쌓이면 OCR 품질지표가 표시됩니다.</div>';
+    const src=Object.keys(m.bySource||{}).map(k=>{
+      const x=m.bySource[k]||{};
+      return '<div style="border:1px solid #ddd;border-radius:10px;padding:8px"><div style="font-size:11px;color:#666">'+esc(k)+'</div><b style="font-size:17px">'+esc(x.accuracy==null?'-':x.accuracy+'%')+'</b><div style="font-size:11px;color:#777">승인 '+esc(x.samples||0)+'건 · 수정 '+esc(x.changedFields||0)+'/'+esc(x.comparedFields||0)+'</div></div>';
+    }).join('');
+    const weak=(m.fields||[]).filter(x=>Number(x.changed||0)>0).slice(0,5);
+    const weakRows=weak.length?weak.map(x=>'<span style="display:inline-block;border:1px solid #ddd;border-radius:12px;padding:3px 8px;margin:2px">'+esc(x.field)+' · 수정 '+esc(x.changed)+'/'+esc(x.compared)+' ('+esc(x.correctionRate)+'%)</span>').join(''):'<span style="font-size:12px;color:#666">승인 데이터 기준 수정 발생 필드 없음</span>';
+    return '<div style="border:1px solid #d7d7d7;border-radius:12px;padding:12px;background:#fafafa">'+
+      '<div style="display:flex;justify-content:space-between;gap:10px;align-items:end"><div><b>승인 데이터 OCR 품질</b><div style="font-size:11px;color:#666;margin-top:3px">관리자가 승인한 Final 값만 정답으로 사용</div></div><div style="text-align:right"><b style="font-size:22px">'+esc(m.accuracy==null?'-':m.accuracy+'%')+'</b><div style="font-size:11px;color:#777">필드 일치율 · '+esc(m.samples)+' samples</div></div></div>'+
+      (src?'<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:6px;margin-top:9px">'+src+'</div>':'')+
+      '<div style="margin-top:8px"><b style="font-size:12px">수정 빈도 높은 필드</b><div style="margin-top:4px">'+weakRows+'</div></div></div>';
+  }
+
   L.loadAdmin=async function(){
     ensureModal();
-    const stats=document.getElementById('v55LearningStats'),list=document.getElementById('v55LearningList'),ds=document.getElementById('v55DatasetList');
-    stats.className='status';stats.textContent='Learning Store 조회 중...';list.innerHTML='';ds.innerHTML='';
+    const stats=document.getElementById('v55LearningStats'),quality=document.getElementById('v55LearningQuality'),list=document.getElementById('v55LearningList'),ds=document.getElementById('v55DatasetList');
+    stats.className='status';stats.textContent='Learning Store 조회 중...';if(quality)quality.innerHTML='';list.innerHTML='';ds.innerHTML='';
     try{
       await L.flush(true);
       const info=await apiGet('ocrLearningInfo',{});
       if(!info||!info.ok)throw new Error(info&&info.message||'Learning Store backend 미적용');
       const r=await apiGet('ocrLearningList',{status:'PENDING',limit:'100'});
       const v=await apiGet('ocrDatasetVersions',{});
+      const m=await apiGet('ocrLearningMetrics',{scope:'APPROVED'});
       const items=(r&&r.items)||[];
       stats.className='status ok';
       stats.textContent='검증 대기 '+items.length+'건 · 전체 '+String(info.total||0)+'건 · 승인 '+String(info.approved||0)+'건 · 로컬 대기 '+String(L.loadQueue().length)+'건';
       ds.innerHTML='Dataset: '+((v&&v.items)||[]).map(x=>'<b>'+esc(x.version)+'</b> '+esc(x.status||'')).join(' · ');
+      if(quality)quality.innerHTML=renderQuality(m);
       if(!items.length){list.innerHTML='<div class="status ok">검증 대기 항목이 없습니다.</div>';return;}
       list.innerHTML=items.map(x=>{
         const d=x.diff||{};
@@ -58,6 +75,7 @@
       }).join('');
     }catch(e){
       stats.className='status bad';stats.textContent='Learning Store 백엔드 연결 필요 · '+String(e&&e.message?e.message:e);
+      if(quality)quality.innerHTML='';
       list.innerHTML='<div class="status">OCR 학습 로그 캡처는 로컬 대기열에 유지됩니다. Apps Script에 Learning Store V1 모듈을 배포하면 자동 동기화됩니다.</div>';
     }
   };
