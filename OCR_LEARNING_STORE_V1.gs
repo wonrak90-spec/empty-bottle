@@ -229,6 +229,7 @@ function listOcrDatasetVersionsV1_(actor) {
 function createOcrDatasetVersionV1_(payload, actor) {
   return ocrWithLockV1_(function() {
   ocrAssertAdminV1_(actor);
+  setupOcrLearningStoreV1_();
   payload = payload || {};
   const version = String(payload.version || '').trim();
   if (!/^OCR-DS-[A-Za-z0-9._-]+$/.test(version)) throw new Error('Dataset 버전명은 OCR-DS- 형식으로 입력하세요.');
