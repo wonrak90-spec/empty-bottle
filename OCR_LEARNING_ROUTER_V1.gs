@@ -18,6 +18,9 @@ function routeOcrLearningGetV1_(action, params, actor) {
   if (action === 'ocrDatasetVersions') {
     return { handled: true, result: listOcrDatasetVersionsV1_(actor) };
   }
+  if (action === 'ocrLearningMetrics') {
+    return { handled: true, result: ocrLearningMetricsV1_(params, actor) };
+  }
   if (action === 'ocrDatasetManifest') {
     return { handled: true, result: exportOcrDatasetManifestV1_(params, actor) };
   }
