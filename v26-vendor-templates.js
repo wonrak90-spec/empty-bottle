@@ -176,8 +176,9 @@
     const dm=String(deliverRow||'').match(/납\s*품\s*처\s*[:\-]?\s*(.+?)(?=\s*제\s*조\s*회\s*사|$)/i);
     const maker=mm&&mm[1]?flat(mm[1]):'';
     const deliver=dm&&dm[1]?flat(dm[1]):'';
-    if(maker)out.maker=maker;if(deliver)out.deliverTo=deliver;
-    if(!out.maker&&/동아\s*에코\s*팩/i.test(joined))out.maker='동아에코팩(주)';
+    // 이 템플릿 자체가 동아에코팩 양식으로 확정된 경우 OCR 한 글자 오인식/검사자 혼입을 제조사에 전파하지 않는다.
+    out.maker='동아에코팩(주)';
+    if(deliver)out.deliverTo=deliver;
     return out;
   }
 
