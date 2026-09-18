@@ -4,7 +4,14 @@ on:
   pull_request:
     paths:
       - 'v55-ocr-learning.js'
+      - 'v55-ocr-learning-admin.js'
+      - 'v55-ocr-learning-diagnostics.js'
+      - 'OCR_LEARNING_*.gs'
+      - 'OCR_LEARNING_*.md'
+      - 'config.js'
+      - 'sw.js'
       - 'tests/v55-learning.test.js'
+      - 'tests/v55-learning-backend.test.js'
       - '.github/workflows/v55-learning-tests.yml'
   workflow_dispatch:
 
@@ -56,6 +63,9 @@ jobs:
 
       - name: Run V55 regression tests
         run: node tests/v55-learning.test.js
+
+      - name: Run V55 backend and metrics tests
+        run: node tests/v55-learning-backend.test.js
 
       - name: Static check Apps Script modules
         run: |
