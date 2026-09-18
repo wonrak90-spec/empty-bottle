@@ -4,7 +4,9 @@ on:
   pull_request:
     paths:
       - 'v56-operations.js'
+      - 'v56-reporting.js'
       - 'tests/v56-operations.test.js'
+      - 'tests/v56-reporting.test.js'
       - 'V56_OPERATIONS_PLAN.md'
       - 'config.js'
       - 'sw.js'
@@ -38,7 +40,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              v56-operations.js|V56_OPERATIONS_PLAN.md|config.js|sw.js|tests/v56-operations.test.js|.github/workflows/v56-operations-tests.yml) ;;
+              v56-operations.js|v56-reporting.js|V56_OPERATIONS_PLAN.md|config.js|sw.js|tests/v56-operations.test.js|tests/v56-reporting.test.js|.github/workflows/v56-operations-tests.yml) ;;
               *) bad="${bad}${file}"$'\n' ;;
             esac
           done <<< "$changed"
@@ -48,11 +50,15 @@ jobs:
             exit 1
           fi
 
-      - name: Run V56 regression tests
+      - name: Run V56 operations regression tests
         run: node tests/v56-operations.test.js
+
+      - name: Run V56 reporting regression tests
+        run: node tests/v56-reporting.test.js
 
       - name: Static syntax checks
         run: |
           node --check v56-operations.js
+          node --check v56-reporting.js
           node --check config.js
           node --check sw.js
