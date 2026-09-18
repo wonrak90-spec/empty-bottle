@@ -17,11 +17,46 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Use Node.js
         uses: actions/setup-node@v4
         with:
           node-version: '22'
 
+      - name: Guard frozen V54 core
+        shell: bash
+        run: |
+          git fetch origin main
+          changed="$(git diff --name-only origin/main...HEAD)"
+          echo "$changed"
+          bad="$(echo "$changed" | grep -Ev '^(OCR_LEARNING_.*\.(gs|md)|v55-ocr-learning[^/]*\.js|config\.js|sw\.js|tests/.*|\.github/workflows/v55-learning-tests\.yml) || true)"
+          if [ -n "$bad" ]; then
+            echo "Frozen V54 core file changed:"
+            echo "$bad"
+            exit 1
+          fi
+          images="$(echo "$changed" | grep -Ei '\.(png|jpe?g|webp|gif|bmp|tiff?) || true)"
+          if [ -n "$images" ]; then
+            echo "Image files must not be committed for OCR Learning:"
+            echo "$images"
+            exit 1
+          fi
+
       - name: Run V55 regression tests
         run: node tests/v55-learning.test.js
+
+      - name: Static check Apps Script modules
+        run: |
+          node --check v55-ocr-learning.js
+          node --check v55-ocr-learning-admin.js
+          node --check v55-ocr-learning-diagnostics.js
+          cp OCR_LEARNING_STORE_V1.gs /tmp/ocr-learning-store.js
+          cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
+          node --check /tmp/ocr-learning-store.js
+          node --check /tmp/ocr-learning-router.js
+          if grep -Eq 'DriveApp|data:image|base64' OCR_LEARNING_STORE_V1.gs OCR_LEARNING_ROUTER_V1.gs; then
+            echo "Learning backend must reference existing photo URLs only."
+            exit 1
+          fi
