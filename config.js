@@ -29,25 +29,25 @@ const CONFIG = {
             if(document.getElementById('v26QtyLoader'))return;
             const sq=document.createElement('script');
             sq.id='v26QtyLoader';
-            sq.src='v26-qty.js?v=20260918a';
+            sq.src='v26-qty.js?v=20260918b';
             sq.async=false;
             sq.onload=()=>{
               if(document.getElementById('v26KoreanOcrLoader'))return;
               const sk=document.createElement('script');
               sk.id='v26KoreanOcrLoader';
-              sk.src='v26-korean-ocr.js?v=20260918b';
+              sk.src='v26-korean-ocr.js?v=20260918c';
               sk.async=false;
               sk.onload=()=>{
                 if(document.getElementById('v26WmsCardScanLoader'))return;
                 const sc=document.createElement('script');
                 sc.id='v26WmsCardScanLoader';
-                sc.src='v26-wms-cardscan.js?v=20260918d';
+                sc.src='v26-wms-cardscan.js?v=20260918e';
                 sc.async=false;
                 sc.onload=()=>{
                   if(document.getElementById('v26VendorTemplatesLoader'))return;
                   const st=document.createElement('script');
                   st.id='v26VendorTemplatesLoader';
-                  st.src='v26-vendor-templates.js?v=20260918b';
+                  st.src='v26-vendor-templates.js?v=20260918c';
                   st.async=false;
                   st.onload=()=>{
                     if(document.getElementById('v26VendorCardScanLoader'))return;
@@ -71,7 +71,7 @@ const CONFIG = {
                         if(document.getElementById('v26OcrBenchmarkLoader'))return;
                         const sb=document.createElement('script');
                         sb.id='v26OcrBenchmarkLoader';
-                        sb.src='v26-ocr-benchmark.js?v=20260918a';
+                        sb.src='v26-ocr-benchmark.js?v=20260918b';
                         sb.async=false;
                         document.body.appendChild(sb);
                       };
