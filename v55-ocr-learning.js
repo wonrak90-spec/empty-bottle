@@ -15,7 +15,7 @@
     nativePost:null,wrapped:false,syncing:false
   };
   const WMS=['inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty','unit','expiryDate','containerFrom','containerTo'];
-  const VENDOR=['product','qty','prodDate','prodTime','lotNo','palletNo','line','maker'];
+  const VENDOR=['product','qty','prodDate','prodTime','lotNo','palletNo','line'];
 
   function txt(v){return String(v==null?'':v).replace(/\s+/g,' ').trim();}
   function hash(s){s=String(s||'');let h=2166136261;for(let i=0;i<s.length;i++){h^=s.charCodeAt(i);h+=(h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24);}return (h>>>0).toString(16);}
@@ -108,7 +108,7 @@
   L.loadQueue=loadQueue;
 
   function finalWms(p){return {inboundNo:p.inboundNo||'',inboundDate:p.inboundDate||'',product:p.product||'',itemCode:p.itemCode||'',manufacturer:p.manufacturer||'',supplier:p.supplier||'',displayQty:p.displayQty||'',unit:p.unit||'',expiryDate:p.expiryDate||'',containerFrom:p.containerFrom||'',containerTo:p.containerTo||''};}
-  function finalVendor(p){return {product:p.vendorProduct||'',qty:p.vendorQty||'',prodDate:p.vendorProdDate||'',prodTime:p.vendorProdTime||'',lotNo:p.vendorLotNo||'',palletNo:p.vendorPalletNo||'',line:p.vendorLine||'',maker:''};}
+  function finalVendor(p){return {product:p.vendorProduct||'',qty:p.vendorQty||'',prodDate:p.vendorProdDate||'',prodTime:p.vendorProdTime||'',lotNo:p.vendorLotNo||'',palletNo:p.vendorPalletNo||'',line:p.vendorLine||''};}
   function singleEntries(p,r){
     const out=[],id=r&&r.id||'';
     if(p.ocrRaw)out.push(makeEntry('wms',id,p.ocrRaw,parseWms(p.ocrRaw,'wms'),finalWms(p),WMS,{photoUrl:String(r&&r.photoUrl||'')}));
