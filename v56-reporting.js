@@ -107,7 +107,7 @@
 
   function issueOf(r){
     const reasons=[];
-    if(txt(r.finalResult)&&!/적합/.test(txt(r.finalResult)))reasons.push(txt(r.finalResult));
+    if(txt(r.finalResult)&&txt(r.finalResult)!=='적합')reasons.push(txt(r.finalResult));
     if(txt(r.labelMatch)==='불일치')reasons.push('라벨 불일치');
     if(txt(r.mixed)==='있음')reasons.push('혼입');
     if(txt(r.qtyResult)==='불일치')reasons.push('수량 불일치');
@@ -123,7 +123,7 @@
       const pc=isMulti?num(r.palletCount):1;
       const q=isMulti?num(r.totalQty):num(r.actualQty||r.displayQty);
       pallets+=pc;qty+=q;
-      if(/적합/.test(txt(r.finalResult)))ok++;else issues++;
+      if(txt(r.finalResult)==='적합')ok++;else issues++;
       if(r.supplier)suppliers.add(txt(r.supplier));
       if(r.inspector)inspectors.add(txt(r.inspector));
       const d=dateOnly(r.regDate);if(d)dates.add(d);
@@ -169,6 +169,10 @@
     if(!$('v56DailySummaryBtn')){
       const b=document.createElement('button');b.id='v56DailySummaryBtn';b.className='btn primary';b.textContent='📋 일일 검수 Summary';b.onclick=R.printDailySummary;bar.appendChild(b);
     }
+    const detail=$('viewDetailCard');
+    if(detail&&!$('v56CurrentTraceBtn')){
+      const b=document.createElement('button');b.id='v56CurrentTraceBtn';b.className='btn outline';b.textContent='🔗 생산연동 포함 출력';b.onclick=R.printCurrentTraceSummary;detail.appendChild(b);
+    }
   }
 
   function reportCss(){
@@ -193,25 +197,24 @@
       const items=await batchRecords(ids);
       if(!items.length)throw new Error('선택 기록을 불러오지 못했습니다.');
       const s=summarizeDaily(items);
+      if(s.dates.length>1&&!confirm('선택한 검수 기록에 여러 날짜가 포함되어 있습니다.\n'+s.dates.join(', ')+'\n\n이대로 기간 Summary로 출력할까요?'))return;
       const range=s.dates.length?(s.dates[0]+(s.dates.length>1?' ~ '+s.dates[s.dates.length-1]:'')):'-';
       const issueRows=items.filter(x=>issueOf(x.record||{}).length).map(x=>{const r=x.record||{};return '<tr class="warn"><td>'+esc(r.inboundNo)+'</td><td>'+esc(r.product)+'</td><td>'+esc(issueOf(r).join(', '))+'</td><td>'+esc(r.note||'')+'</td><td>'+esc(r.inspector||'')+'</td></tr>';}).join('');
-      const productRows=s.products.map(x=>'<tr><td>'+esc(x.product)+'</td><td>'+x.inboundCount+'</td><td>'+x.pallets.toLocaleString()+'</td><td>'+x.qty.toLocaleString()+'</td><td>'+x.issues+'</td></tr>').join('');
-      const detailRows=items.map(x=>{const r=x.record||{},pc=/다중/.test(txt(r.mode))?num(r.palletCount):1,q=/다중/.test(txt(r.mode))?num(r.totalQty):num(r.actualQty||r.displayQty);return '<tr><td>'+esc(dateOnly(r.regDate))+'</td><td>'+esc(r.inboundNo)+'</td><td>'+esc(r.product)+'</td><td>'+esc(r.supplier)+'</td><td>'+pc+'</td><td>'+q.toLocaleString()+' '+esc(r.unit||'')+'</td><td>'+esc(r.finalResult||'')+'</td><td>'+esc(r.inspector||'')+'</td></tr>';}).join('');
+      const productRows=s.products.map(x=>'<tr><td>'+esc(x.product)+'</td><td>'+esc(x.inbounds.join(', '))+'</td><td>'+x.pallets.toLocaleString()+'</td><td>'+x.qty.toLocaleString()+'</td><td>'+x.issues+'</td></tr>').join('');
       const html='<section class="sheet"><h1>공병 입고 검수 일일 Summary</h1>'+
-        '<div class="meta">보고기간 '+esc(range)+' · 검수자 '+esc(s.inspectors.join(', ')||'-')+'</div>'+
+        '<div class="meta">보고일/기간 '+esc(range)+' · 검수자 '+esc(s.inspectors.join(', ')||'-')+'</div>'+
         '<div class="kpis"><div class="kpi"><small>검수건</small><b>'+s.records+'</b></div><div class="kpi"><small>파레트</small><b>'+s.pallets.toLocaleString()+'</b></div><div class="kpi"><small>총수량</small><b>'+s.qty.toLocaleString()+'</b></div><div class="kpi"><small>품목</small><b>'+s.productCount+'</b></div><div class="kpi"><small>적합</small><b>'+s.ok+'</b></div><div class="kpi"><small>확인필요</small><b>'+s.issues+'</b></div></div>'+
-        '<h2>1. 품목별 검수 현황</h2><table><tr><th>공병 품명</th><th>입고건</th><th>파레트</th><th>검수수량</th><th>확인필요</th></tr>'+productRows+'</table>'+
+        '<h2>1. 품목별 검수 현황</h2><table><tr><th>공병 품명</th><th>입고번호</th><th>파레트</th><th>검수수량</th><th>확인필요</th></tr>'+productRows+'</table>'+
         '<h2>2. 특이사항 / 확인 필요</h2>'+(issueRows?'<table><tr><th>입고번호</th><th>품명</th><th>확인사항</th><th>특이사항</th><th>검수자</th></tr>'+issueRows+'</table>':'<div class="section-note">선택 기록 기준 특이사항 없음.</div>')+
-        '<h2>3. 검수 상세</h2><table><tr><th>일자</th><th>입고번호</th><th>품명</th><th>공급업체</th><th>Pallet</th><th>수량</th><th>결과</th><th>검수자</th></tr>'+detailRows+'</table>'+
+        '<div class="section-note">세부 검수기록 및 증빙사진은 기존 조회/출력 기능에서 선택 기록서로 확인.</div>'+
         '<div class="sign"><div>검수 담당</div><div>팀장 확인</div></div></section>';
       openPrint('공병 입고 검수 일일 Summary',html);
     }catch(e){alert('일일 Summary 생성 실패: '+(e.message||e));}
     finally{if(typeof hideBusy==='function')hideBusy();}
   };
 
-  R.printTraceSummary=async function(){
-    const ids=selectedIds();
-    if(!ids.length){alert('추적 Summary에 포함할 검수 기록을 선택하세요.');return;}
+  async function printTraceSummaryForIds(ids){
+    if(!ids||!ids.length){alert('추적 Summary에 포함할 검수 기록을 선택하세요.');return;}
     if(typeof showBusy==='function')showBusy('생산 연동 및 파레트 이력을 확인하는 중...');
     try{
       const base=await batchRecords(ids);
@@ -230,6 +233,14 @@
       openPrint('공병 생산 연동 추적 Summary',html);
     }catch(e){alert('생산 추적 Summary 생성 실패: '+(e.message||e));}
     finally{if(typeof hideBusy==='function')hideBusy();}
+  }
+  R.printTraceSummary=()=>printTraceSummaryForIds(selectedIds());
+  R.printCurrentTraceSummary=()=>{
+    try{
+      const r=currentViewRecord&&currentViewRecord.record;
+      if(!r||!r.id){alert('먼저 조회할 검수기록을 선택하세요.');return;}
+      return printTraceSummaryForIds([String(r.id)]);
+    }catch(_){alert('먼저 조회할 검수기록을 선택하세요.');}
   };
 
   async function renderProductionLinksForCurrent(){
