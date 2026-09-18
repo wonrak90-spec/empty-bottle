@@ -14,8 +14,8 @@
     el.innerHTML='<div style="max-width:980px;margin:20px auto;background:#fff;border-radius:16px;padding:18px;box-shadow:0 20px 60px rgba(0,0,0,.25)">'+
       '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><b style="font-size:18px">OCR Learning Store V1</b><div style="font-size:12px;color:#666;margin-top:4px">OCR 인식값과 최종 수정값 검증</div></div><button class="btn outline" onclick="V55OcrLearning.closeAdmin()" style="width:auto">닫기</button></div>'+
       '<div id="v55LearningStats" class="status" style="margin-top:12px">불러오는 중...</div>'+
-      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn outline" onclick="V55OcrLearning.loadAdmin()" style="width:auto">새로고침</button><button class="btn outline" onclick="V55OcrLearning.flush(true).then(()=>V55OcrLearning.loadAdmin())" style="width:auto">대기 로그 동기화</button><button class="btn outline" onclick="V55OcrLearning.createDataset()" style="width:auto">Dataset 버전 생성</button></div>'+
-      '<div id="v55DatasetList" style="font-size:12px;color:#555;margin-bottom:12px"></div><div id="v55LearningList"></div></div>';
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0"><button class="btn outline" onclick="V55OcrLearning.loadAdmin()" style="width:auto">새로고침</button><button class="btn outline" onclick="V55OcrLearning.flush(true).then(()=>V55OcrLearning.loadAdmin())" style="width:auto">대기 로그 동기화</button><button class="btn outline" onclick="V55OcrLearning.createDataset()" style="width:auto">Dataset 버전 생성</button><button class="btn outline" onclick="V55OcrLearning.renderDiagnostics(\'v55LearningDiag\')" style="width:auto">연동 진단</button></div>'+
+      '<div id="v55LearningDiag" class="status hidden" style="margin-bottom:10px"></div><div id="v55DatasetList" style="font-size:12px;color:#555;margin-bottom:12px"></div><div id="v55LearningList"></div></div>';
     document.body.appendChild(el);
   }
   function mount(){
