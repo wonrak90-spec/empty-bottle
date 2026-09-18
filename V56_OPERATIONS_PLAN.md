@@ -99,3 +99,54 @@ Branch: `feature/v56-operations-usability`
 - 기존 `trace`, `getRecord`, `batchGetRecords` API 재사용.
 - 클레임/일탈 Summary와 일일 Summary 모두 선택된 검수 Record ID를 기준으로 생성.
 - 생산 연동은 `ProductionPallets.검수기록ID`를 우선 사용하여 검수 기록과 연결.
+
+
+## 5. 생산 공동작업 - 진행 중 작업 목록 / 참여
+
+### 운영 방식
+1. 최초 작업자 1명이 제품명 + 제조번호로 생산작업을 생성한다.
+2. 생성된 작업은 `현재 진행 중인 생산작업` 목록에 표시한다.
+3. 다른 작업자는 제품명/제조번호를 다시 입력하지 않고 해당 작업의 `참여` 버튼을 누른다.
+4. 모든 작업자는 동일한 `Production ID`를 공유한다.
+5. WMS Pallet 스캔 결과도 같은 Production ID에 누적된다.
+6. 작업 완료 전까지 목록은 ACTIVE 상태로 유지한다.
+7. 최종 `작업 완료` 후 CLOSED 처리되어 진행 중 목록에서 제외한다.
+
+### 진행 중 작업 카드
+표시:
+- 생산제품
+- 제조번호
+- Pallet 수
+- 투입수량
+- 참여 작업자
+- 최근 활동시각
+
+정렬:
+- 최근 활동 순
+
+### 데이터 구조
+기존 Production / ProductionPallets는 변경하지 않는다.
+공동작업 상태만 `Production_Collab_V56` sidecar sheet에서 관리한다.
+
+저장 정보:
+- Production ID
+- 제품명
+- 제조번호
+- ACTIVE / CLOSED
+- 생성일시 / 최종활동
+- 생성자
+- 참여자
+
+Pallet 수와 투입수량은 기존 `ProductionPallets`를 기준으로 계산하므로 생산이력의 Source of Truth는 기존 데이터다.
+
+### Backend action
+GET:
+- `productionCollabList`
+
+POST:
+- `productionCollabOpen`
+- `productionCollabJoin`
+- `productionCollabTouch`
+- `productionCollabClose`
+
+현재 운영 Apps Script에 실제 반영하기 전까지는 Draft 기능으로 유지한다.
