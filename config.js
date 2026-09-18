@@ -73,6 +73,14 @@ const CONFIG = {
                         sb.id='v26OcrBenchmarkLoader';
                         sb.src='v26-ocr-benchmark.js?v=20260918b';
                         sb.async=false;
+                        sb.onload=()=>{
+                          if(document.getElementById('v56OperationsLoader'))return;
+                          const so=document.createElement('script');
+                          so.id='v56OperationsLoader';
+                          so.src='v56-operations.js?v=20260918a';
+                          so.async=false;
+                          document.body.appendChild(so);
+                        };
                         document.body.appendChild(sb);
                       };
                       document.body.appendChild(ss);
