@@ -76,6 +76,7 @@ function make(){
     LockService:{getScriptLock:()=>({waitLock(){lock.wait++;},releaseLock(){lock.release++;}})},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=>''})},
     SpreadsheetApp:{openById:()=>ss},
+    Session:{getScriptTimeZone:()=> 'Asia/Seoul'},
     Date,JSON,String,Number,Boolean,Array,Object,Map,Set,RegExp,Math
   };
   vm.createContext(ctx);
