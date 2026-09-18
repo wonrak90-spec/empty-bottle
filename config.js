@@ -73,6 +73,22 @@ const CONFIG = {
                         sb.id='v26OcrBenchmarkLoader';
                         sb.src='v26-ocr-benchmark.js?v=20260918b';
                         sb.async=false;
+                        sb.onload=()=>{
+                          if(document.getElementById('v55OcrLearningLoader'))return;
+                          const sl=document.createElement('script');
+                          sl.id='v55OcrLearningLoader';
+                          sl.src='v55-ocr-learning.js?v=20260918a';
+                          sl.async=false;
+                          sl.onload=()=>{
+                            if(document.getElementById('v55OcrLearningAdminLoader'))return;
+                            const sa=document.createElement('script');
+                            sa.id='v55OcrLearningAdminLoader';
+                            sa.src='v55-ocr-learning-admin.js?v=20260918a';
+                            sa.async=false;
+                            document.body.appendChild(sa);
+                          };
+                          document.body.appendChild(sl);
+                        };
                         document.body.appendChild(sb);
                       };
                       document.body.appendChild(ss);
