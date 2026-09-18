@@ -83,13 +83,13 @@ const CONFIG = {
                             if(document.getElementById('v55OcrLearningAdminLoader'))return;
                             const sa=document.createElement('script');
                             sa.id='v55OcrLearningAdminLoader';
-                            sa.src='v55-ocr-learning-admin.js?v=20260918b';
+                            sa.src='v55-ocr-learning-admin.js?v=20260918c';
                             sa.async=false;
                             sa.onload=()=>{
                               if(document.getElementById('v55OcrLearningDiagnosticsLoader'))return;
                               const sd=document.createElement('script');
                               sd.id='v55OcrLearningDiagnosticsLoader';
-                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918a';
+                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918b';
                               sd.async=false;
                               document.body.appendChild(sd);
                             };
