@@ -1,0 +1,58 @@
+name: V56 Operations Tests
+
+on:
+  pull_request:
+    paths:
+      - 'v56-operations.js'
+      - 'tests/v56-operations.test.js'
+      - 'V56_OPERATIONS_PLAN.md'
+      - 'config.js'
+      - 'sw.js'
+      - '.github/workflows/v56-operations-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Guard frozen V54 core
+        shell: bash
+        run: |
+          git fetch origin main
+          changed="$(git diff --name-only origin/main...HEAD)"
+          echo "$changed"
+          bad=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              v56-operations.js|V56_OPERATIONS_PLAN.md|config.js|sw.js|tests/v56-operations.test.js|.github/workflows/v56-operations-tests.yml) ;;
+              *) bad="${bad}${file}"$'\n' ;;
+            esac
+          done <<< "$changed"
+          if [ -n "$bad" ]; then
+            echo "Frozen V54 core file changed:"
+            printf "%s" "$bad"
+            exit 1
+          fi
+
+      - name: Run V56 regression tests
+        run: node tests/v56-operations.test.js
+
+      - name: Static syntax checks
+        run: |
+          node --check v56-operations.js
+          node --check config.js
+          node --check sw.js
