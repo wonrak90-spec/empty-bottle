@@ -5,7 +5,7 @@
 
 ## 사전 조건
 - 작업 브랜치: `feature/ocr-learning-store-v1`
-- Frontend service worker: `공병입고-v55-learning-store-v1b`
+- Frontend service worker: `공병입고-v55-learning-store-v1c`
 - 운영 Apps Script에 아래 2개 모듈 추가
   - `OCR_LEARNING_STORE_V1.gs`
   - `OCR_LEARNING_ROUTER_V1.gs`
@@ -124,7 +124,7 @@ Expected:
 - WMS parser: PASS
 - Vendor template parser: PASS
 - Save hook: PASS
-- Service worker cache: `v55-learning-store-v1b`
+- Service worker cache: `v55-learning-store-v1c`
 - Learning backend: PASS (운영 모듈 배포 후)
 - Dataset version API: PASS
 
