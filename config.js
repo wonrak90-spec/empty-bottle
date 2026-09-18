@@ -83,8 +83,16 @@ const CONFIG = {
                             if(document.getElementById('v56ReportingLoader'))return;
                             const sr=document.createElement('script');
                             sr.id='v56ReportingLoader';
-                            sr.src='v56-reporting.js?v=20260918a';
+                            sr.src='v56-reporting.js?v=20260918b';
                             sr.async=false;
+                            sr.onload=()=>{
+                              if(document.getElementById('v56ProductionCollabLoader'))return;
+                              const scb=document.createElement('script');
+                              scb.id='v56ProductionCollabLoader';
+                              scb.src='v56-production-collab.js?v=20260918a';
+                              scb.async=false;
+                              document.body.appendChild(scb);
+                            };
                             document.body.appendChild(sr);
                           };
                           document.body.appendChild(so);
