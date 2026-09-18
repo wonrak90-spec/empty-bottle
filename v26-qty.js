@@ -26,8 +26,13 @@
       const m=lines[i].match(/수\s*량\s*[:：]?\s*(.*)$/);
       let tail=(m&&m[1]?m[1]:'').trim();
       if(!tail&&i+1<lines.length) tail=lines[i+1].trim();
-      const q=tail.match(/([0-9OoDQIl|SsBbZzgqTt][0-9OoDQIl|SsBbZzgqTt,.\s]*)/);
-      if(q&&q[1]) return q[1].trim();
+      // EA/개/본 직전의 가장 그럴듯한 수량 토큰을 우선한다.
+      // 예: OCR 잡음 "3 21,320.000 EA"에서 321,320이 아니라 21,320.000을 선택.
+      const beforeUnit=tail.match(/([0-9OoDQIl|SsBbZzgqTt]{1,3}(?:[,\.\s][0-9OoDQIl|SsBbZzgqTt]{3})+(?:[\.,][0-9OoDQIl|SsBbZzgqTt]{3})?|[0-9OoDQIl|SsBbZzgqTt]{4,}(?:[\.,][0-9OoDQIl|SsBbZzgqTt]{3})?)\s*(?:EA|개|본)\b/i);
+      if(beforeUnit&&beforeUnit[1]) return beforeUnit[1].trim();
+      const tokens=tail.match(/[0-9OoDQIl|SsBbZzgqTt][0-9OoDQIl|SsBbZzgqTt,.]*/g)||[];
+      const ranked=tokens.filter(x=>fixDigits(x).replace(/\D/g,'').length>=4).sort((a,b)=>fixDigits(b).replace(/\D/g,'').length-fixDigits(a).replace(/\D/g,'').length);
+      if(ranked.length) return ranked[0].trim();
     }
     return '';
   }
