@@ -8,6 +8,7 @@ on:
       - 'v55-ocr-learning-diagnostics.js'
       - 'OCR_LEARNING_*.gs'
       - 'OCR_LEARNING_*.md'
+      - 'OCR_LEARNING_*.py'
       - 'config.js'
       - 'sw.js'
       - 'tests/v55-learning.test.js'
@@ -43,7 +44,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|v55-ocr-learning*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
+              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|OCR_LEARNING_*.py|v55-ocr-learning*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
               *) bad="${bad}${file}"$'\n' ;;
             esac
             case "$file" in
@@ -67,6 +68,9 @@ jobs:
       - name: Run V55 backend and metrics tests
         run: node tests/v55-learning-backend.test.js
 
+      - name: Run OCR robustness release-gate tests
+        run: python tests/v55-robustness-eval.test.py
+
       - name: Static check Apps Script modules
         run: |
           node --check v55-ocr-learning.js
@@ -76,6 +80,7 @@ jobs:
           cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
           node --check /tmp/ocr-learning-store.js
           node --check /tmp/ocr-learning-router.js
+          python -m py_compile OCR_LEARNING_ROBUSTNESS_PREP_V1.py OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py OCR_LEARNING_ROBUSTNESS_EVAL_V1.py
           if grep -Eq 'DriveApp|data:image|base64' OCR_LEARNING_STORE_V1.gs OCR_LEARNING_ROUTER_V1.gs; then
             echo "Learning backend must reference existing photo URLs only."
             exit 1
