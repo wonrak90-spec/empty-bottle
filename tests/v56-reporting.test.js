@@ -107,6 +107,15 @@ async function test(name,fn){
     assert.strictEqual(s.unlinked[0].id,'R1');
   });
 
+  await test('부적합 문구를 적합으로 잘못 집계하지 않음',async()=>{
+    const ctx=make();
+    const s=ctx.V56Reporting.summarizeDaily([
+      item({regDate:'2026-09-18',mode:'단건',inboundNo:'I1',product:'A병',actualQty:'100',finalResult:'부적합'})
+    ]);
+    assert.strictEqual(s.ok,0);
+    assert.strictEqual(s.issues,1);
+  });
+
   await test('V56 Reporting API 노출',async()=>{
     const ctx=make();
     assert.ok(ctx.V56Reporting);
@@ -115,6 +124,7 @@ async function test(name,fn){
     assert.strictEqual(typeof ctx.V56Reporting.summarizeTrace,'function');
     assert.strictEqual(typeof ctx.V56Reporting.printDailySummary,'function');
     assert.strictEqual(typeof ctx.V56Reporting.printTraceSummary,'function');
+    assert.strictEqual(typeof ctx.V56Reporting.printCurrentTraceSummary,'function');
   });
 
   if(process.exitCode)process.exit(process.exitCode);
