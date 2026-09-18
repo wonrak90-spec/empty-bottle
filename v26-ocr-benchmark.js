@@ -40,6 +40,7 @@
     if(['inboundNo','itemCode','displayQty','qty','containerFrom','containerTo','palletNo','lotNo'].includes(k)){x=normDigits(a);y=normDigits(b);}
     else if(['maker','manufacturer','supplier','deliverTo'].includes(k)){x=normCompany(a);y=normCompany(b);}
     else if(k==='product'){x=normProduct(a);y=normProduct(b);}
+    else if(k==='line'){x=normGeneric(a).replace(/\s/g,'');y=normGeneric(b).replace(/\s/g,'');}
     else if(['prodDate','inboundDate','expiryDate'].includes(k)){x=normDate(a);y=normDate(b);}
     else{x=normGeneric(a);y=normGeneric(b);}
     return {ok:!!x&&x===y,expected:String(a??''),actual:String(b??''),nx:x,ny:y};
