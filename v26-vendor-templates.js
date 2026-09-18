@@ -53,7 +53,10 @@
     return arr.find(x=>re.test(x))||'';
   }
   function cleanProduct(s){
-    return flat(s).replace(/^[\s:.-]+|[\s:.-]+$/g,'').replace(/\s+(?=ml\b)/ig,'');
+    return flat(s)
+      .replace(/m[ℓℒ]/gi,'mL').replace(/㎖/g,'mL')
+      .replace(/^[\s:.-]+|[\s:.-]+$/g,'')
+      .replace(/\s+(?=ml\b)/ig,'');
   }
   function polyStats(poly){
     const pts=Array.isArray(poly)?poly:[],xs=[],ys=[];
@@ -169,8 +172,10 @@
     const d=dateOf(dsrc),tm=timeOf(tsrc||dsrc);
     if(d)out.prodDate=d;if(tm)out.prodTime=tm;
 
-    const maker=afterLabel(makerRow,/제\s*조\s*회\s*사\s*[:\-]?\s*(.+)$/i);
-    const deliver=afterLabel(deliverRow,/납\s*품\s*처\s*[:\-]?\s*(.+)$/i);
+    const mm=String(makerRow||'').match(/제\s*조\s*회\s*사\s*[:\-]?\s*(.+)$/i);
+    const dm=String(deliverRow||'').match(/납\s*품\s*처\s*[:\-]?\s*(.+?)(?=\s*제\s*조\s*회\s*사|$)/i);
+    const maker=mm&&mm[1]?flat(mm[1]):'';
+    const deliver=dm&&dm[1]?flat(dm[1]):'';
     if(maker)out.maker=maker;if(deliver)out.deliverTo=deliver;
     if(!out.maker&&/동아\s*에코\s*팩/i.test(joined))out.maker='동아에코팩(주)';
     return out;
