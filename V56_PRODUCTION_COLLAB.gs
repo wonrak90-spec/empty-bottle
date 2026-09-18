@@ -46,6 +46,14 @@ function v56ActorName_(actor) {
   return String(actor && (actor.name || actor.userName || actor.employeeName) || '').trim();
 }
 
+function v56WithProdCollabLock_(fn) {
+  if (typeof LockService === 'undefined') return fn();
+  const lock = LockService.getScriptLock();
+  lock.waitLock(5000);
+  try { return fn(); }
+  finally { lock.releaseLock(); }
+}
+
 function v56JsonArray_(value) {
   try {
     const x = JSON.parse(String(value||'[]'));
@@ -116,6 +124,7 @@ function listProductionCollabV56_(actor) {
 }
 
 function openProductionCollabV56_(payload, actor) {
+  return v56WithProdCollabLock_(function() {
   setupProductionCollabV56_();
   payload = payload || {};
   const productionId = String(payload.productionId||'').trim();
@@ -156,9 +165,11 @@ function openProductionCollabV56_(payload, actor) {
     JSON.stringify(workers)
   ]);
   return {ok:true,productionId:productionId,created:true,workers:workers};
+  });
 }
 
 function joinProductionCollabV56_(payload, actor) {
+  return v56WithProdCollabLock_(function() {
   setupProductionCollabV56_();
   payload = payload || {};
   const productionId = String(payload.productionId||'').trim();
@@ -185,9 +196,11 @@ function joinProductionCollabV56_(payload, actor) {
     lotNo:String(cur[2]||''),
     workers:workers
   };
+  });
 }
 
 function touchProductionCollabV56_(payload, actor) {
+  return v56WithProdCollabLock_(function() {
   setupProductionCollabV56_();
   payload = payload || {};
   const productionId = String(payload.productionId||'').trim();
@@ -208,9 +221,11 @@ function touchProductionCollabV56_(payload, actor) {
   }
   sh.getRange(row,6).setValue(new Date());
   return {ok:true};
+  });
 }
 
 function closeProductionCollabV56_(payload, actor) {
+  return v56WithProdCollabLock_(function() {
   setupProductionCollabV56_();
   payload = payload || {};
   const productionId = String(payload.productionId||'').trim();
@@ -223,4 +238,5 @@ function closeProductionCollabV56_(payload, actor) {
   sh.getRange(row,4).setValue('CLOSED');
   sh.getRange(row,6).setValue(new Date());
   return {ok:true,productionId:productionId};
+  });
 }
