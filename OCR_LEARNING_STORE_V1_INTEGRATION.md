@@ -11,40 +11,24 @@
 - `v55-ocr-learning.js`: 저장 성공 후 OCR 값과 최종 저장값을 비교하여 Learning Log를 비동기 큐에 적재한다.
 - `v55-ocr-learning-admin.js`: 관리자 검증, 승인/제외, Dataset 버전 생성 UI.
 - `OCR_LEARNING_STORE_V1.gs`: 현재 운영 중인 세션 인증 Apps Script 프로젝트에 추가할 서버 모듈.
+- `OCR_LEARNING_ROUTER_V1.gs`: 기존 GET/POST dispatcher에 최소 연결하기 위한 독립 라우터.
 
 Learning Store 서버가 아직 배포되지 않았거나 일시 장애가 나도 본래 `saveSingle`, `saveMulti`, `addProductionPallet` 결과는 그대로 반환된다. 학습 로그만 브라우저 대기열에 남고 이후 재동기화된다.
 
 ## 운영 Apps Script 라우팅 추가
 
-현재 운영 백엔드의 인증/세션 검증이 완료된 뒤 얻은 사용자 객체를 `actor`라고 할 때 아래 action만 기존 dispatcher에 추가한다. 실제 인증 함수명은 운영 백엔드 구현을 그대로 사용한다.
+현재 운영 백엔드의 인증/세션 검증이 완료된 뒤 얻은 사용자 객체를 `actor`라고 할 때 `OCR_LEARNING_ROUTER_V1.gs`를 호출한다. 실제 인증 함수명은 운영 백엔드 구현을 그대로 사용한다. Learning 관련 action이 아니면 `handled:false`를 반환하므로 기존 dispatcher 흐름은 그대로 유지된다.
 
 ### GET
 ```javascript
-if (action === 'ocrLearningInfo') {
-  return jsonOut_(ocrLearningInfoV1_());
-}
-if (action === 'ocrLearningList') {
-  return jsonOut_(listOcrLearningV1_(e.parameter || {}, actor));
-}
-if (action === 'ocrDatasetVersions') {
-  return jsonOut_(listOcrDatasetVersionsV1_(actor));
-}
-if (action === 'ocrDatasetManifest') {
-  return jsonOut_(exportOcrDatasetManifestV1_(e.parameter || {}, actor));
-}
+const learning = routeOcrLearningGetV1_(action, e.parameter || {}, actor);
+if (learning.handled) return jsonOut_(learning.result);
 ```
 
 ### POST
 ```javascript
-if (action === 'ocrLearningSave') {
-  return jsonOut_(saveOcrLearningV1_(body.payload || {}, actor));
-}
-if (action === 'ocrLearningVerify') {
-  return jsonOut_(verifyOcrLearningV1_(body.payload || {}, actor));
-}
-if (action === 'ocrDatasetCreate') {
-  return jsonOut_(createOcrDatasetVersionV1_(body.payload || {}, actor));
-}
+const learning = routeOcrLearningPostV1_(action, body.payload || {}, actor);
+if (learning.handled) return jsonOut_(learning.result);
 ```
 
 ## 최초 1회
@@ -62,7 +46,8 @@ WMS:
 - 입고번호, 입고일자, 품명, 품목코드, 제조원, 공급업체, 표시수량, 단위, 사용기한, 용기번호 시작/종료
 
 업체 라벨:
-- 품명, 수량, 생산일자, 생산시간, Lot No., P/L No., 생산라인, 제조사
+- 품명, 수량, 생산일자, 생산시간, Lot No., P/L No., 생산라인
+- 제조사는 사용자 최종 수정 입력항목이 아니므로 변경률 계산에서는 제외하고 Template 정보로 관리
 
 생산 WMS:
 - 입고번호, 품명, 품목코드, 공급업체, 수량, 단위, 용기번호
