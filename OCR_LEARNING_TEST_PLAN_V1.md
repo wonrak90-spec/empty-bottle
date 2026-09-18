@@ -159,3 +159,43 @@ Expected:
 - ScriptLock으로 Learning Log / 검증 / Dataset 상태 변경 보호
 - 동일 CaptureKey는 서버에 1건만 존재
 - Dataset ACTIVE/FROZEN 상태가 중복 또는 누락되지 않음
+
+
+## TC-12 Robustness Dataset / 중복 누수 방지
+1. Seed ZIP과 Field Holdout ZIP을 `OCR_LEARNING_ROBUSTNESS_PREP_V1.py`로 처리한다.
+2. Exact duplicate와 Near duplicate group을 확인한다.
+3. 같은 원본/유사 그룹이 Train/Validation/Holdout에 나뉘지 않았는지 확인한다.
+
+Expected:
+- SHA-256 exact duplicate는 한 원본만 평가/학습 후보
+- Near duplicate는 자동삭제가 아니라 review group으로 관리
+- Holdout 원본/파생본은 Train에 0건
+
+## TC-13 악조건 증강
+Seed exact-unique만 `OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py`에 입력한다.
+
+Expected:
+- best_autocontrast / lowlight / overexpose / blur / lowres / rotation / film_glare / harsh_combo 생성
+- 파생본은 원본과 동일 splitConstraint
+- 생성 이미지가 GitHub에 추가되지 않음
+
+## TC-14 Critical Accuracy 90% Gate
+Ground Truth와 OCR Prediction을 `OCR_LEARNING_ROBUSTNESS_EVAL_V1.py`로 비교한다.
+
+Expected:
+- Holdout Critical Field Accuracy >= 90%일 때만 Gate PASS
+- 90% 미만이면 exit code 2로 배포 Gate FAIL
+- condition/source/field별 accuracy 별도 출력
+- 기존 모델 대비 Critical 성능 하락 시 새 모델 미적용
+
+## TC-15 OCR 키인 수정 / 실시간 관리자 Monitor
+1. OCR 자동입력 후 작업자가 1개 이상 필드를 직접 수정한다.
+2. 입고검수를 저장한다.
+3. 관리자 OCR 학습 화면을 확인한다.
+
+Expected:
+- OCR 원값 / Final 값 / manualEditedFields / manualChangedFields / manualEditCount / 작업자 / 시각 기록
+- `OCR_KEYIN_CORRECTION`으로 분류
+- 서버 ACK 전까지 Learning Outbox 유지
+- 관리자 화면에 오늘 OCR, 키인 수정, 잠정 일치율, 승인 정확도, 검증대기, 최근 수정자가 표시
+- 관리자 화면이 열려 있으면 약 15초 간격 갱신
