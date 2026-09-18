@@ -104,6 +104,71 @@
     const maxY=Math.max(...a.map(x=>x.cy||0),1);
     const maxX=Math.max(...a.map(x=>x.cx||0),1);
 
+    // WMS 고정 양식은 행 위치가 매우 안정적이므로 OCR 원문 파싱이 흔들릴 때 행 단위로 보완한다.
+    const rows=[];
+    for(const it of a){
+      let row=null,best=Infinity;
+      for(const r of rows){
+        const tol=Math.max(12,Math.min(34,Math.max(r.h,it.h)*0.72));
+        const d=Math.abs(r.cy-it.cy);
+        if(d<=tol&&d<best){row=r;best=d;}
+      }
+      if(!row){row={cy:it.cy,h:it.h,items:[]};rows.push(row);}
+      row.items.push(it);row.h=Math.max(row.h,it.h);
+      row.cy=row.items.reduce((s,x)=>s+x.cy,0)/row.items.length;
+    }
+    rows.sort((x,y)=>x.cy-y.cy);
+    const rowText=rows.map(r=>r.items.sort((x,y)=>x.cx-y.cx).map(x=>x.text).join(' ').replace(/\s+/g,' ').trim());
+    const findRow=re=>rowText.find(x=>re.test(x))||'';
+    const after=(s,re)=>{const m=String(s||'').match(re);return m&&m[1]?m[1].trim():'';};
+
+    const rInbound=findRow(/입\s*고\s*번\s*호/);
+    if(!out.inboundNo&&rInbound){
+      const m=digitsFix(rInbound).match(/입\s*고\s*번\s*호\D*([0-9]{7,9})/);
+      if(m)out.inboundNo=m[1];
+    }
+
+    const rItem=findRow(/품\s*목\s*코\s*드/);
+    if(rItem&&(!out.itemCode||String(out.itemCode).replace(/\D/g,'').length<6)){
+      const m=digitsFix(rItem).match(/품\s*목\s*코\s*드\D*([0-9]{6,8})/);
+      if(m)out.itemCode=m[1];
+    }
+
+    const rProduct=findRow(/품\s*명(?!\s*목)/);
+    if(rProduct&&(!out.product||/품\s*목|코\s*드/i.test(out.product))){
+      let v=after(rProduct,/품\s*명\s*[:：-]?\s*(.+)$/);
+      v=v.replace(/\s*(?:품\s*목\s*코\s*드|수\s*량).*$/,'').trim();
+      if(v&&/[가-힣]/.test(v))out.product=v;
+    }
+
+    const rQty=findRow(/수\s*량/);
+    if(rQty&&window.V26Qty&&typeof V26Qty.normalizeWmsQuantity==='function'){
+      const t=digitsFix(rQty);
+      const m=t.match(/([0-9]{1,3}(?:[,\.]\d{3})+(?:[\.,]\d{3})?|[0-9]{4,}(?:[\.,]\d{3})?)\s*(?:EA|개|본)\b/i);
+      if(m){
+        const q=V26Qty.normalizeWmsQuantity(m[1]);
+        if(q&&!q.review&&q.value){out.displayQty=q.value;out.unit=out.unit||'EA';V26Qty.lastWms=q;}
+      }
+    }
+
+    const rMaker=findRow(/제\s*조\s*원/);
+    if(rMaker&&!out.manufacturer){
+      const v=after(rMaker,/제\s*조\s*원\s*[:：-]?\s*(.+)$/);
+      if(v)out.manufacturer=v.replace(/\s*(?:공\s*급\s*업\s*체|입\s*고\s*일\s*자).*$/,'').trim();
+    }
+
+    const rSupplier=findRow(/공\s*급\s*업\s*체/);
+    if(rSupplier&&!out.supplier){
+      const v=after(rSupplier,/공\s*급\s*업\s*체\s*[:：-]?\s*(.+)$/);
+      if(v)out.supplier=v.replace(/\s*(?:입\s*고\s*일\s*자|사\s*용\s*기\s*한).*$/,'').trim();
+    }
+
+    const rContainer=findRow(/용\s*기\s*번\s*호/);
+    if(rContainer&&(!out.containerFrom||!out.containerTo)){
+      const m=digitsFix(rContainer).match(/([0-9]{3,5})\s*[/~\-]\s*([0-9]{3,5})/);
+      if(m){out.containerFrom=out.containerFrom||m[1];out.containerTo=out.containerTo||m[2];}
+    }
+
     const numCandidates=[];
     for(const it of a){
       const t=cleanNumberToken(it.text);
