@@ -1,0 +1,27 @@
+name: V55 Learning Store Tests
+
+on:
+  pull_request:
+    paths:
+      - 'v55-ocr-learning.js'
+      - 'tests/v55-learning.test.js'
+      - '.github/workflows/v55-learning-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run V55 regression tests
+        run: node tests/v55-learning.test.js
