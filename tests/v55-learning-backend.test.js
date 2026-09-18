@@ -64,7 +64,15 @@ function make(){
   const ctx={
     console,
     getSs_:()=>ss,
-    Utilities:{getUuid:()=> 'UUID-'+(++uuid)},
+    Utilities:{
+      getUuid:()=> 'UUID-'+(++uuid),
+      formatDate:(d,tz,fmt)=>{
+        const x=d instanceof Date?d:new Date(d);
+        const y=x.getFullYear(),m=String(x.getMonth()+1).padStart(2,'0'),day=String(x.getDate()).padStart(2,'0');
+        if(fmt==='yyyy-MM-dd')return y+'-'+m+'-'+day;
+        return y+'-'+m+'-'+day+' 00:00';
+      }
+    },
     LockService:{getScriptLock:()=>({waitLock(){lock.wait++;},releaseLock(){lock.release++;}})},
     PropertiesService:{getScriptProperties:()=>({getProperty:()=>''})},
     SpreadsheetApp:{openById:()=>ss},
@@ -96,7 +104,11 @@ function entry(overrides={}){
       displayQty:{ocr:'13608',final:'13608',changed:false}
     },
     comparedFields:2,
-    changedFields:0
+    changedFields:0,
+    manualEditedFields:[],
+    manualChangedFields:[],
+    manualEditCount:0,
+    correctionType:'NO_CORRECTION'
   },overrides);
 }
 const admin={name:'관리자',employeeNo:'1001',role:'admin'};
@@ -150,6 +162,28 @@ async function test(name,fn){
     });
     const r=ctx.saveOcrLearningV1_({entry:e},operator);
     assert.strictEqual(r.photoUrl,'https://drive.test/vendor-r1');
+  });
+
+  await test('키인 수정 Audit 필드가 Learning Log에 영구 저장',()=>{
+    const {ctx}=make();
+    const e=entry({
+      captureKey:'R1|wms||manual|final',
+      ocrRaw:'수량 13608000',
+      ocr:{displayQty:'13608000'},
+      final:{displayQty:'13608'},
+      diff:{displayQty:{ocr:'13608000',final:'13608',changed:true}},
+      comparedFields:1,changedFields:1,
+      manualEditedFields:['displayQty'],
+      manualChangedFields:['displayQty'],
+      manualEditCount:2,
+      correctionType:'OCR_KEYIN_CORRECTION'
+    });
+    ctx.saveOcrLearningV1_({entry:e},operator);
+    const list=ctx.listOcrLearningV1_({status:'PENDING'},admin);
+    assert.deepStrictEqual(Array.from(list.items[0].manualEditedFields),['displayQty']);
+    assert.deepStrictEqual(Array.from(list.items[0].manualChangedFields),['displayQty']);
+    assert.strictEqual(list.items[0].manualEditCount,2);
+    assert.strictEqual(list.items[0].correctionType,'OCR_KEYIN_CORRECTION');
   });
 
   await test('동일 CaptureKey 재전송은 중복 저장하지 않음',()=>{
@@ -219,6 +253,39 @@ async function test(name,fn){
     assert.strictEqual(pallet.correctionRate,100);
   });
 
+  await test('관리자 실시간 화면은 오늘 키인 수정/잠정 정확도/최근 수정자를 집계',()=>{
+    const {ctx}=make();
+    const today=new Date();
+    const a=ctx.saveOcrLearningV1_({entry:entry({
+      capturedAt:today.toISOString(),
+      captureKey:'R1|wms||rt1|x',
+      ocrRaw:'수량 13608000',
+      ocr:{displayQty:'13608000'},
+      final:{displayQty:'13608'},
+      diff:{displayQty:{ocr:'13608000',final:'13608',changed:true}},
+      comparedFields:1,changedFields:1,
+      manualEditedFields:['displayQty'],manualChangedFields:['displayQty'],
+      manualEditCount:1,correctionType:'OCR_KEYIN_CORRECTION'
+    })},operator);
+    approve(ctx,a.id);
+    ctx.saveOcrLearningV1_({entry:entry({
+      capturedAt:today.toISOString(),
+      captureKey:'R2|wms||rt2|x',recordId:'R2'
+    })},operator);
+    const date=ctx.Utilities.formatDate(today,'Asia/Seoul','yyyy-MM-dd');
+    const rt=ctx.ocrLearningRealtimeV1_({date,limit:20},admin);
+    assert.strictEqual(rt.totalSamples,2);
+    assert.strictEqual(rt.manualCorrectionSamples,1);
+    assert.strictEqual(rt.pending,1);
+    assert.strictEqual(rt.approved,1);
+    assert.strictEqual(rt.comparedFields,3);
+    assert.strictEqual(rt.changedFields,1);
+    assert.strictEqual(rt.provisionalAccuracy,66.7);
+    assert.strictEqual(rt.approvedAccuracy,0);
+    assert.strictEqual(rt.topFields[0].field,'displayQty');
+    assert.strictEqual(rt.recentCorrections[0].capturedBy,'작업자 (2001)');
+  });
+
   await test('Dataset V2 활성화 후 신규 Learning은 V2로 저장',()=>{
     const {ctx}=make();
     const r=ctx.createOcrDatasetVersionV1_({version:'OCR-DS-V2',note:'현장 2차',activate:true},admin);
@@ -251,6 +318,8 @@ async function test(name,fn){
     const handled=ctx.routeOcrLearningGetV1_('ocrLearningMetrics',{scope:'APPROVED'},admin);
     assert.strictEqual(handled.handled,true);
     assert.strictEqual(handled.result.samples,1);
+    const realtime=ctx.routeOcrLearningGetV1_('ocrLearningRealtime',{date:ctx.Utilities.formatDate(new Date(),'Asia/Seoul','yyyy-MM-dd')},admin);
+    assert.strictEqual(realtime.handled,true);
     assert.strictEqual(ctx.routeOcrLearningGetV1_('searchRecords',{},admin).handled,false);
     assert.strictEqual(ctx.routeOcrLearningPostV1_('saveSingle',{},admin).handled,false);
   });
