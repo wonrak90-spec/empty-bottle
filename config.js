@@ -67,6 +67,14 @@ const CONFIG = {
                       ss.id='v26StabilityLoader';
                       ss.src='v26-stability.js?v=20260918b';
                       ss.async=false;
+                      ss.onload=()=>{
+                        if(document.getElementById('v26OcrBenchmarkLoader'))return;
+                        const sb=document.createElement('script');
+                        sb.id='v26OcrBenchmarkLoader';
+                        sb.src='v26-ocr-benchmark.js?v=20260918a';
+                        sb.async=false;
+                        document.body.appendChild(sb);
+                      };
                       document.body.appendChild(ss);
                     };
                     document.body.appendChild(sp);
