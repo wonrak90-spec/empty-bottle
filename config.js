@@ -77,8 +77,16 @@ const CONFIG = {
                           if(document.getElementById('v56OperationsLoader'))return;
                           const so=document.createElement('script');
                           so.id='v56OperationsLoader';
-                          so.src='v56-operations.js?v=20260918a';
+                          so.src='v56-operations.js?v=20260918b';
                           so.async=false;
+                          so.onload=()=>{
+                            if(document.getElementById('v56ReportingLoader'))return;
+                            const sr=document.createElement('script');
+                            sr.id='v56ReportingLoader';
+                            sr.src='v56-reporting.js?v=20260918a';
+                            sr.async=false;
+                            document.body.appendChild(sr);
+                          };
                           document.body.appendChild(so);
                         };
                         document.body.appendChild(sb);
