@@ -93,17 +93,24 @@
   function markBackend(ok,msg){try{localStorage.setItem(L.backendKey,JSON.stringify(ok?{ok:true,retryAfter:0,at:Date.now()}:{ok:false,retryAfter:Date.now()+300000,message:String(msg||''),at:Date.now()}));}catch(_){}}
   L.flush=async function(force){
     if(L.syncing||!L.nativePost||(!force&&cooldown()))return;
-    const q=loadQueue();if(!q.length)return;
-    L.syncing=true;let keep=[];
+    const snapshot=loadQueue();if(!snapshot.length)return;
+    L.syncing=true;
+    const synced=new Set();
     try{
-      for(let i=0;i<q.length;i++){
+      for(let i=0;i<snapshot.length;i++){
         let r;
-        try{r=await L.nativePost('ocrLearningSave',{entry:q[i]});}
-        catch(e){keep=q.slice(i);markBackend(false,e&&e.message);break;}
-        if(r&&r.ok){markBackend(true);continue;}
-        keep=q.slice(i);markBackend(false,r&&r.message);break;
+        try{r=await L.nativePost('ocrLearningSave',{entry:snapshot[i]});}
+        catch(e){markBackend(false,e&&e.message);break;}
+        if(r&&r.ok){synced.add(snapshot[i].captureKey);markBackend(true);continue;}
+        markBackend(false,r&&r.message);break;
       }
-    }finally{saveQueue(keep);L.syncing=false;}
+    }finally{
+      // 동기화 도중 새 입고가 저장되어 queue가 늘어날 수 있다.
+      // 현재 queue에서 성공 처리된 snapshot 항목만 제거하여 새 로그를 잃지 않는다.
+      const current=loadQueue();
+      saveQueue(current.filter(x=>!synced.has(x&&x.captureKey)));
+      L.syncing=false;
+    }
   };
   L.loadQueue=loadQueue;
 
