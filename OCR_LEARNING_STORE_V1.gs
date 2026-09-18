@@ -13,7 +13,8 @@ const OCR_DATASET_SHEET_V1 = 'OCR_Dataset_Versions';
 const OCR_LEARNING_HEADERS_V1 = [
   'ID','CaptureKey','등록일시','Record ID','Source','Template','Dataset Version','Photo URL',
   'OCR Engine','OCR Model','Frontend Version','OCR Raw','OCR JSON','Final JSON','Diff JSON',
-  'Compared Fields','Changed Fields','Status','검증일시','검증자','검증메모','등록자'
+  'Compared Fields','Changed Fields','Status','검증일시','검증자','검증메모','등록자',
+  'Manual Edited Fields','Manual Changed Fields','Manual Edit Count','Correction Type'
 ];
 
 const OCR_DATASET_HEADERS_V1 = [
@@ -145,7 +146,9 @@ function saveOcrLearningV1_(payload, actor) {
     String(e.recordId || ''), String(e.source || ''), String(e.template || ''), version, photo,
     String(e.ocrEngine || ''), String(e.ocrModel || ''), String(e.frontendVersion || ''),
     String(e.ocrRaw || ''), JSON.stringify(e.ocr || {}), JSON.stringify(e.final || {}), JSON.stringify(e.diff || {}),
-    Number(e.comparedFields || 0), Number(e.changedFields || 0), 'PENDING', '', '', '', ocrActorLabelV1_(actor)
+    Number(e.comparedFields || 0), Number(e.changedFields || 0), 'PENDING', '', '', '', ocrActorLabelV1_(actor),
+    JSON.stringify(e.manualEditedFields || []), JSON.stringify(e.manualChangedFields || []),
+    Number(e.manualEditCount || 0), String(e.correctionType || '')
   ]);
   return { ok: true, id: id, datasetVersion: version, photoUrl: photo };
   });
@@ -187,7 +190,9 @@ function listOcrLearningV1_(params, actor) {
       ocrEngine:String(r[8]||''), ocrModel:String(r[9]||''), frontendVersion:String(r[10]||''), ocrRaw:String(r[11]||''),
       ocr:ocrJsonV1_(r[12]), final:ocrJsonV1_(r[13]), diff:ocrJsonV1_(r[14]),
       comparedFields:Number(r[15]||0), changedFields:Number(r[16]||0), status:String(r[17]||''),
-      verifiedAt:r[18], verifiedBy:String(r[19]||''), verifyNote:String(r[20]||''), capturedBy:String(r[21]||'')
+      verifiedAt:r[18], verifiedBy:String(r[19]||''), verifyNote:String(r[20]||''), capturedBy:String(r[21]||''),
+      manualEditedFields:ocrArrayV1_(r[22]), manualChangedFields:ocrArrayV1_(r[23]),
+      manualEditCount:Number(r[24]||0), correctionType:String(r[25]||'')
     });
   }
   return { ok: true, items: out };
@@ -195,6 +200,13 @@ function listOcrLearningV1_(params, actor) {
 
 function ocrJsonV1_(v) {
   try { return JSON.parse(String(v || '{}')); } catch (_) { return {}; }
+}
+
+function ocrArrayV1_(v) {
+  try {
+    const x = JSON.parse(String(v || '[]'));
+    return Array.isArray(x) ? x.map(String) : [];
+  } catch (_) { return []; }
 }
 
 function verifyOcrLearningV1_(payload, actor) {
@@ -319,6 +331,68 @@ function ocrLearningMetricsV1_(params, actor) {
     if (b.changed !== a.changed) return b.changed-a.changed;
     return b.compared-a.compared;
   });
+  return out;
+}
+
+function ocrLearningRealtimeV1_(params, actor) {
+  ocrAssertAdminV1_(actor);
+  setupOcrLearningStoreV1_();
+  params = params || {};
+  const tz = Session.getScriptTimeZone() || 'Asia/Seoul';
+  const today = String(params.date || Utilities.formatDate(new Date(), tz, 'yyyy-MM-dd'));
+  const limit = Math.max(1, Math.min(100, Number(params.limit || 30)));
+  const sh = ocrLearningSsV1_().getSheetByName(OCR_LEARNING_LOG_SHEET_V1);
+  const rows = sh.getDataRange().getValues();
+  const out = {
+    ok:true,date:today,totalSamples:0,manualCorrectionSamples:0,changedSamples:0,
+    pending:0,approved:0,rejected:0,comparedFields:0,changedFields:0,
+    provisionalAccuracy:null,approvedComparedFields:0,approvedChangedFields:0,
+    approvedAccuracy:null,topFields:[],recentCorrections:[]
+  };
+  const fieldCounts = {};
+
+  function dateKey(v) {
+    if (v instanceof Date) return Utilities.formatDate(v,tz,'yyyy-MM-dd');
+    const s=String(v||'');
+    const m=s.match(/(20\d{2})[-/.](\d{1,2})[-/.](\d{1,2})/);
+    return m ? (m[1]+'-'+String(m[2]).padStart(2,'0')+'-'+String(m[3]).padStart(2,'0')) : '';
+  }
+
+  for (let i=rows.length-1;i>=1;i--) {
+    const r=rows[i];
+    if (dateKey(r[2]) !== today) continue;
+    const status=String(r[17]||'').toUpperCase();
+    const compared=Number(r[15]||0), changed=Number(r[16]||0);
+    const manualChanged=ocrArrayV1_(r[23]);
+
+    out.totalSamples++;
+    out.comparedFields+=compared; out.changedFields+=changed;
+    if (changed>0) out.changedSamples++;
+    if (status==='APPROVED') {
+      out.approved++; out.approvedComparedFields+=compared; out.approvedChangedFields+=changed;
+    } else if (status==='REJECTED') out.rejected++;
+    else out.pending++;
+
+    if (manualChanged.length) {
+      out.manualCorrectionSamples++;
+      manualChanged.forEach(function(k){fieldCounts[k]=(fieldCounts[k]||0)+1;});
+      if (out.recentCorrections.length<limit) {
+        out.recentCorrections.push({
+          capturedAt:r[2],recordId:String(r[3]||''),source:String(r[4]||''),
+          template:String(r[5]||''),status:String(r[17]||''),capturedBy:String(r[21]||''),
+          manualChangedFields:manualChanged,manualEditCount:Number(r[24]||0),
+          correctionType:String(r[25]||''),diff:ocrJsonV1_(r[14])
+        });
+      }
+    }
+  }
+
+  out.provisionalAccuracy=out.comparedFields
+    ? Number((((out.comparedFields-out.changedFields)/out.comparedFields)*100).toFixed(1)) : null;
+  out.approvedAccuracy=out.approvedComparedFields
+    ? Number((((out.approvedComparedFields-out.approvedChangedFields)/out.approvedComparedFields)*100).toFixed(1)) : null;
+  out.topFields=Object.keys(fieldCounts).map(function(k){return {field:k,count:fieldCounts[k]};})
+    .sort(function(a,b){return b.count-a.count;}).slice(0,10);
   return out;
 }
 
