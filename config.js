@@ -47,7 +47,7 @@ const CONFIG = {
                   if(document.getElementById('v26VendorTemplatesLoader'))return;
                   const st=document.createElement('script');
                   st.id='v26VendorTemplatesLoader';
-                  st.src='v26-vendor-templates.js?v=20260918a';
+                  st.src='v26-vendor-templates.js?v=20260918b';
                   st.async=false;
                   st.onload=()=>{
                     if(document.getElementById('v26VendorCardScanLoader'))return;
