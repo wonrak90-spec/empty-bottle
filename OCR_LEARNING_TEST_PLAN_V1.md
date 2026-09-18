@@ -134,3 +134,28 @@ Expected:
 - 사진 바이너리 GitHub 저장 0건
 - Learning Log의 Record ID ↔ Drive URL 연결 가능
 - 관리자 승인 데이터만 Fine-tuning 후보로 사용 가능
+- 승인 Sample 기준 Source/필드별 OCR 품질지표 산출 가능
+- 동일 CaptureKey 동시 전송 시 중복 Learning Log 생성 0건
+
+
+## TC-10 OCR 품질지표 / 승인 데이터 기준 분석
+1. WMS Learning Log 1건과 업체라벨 Learning Log 1건을 관리자 승인한다.
+2. 한 건은 무수정, 다른 한 건은 실제 정답으로 1개 필드를 수정한 Sample로 준비한다.
+3. 관리자 > OCR 학습 화면을 연다.
+
+Expected:
+- 승인 데이터만 품질지표에 반영
+- 전체 필드 일치율 표시
+- Source별(WMS / Vendor 등) Sample 수, 비교 필드 수, 수정 필드 수, 일치율 표시
+- 수정 빈도가 높은 필드 TOP 항목 표시
+- PENDING / REJECTED 데이터는 기본 품질지표에서 제외
+- 관리자 외 계정은 품질지표 API 접근 불가
+
+## TC-11 동시 저장 / 중복 보호
+1. 동일 CaptureKey를 거의 동시에 2회 전송한다.
+2. 관리자 승인 또는 Dataset 생성 작업을 연속 실행한다.
+
+Expected:
+- ScriptLock으로 Learning Log / 검증 / Dataset 상태 변경 보호
+- 동일 CaptureKey는 서버에 1건만 존재
+- Dataset ACTIVE/FROZEN 상태가 중복 또는 누락되지 않음
