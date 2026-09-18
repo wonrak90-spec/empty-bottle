@@ -39,9 +39,12 @@
         rows.push(row('Dataset version API',!!(v&&v.ok),v&&v.ok?String((v.items||[]).length)+' versions':(v&&v.message||'no response')));
         const m=await apiGet('ocrLearningMetrics',{scope:'APPROVED'});
         rows.push(row('OCR quality metrics API',!!(m&&m.ok),m&&m.ok?('approved '+String(m.samples||0)+' / accuracy '+String(m.accuracy==null?'-':m.accuracy+'%')):(m&&m.message||'no response')));
+        const rt=await apiGet('ocrLearningRealtime',{limit:'5'});
+        rows.push(row('Realtime correction monitor',!!(rt&&rt.ok),rt&&rt.ok?('today '+String(rt.totalSamples||0)+' / key-in '+String(rt.manualCorrectionSamples||0)):(rt&&rt.message||'no response')));
       }else{
         rows.push(row('Dataset version API',true,'operator session - admin check skipped'));
         rows.push(row('OCR quality metrics API',true,'operator session - admin check skipped'));
+        rows.push(row('Realtime correction monitor',true,'operator session - admin check skipped'));
       }
     }catch(e){
       rows.push(row('Dataset version API',false,e&&e.message||e));
