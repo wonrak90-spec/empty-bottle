@@ -9,7 +9,7 @@
 
 ## 구성
 - `v55-ocr-learning.js`: 저장 성공 후 OCR 값과 최종 저장값을 비교하여 Learning Log를 비동기 큐에 적재한다.
-- `v55-ocr-learning-admin.js`: 관리자 검증, 승인/제외, Dataset 버전 생성 UI.
+- `v55-ocr-learning-admin.js`: 관리자 검증, 승인/제외, Dataset 버전 생성, 승인 데이터 기준 OCR 품질지표 UI.
 - `OCR_LEARNING_STORE_V1.gs`: 현재 운영 중인 세션 인증 Apps Script 프로젝트에 추가할 서버 모듈.
 - `OCR_LEARNING_ROUTER_V1.gs`: 기존 GET/POST dispatcher에 최소 연결하기 위한 독립 라우터.
 
@@ -54,5 +54,20 @@ WMS:
 
 각 필드는 `OCR 값 / 최종 값 / 변경 여부`로 누적된다.
 
+관리자 품질지표는 **APPROVED Sample만 기본 집계**하며, 전체 필드 일치율, Source별 일치율, 필드별 수정 빈도/수정률을 계산한다. PENDING/REJECTED는 기본 품질지표에서 제외한다.
+
+Learning Log 저장, 검증 상태 변경, Dataset 버전 생성은 Apps Script ScriptLock으로 보호하여 동시 저장/승인 시 중복 또는 상태경합을 줄인다.
+
 ## Fine-tuning 연결
 관리자가 승인한 항목만 Dataset manifest에 포함한다. 각 항목은 Drive 사진 URL, OCR 원문, OCR 파싱값, 최종값, 수정 차이를 포함하므로 이후 PP-OCRv5 fine-tuning용 이미지/정답 라벨 생성 단계의 입력으로 사용할 수 있다.
+
+
+## 관리자 분석 API
+GET:
+- `ocrLearningInfo`
+- `ocrLearningList`
+- `ocrDatasetVersions`
+- `ocrLearningMetrics`
+- `ocrDatasetManifest`
+
+`ocrLearningMetrics?scope=APPROVED`는 관리자 계정에서만 사용할 수 있으며 승인 데이터의 OCR 품질을 계산한다.
