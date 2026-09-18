@@ -34,8 +34,12 @@
   function previewId(mode){
     return mode==='vendor'?'vendorPreview':(mode==='multi'?'multiPreview':'wmsPreview');
   }
-  function parseMode(mode,text){
-    return mode==='vendor' ? parseVendorLabel(text||'') : parseLabelText(text||'');
+  function parseMode(mode,text,items){
+    if(mode==='vendor'){
+      if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(text||'',items||[]);
+      return parseVendorLabel(text||'');
+    }
+    return parseLabelText(text||'');
   }
   function countFields(obj){
     return Object.keys(obj||{}).filter(k=>String(obj[k]??'').trim()).length;
@@ -198,8 +202,8 @@
   }
   KO.recognize=localOcr;
 
-  function applyLocalResult(mode,text,dataUrl,label,latency){
-    const parsed=parseMode(mode,text);
+  function applyLocalResult(mode,text,items,dataUrl,label,latency){
+    const parsed=parseMode(mode,text,items);
     if(mode==='vendor'){
       lastOcrText.vendor=text;
       if(parsed.product)$('vProduct').value=parsed.product;
@@ -243,7 +247,7 @@
     setStatus(sid,KO.engine?'한국어 로컬 OCR 인식 중...':'한국어 OCR 모델 준비 중 · 최초 1회만 다운로드합니다.','warn');
     try{
       const r=await localOcr(dataUrl,false,sid);
-      const out=applyLocalResult(mode,r.text,dataUrl,'한국어 로컬 OCR 완료',r.latency);
+      const out=applyLocalResult(mode,r.text,r.items,dataUrl,'한국어 로컬 OCR 완료',r.latency);
       if(out.count<2)setStatus(sid,'한국어 OCR 결과가 부족합니다 · 라벨을 정면에서 더 가까이 촬영하거나 직접 입력하세요.','warn');
     }catch(err){setStatus(sid,'한국어 OCR 실패 · '+safeError(err),'bad');}
   };
@@ -292,10 +296,10 @@
       try{
         const data=cropVideo(video,1800);
         const r=await localOcr(data,true,sid);
-        const parsed=parseMode(mode,r.text);
+        const parsed=parseMode(mode,r.text,r.items);
         const cnt=countFields(parsed),sig=signature(mode,parsed);
         if(sig&&sig===st.lastSig)st.stable++;else{st.lastSig=sig;st.stable=sig?1:0;}
-        if(cnt>=st.bestCount){st.bestCount=cnt;applyLocalResult(mode,r.text,data,'한국어 실시간 OCR',r.latency);}
+        if(cnt>=st.bestCount){st.bestCount=cnt;applyLocalResult(mode,r.text,r.items,data,'한국어 실시간 OCR',r.latency);}
         const need=mode==='vendor'?2:4;
         if(cnt>=need&&st.stable>=2){
           setStatus(sid,'한국어 OCR 안정 인식 완료 · '+cnt+'개 항목','ok');
@@ -316,7 +320,7 @@
       const video=$('v22LiveVideo_'+mode);if(!video||!video.videoWidth)return;
       const data=cropVideo(video,2300);const preview=$(previewId(mode));if(preview){preview.src=data;preview.classList.remove('hidden');}
       const sid=statusId(mode);setStatus(sid,'한국어 로컬 OCR 정밀 인식 중...','warn');
-      try{const r=await localOcr(data,false,sid);applyLocalResult(mode,r.text,data,'한국어 정밀 OCR 완료',r.latency);}
+      try{const r=await localOcr(data,false,sid);applyLocalResult(mode,r.text,r.items,data,'한국어 정밀 OCR 완료',r.latency);}
       catch(err){setStatus(sid,'한국어 OCR 실패 · '+safeError(err),'bad');}
       finally{V22.stopLive(mode,false);}
     };
