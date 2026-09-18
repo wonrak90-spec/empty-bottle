@@ -77,19 +77,19 @@ const CONFIG = {
                           if(document.getElementById('v55OcrLearningLoader'))return;
                           const sl=document.createElement('script');
                           sl.id='v55OcrLearningLoader';
-                          sl.src='v55-ocr-learning.js?v=20260918a';
+                          sl.src='v55-ocr-learning.js?v=20260918b';
                           sl.async=false;
                           sl.onload=()=>{
                             if(document.getElementById('v55OcrLearningAdminLoader'))return;
                             const sa=document.createElement('script');
                             sa.id='v55OcrLearningAdminLoader';
-                            sa.src='v55-ocr-learning-admin.js?v=20260918c';
+                            sa.src='v55-ocr-learning-admin.js?v=20260918d';
                             sa.async=false;
                             sa.onload=()=>{
                               if(document.getElementById('v55OcrLearningDiagnosticsLoader'))return;
                               const sd=document.createElement('script');
                               sd.id='v55OcrLearningDiagnosticsLoader';
-                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918b';
+                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918c';
                               sd.async=false;
                               document.body.appendChild(sd);
                             };
