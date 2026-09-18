@@ -22,7 +22,7 @@
   const prevCapture=V22.captureLive.bind(V22);
 
   const S=window.V26VendorCardScan={
-    VERSION:'V26-VENDOR-CARDSCAN-1',
+    VERSION:'V26-VENDOR-CARDSCAN-2',
     state:null,
     fullscreen:null,
     timeoutMs:12000,
@@ -161,8 +161,10 @@
     }catch(_){}
   }
 
-  function applyResult(text,dataUrl,latency){
-    const parsed=parseVendorLabel(text||'')||{};
+  function applyResult(text,items,dataUrl,latency){
+    const parsed=(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')
+      ? V26VendorTemplates.parse(text||'',items||[])
+      : (parseVendorLabel(text||'')||{});
     lastOcrText.vendor=text;
 
     if(parsed.product)$('vProduct').value=parsed.product;
@@ -181,7 +183,8 @@
     }).catch(()=>{});
 
     const count=Object.keys(parsed).filter(k=>String(parsed[k]??'').trim()).length;
-    setStatus('vendorStatus','업체 라벨 자동 인식 완료 · '+count+'개 항목 · '+latency+'ms · 값 확인 후 저장하세요.','ok');
+    const tpl=window.V26VendorTemplates&&V26VendorTemplates.lastTemplate?(' · '+V26VendorTemplates.lastTemplate+' 템플릿'):'';
+    setStatus('vendorStatus','업체 라벨 자동 인식 완료'+tpl+' · '+count+'개 항목 · '+latency+'ms · 값 확인 후 저장하세요.','ok');
     return {parsed,count};
   }
 
@@ -298,7 +301,7 @@
 
     try{
       const r=await KO.recognize(bestData,false,'vendorStatus');
-      const out=applyResult(r.text,bestData,r.latency);
+      const out=applyResult(r.text,r.items,bestData,r.latency);
       setOverlayStatus('인식 완료 · '+out.count+'개 항목 확인',true);
       await sleep(800);
     }catch(err){
@@ -328,7 +331,7 @@
 
     try{
       const r=await KO.recognize(data,false,'vendorStatus');
-      const out=applyResult(r.text,data,r.latency);
+      const out=applyResult(r.text,r.items,data,r.latency);
       setOverlayStatus('인식 완료 · '+out.count+'개 항목 확인',true);
       await sleep(700);
     }catch(err){
@@ -378,5 +381,5 @@
   updateUi();
   setTimeout(updateUi,500);
   setTimeout(updateUi,1600);
-  console.info('[V26-VENDOR-CARDSCAN-1] mobile fullscreen handheld vendor OCR active');
+  console.info('[V26-VENDOR-CARDSCAN-2] mobile fullscreen + vendor templates active');
 })();
