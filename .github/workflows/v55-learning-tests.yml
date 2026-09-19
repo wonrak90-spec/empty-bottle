@@ -77,6 +77,9 @@ jobs:
       - name: Run private dataset packager tests
         run: python tests/v55-dataset-pack.test.py
 
+      - name: Run benchmark package contract tests
+        run: python tests/v55-benchmark-format.test.py
+
       - name: Static check Apps Script modules
         run: |
           node --check v55-ocr-learning.js
