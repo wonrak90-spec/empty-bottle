@@ -52,6 +52,19 @@ def main():
             s=json.loads(z.read('dataset_summary.json'))
             assert s['trainOriginals']==1 and s['validationOriginals']==1
             assert s['finalHoldout']==1 and s['labeledHoldout']==1
-        print('PASS private dataset packager and split isolation')
+        # Holdout-only benchmark package must also work without train/validation inputs.
+        out2=td/'holdout_only.zip'
+        p2=subprocess.run([sys.executable,str(TOOL),'--final-holdout-dir',str(hold),
+                           '--labels-holdout',str(td/'h.jsonl'),'--output',str(out2)],
+                          text=True,capture_output=True)
+        assert p2.returncode==0,p2.stderr+p2.stdout
+        with zipfile.ZipFile(out2) as z:
+            names=set(z.namelist())
+            assert 'holdout/field.jpg' in names
+            assert 'labels_holdout.jsonl' in names
+            s=json.loads(z.read('dataset_summary.json'))
+            assert s['originalUnique']==0 and s['augmentedTotal']==0
+            assert s['finalHoldout']==1 and s['labeledHoldout']==1
+        print('PASS private dataset packager, split isolation, and holdout-only mode')
 
 if __name__=='__main__':main()
