@@ -47,8 +47,8 @@
   }
   function critical(k,type){
     return type==='wms'
-      ? ['inboundNo','itemCode','displayQty','containerFrom','containerTo'].includes(k)
-      : ['product','qty','palletNo','lotNo'].includes(k);
+      ? ['inboundNo','itemCode','product','displayQty','containerFrom','containerTo'].includes(k)
+      : ['product','qty','palletNo'].includes(k);
   }
   function blobToDataUrl(blob){
     return new Promise((res,rej)=>{const fr=new FileReader();fr.onload=()=>res(fr.result);fr.onerror=rej;fr.readAsDataURL(blob);});
@@ -107,7 +107,7 @@
     m.innerHTML='<div style="max-width:920px;margin:20px auto;background:#fff;border-radius:14px;padding:18px;color:#111">'+
       '<div style="display:flex;justify-content:space-between;gap:12px;align-items:center"><div><b style="font-size:18px">OCR Baseline Benchmark V1</b><div style="font-size:12px;color:#666;margin-top:3px">Seed ZIP은 브라우저 안에서만 처리되며 서버로 전송하지 않습니다.</div></div><button class="btn outline" onclick="V26OcrBenchmark.close()">닫기</button></div>'+
       '<div style="display:grid;grid-template-columns:1fr auto;gap:10px;align-items:end;margin-top:16px"><div><label style="font-weight:700">Seed Dataset ZIP</label><input id="v26BenchZip" type="file" accept=".zip,application/zip" style="display:block;width:100%;margin-top:6px"></div><button id="v26BenchRun" class="btn primary" onclick="V26OcrBenchmark.run()">Holdout 평가 시작</button></div>'+
-      '<label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="v26BenchAug" type="checkbox"> 증강 이미지 66장까지 강건성 평가 (시간이 오래 걸릴 수 있음)</label>'+
+      '<label style="display:flex;gap:8px;align-items:center;margin-top:10px"><input id="v26BenchAug" type="checkbox"> 증강 이미지 포함 강건성 평가 (Seed 22장 기준 최대 484개 변형 · 시간이 오래 걸릴 수 있음)</label>'+
       '<div id="v26BenchStatus" class="status" style="margin-top:12px">ZIP을 선택하세요.</div>'+
       '<div id="v26BenchSummary" style="margin-top:12px"></div>'+
       '<div id="v26BenchDetail" style="margin-top:12px;max-height:420px;overflow:auto"></div>'+
