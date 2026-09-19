@@ -74,6 +74,9 @@ jobs:
       - name: Run Ground Truth linker tests
         run: python tests/v55-ground-truth-link.test.py
 
+      - name: Run private dataset packager tests
+        run: python tests/v55-dataset-pack.test.py
+
       - name: Static check Apps Script modules
         run: |
           node --check v55-ocr-learning.js
@@ -83,7 +86,7 @@ jobs:
           cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
           node --check /tmp/ocr-learning-store.js
           node --check /tmp/ocr-learning-router.js
-          python -m py_compile OCR_LEARNING_ROBUSTNESS_PREP_V1.py OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py OCR_LEARNING_ROBUSTNESS_EVAL_V1.py OCR_LEARNING_GROUND_TRUTH_LINK_V1.py
+          python -m py_compile OCR_LEARNING_ROBUSTNESS_PREP_V1.py OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py OCR_LEARNING_ROBUSTNESS_EVAL_V1.py OCR_LEARNING_GROUND_TRUTH_LINK_V1.py OCR_LEARNING_DATASET_PACK_V1.py
           if grep -Eq 'DriveApp|data:image|base64' OCR_LEARNING_STORE_V1.gs OCR_LEARNING_ROUTER_V1.gs; then
             echo "Learning backend must reference existing photo URLs only."
             exit 1
