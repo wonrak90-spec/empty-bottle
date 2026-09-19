@@ -35,6 +35,10 @@ Inputs
 --final-holdout-dir (optional):
   real field photos never used for training.
 
+--labels-holdout (optional):
+  reviewed JSONL for final holdout images. When supplied, images are packaged
+  under holdout/ with labels_holdout.jsonl for the browser benchmark.
+
 Output ZIP contains only the private dataset; do not commit it to GitHub.
 """
 import argparse, hashlib, json, shutil, zipfile
@@ -66,11 +70,13 @@ def main():
     ap.add_argument('--original-dir',required=True)
     ap.add_argument('--augmented-dir',required=True)
     ap.add_argument('--final-holdout-dir')
+    ap.add_argument('--labels-holdout')
     ap.add_argument('--output',required=True)
     args=ap.parse_args()
 
     originals=read_jsonl(args.labels_original)
     augmented=read_jsonl(args.labels_augmented)
+    holdout=read_jsonl(args.labels_holdout) if args.labels_holdout else []
 
     bad_split=[x for x in originals+augmented if x.get('dataset_split') not in ('train','validation')]
     if bad_split: raise SystemExit('dataset_split must be train or validation')
@@ -96,7 +102,8 @@ def main():
         'augmentedTotal':len(augmented),
         'trainAugmented':sum(x['dataset_split']=='train' for x in augmented),
         'validationAugmented':sum(x['dataset_split']=='validation' for x in augmented),
-        'finalHoldout':0
+        'finalHoldout':0,
+        'labeledHoldout':0
     }
 
     with zipfile.ZipFile(out,'w',zipfile.ZIP_DEFLATED,compresslevel=6) as z:
@@ -115,7 +122,25 @@ def main():
             if not p: raise SystemExit('missing augmentation: '+x['file'])
             z.write(p,'augmented/'+x['dataset_split']+'/'+x['file'])
 
-        if args.final_holdout_dir:
+        if holdout:
+            if not args.final_holdout_dir:
+                raise SystemExit('--labels-holdout requires --final-holdout-dir')
+            seen=set()
+            for x in holdout:
+                name=str(x.get('file') or '').strip()
+                if not name: raise SystemExit('holdout label row missing file')
+                if name in seen: raise SystemExit('duplicate holdout file: '+name)
+                seen.add(name)
+                p=find_file(args.final_holdout_dir,name)
+                if not p: raise SystemExit('missing labeled holdout: '+name)
+                expected=x.get('sha256')
+                if expected and sha256(p)!=expected:
+                    raise SystemExit('holdout SHA mismatch: '+name)
+                z.write(p,'holdout/'+name)
+            summary['finalHoldout']=len(holdout)
+            summary['labeledHoldout']=sum(x.get('verified') is not False for x in holdout)
+            z.writestr('labels_holdout.jsonl',''.join(json.dumps(x,ensure_ascii=False)+'\n' for x in holdout))
+        elif args.final_holdout_dir:
             rows=[]
             for p in sorted(Path(args.final_holdout_dir).rglob('*')):
                 if not p.is_file(): continue
@@ -132,7 +157,8 @@ def main():
           'This ZIP contains label photos and must stay private.\n'
           'Train/validation source groups are isolated.\n'
           'Final holdout images must never be used for training.\n'
-          'Ground Truth requires administrator approval before PP-OCRv5 fine-tuning.\n')
+          'labels_holdout.jsonl is for field benchmark only.\n'
+          'Ground Truth requires administrator approval plus transcription before PP-OCRv5 fine-tuning.\n')
     print(json.dumps(summary,ensure_ascii=False,indent=2))
 
 if __name__=='__main__':
