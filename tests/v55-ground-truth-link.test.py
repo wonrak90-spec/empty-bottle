@@ -38,7 +38,8 @@ def main():
         }]
         with (td/'deleted.csv').open('w',encoding='utf-8-sig',newline='') as f:
             w=csv.DictWriter(f,fieldnames=['Record ID','Record JSON']);w.writeheader();w.writerows(deleted)
-        manual={'KakaoTalk_x.jpg':{'recordId':rid,'source':'wms','truth':{'containerFrom':'999'}}}
+        manual={'KakaoTalk_x.jpg':{'recordId':rid,'source':'wms','truth':{'containerFrom':'999'},
+                                  'adminApproved':True,'transcription':'입고번호 26001 수량 13608'}}
         (td/'manual.json').write_text(json.dumps(manual,ensure_ascii=False),encoding='utf-8')
 
         p=subprocess.run([sys.executable,str(TOOL),'--manifest',str(td/'manifest.json'),'--records',str(td/'records.csv'),
@@ -53,15 +54,20 @@ def main():
         assert wms['recordId']==rid and wms['source']=='wms'
         assert wms['truth']['displayQty']=='13608'
         assert wms['truthConfidence']=='CURRENT_RECORD'
-        assert wms['eligibleForOfficialDataset'] is True
+        assert wms['eligibleForBenchmark'] is True
+        assert wms['eligibleForFineTuning'] is False
         assert vendor['source']=='vendor' and vendor['truth']['palletNo']=='P12'
         assert vendor['groundTruthStatus']=='linked'
         assert manual_row['linkOrigin']=='manual'
         assert manual_row['truth']['containerFrom']=='999'
         assert manual_row['truthConfidence']=='MANUAL_REVIEWED'
+        assert manual_row['eligibleForBenchmark'] is True
+        assert manual_row['eligibleForFineTuning'] is True
+        assert manual_row['transcription']=='입고번호 26001 수량 13608'
         assert deleted_row['truth']['displayQty']=='999'
         assert deleted_row['truthConfidence']=='DELETED_RECORD_REFERENCE'
-        assert deleted_row['eligibleForOfficialDataset'] is False
+        assert deleted_row['eligibleForBenchmark'] is False
+        assert deleted_row['eligibleForFineTuning'] is False
         assert out['summary']['deletedRecordCandidate']==1,out
         print('PASS Ground Truth current/manual/deleted confidence linker')
 
