@@ -48,4 +48,37 @@ assert.strictEqual(dark[0].name,'bright_contrast');
 const bright=A.plan('vendor',{product:'병'},[],220);
 assert.strictEqual(bright[0].name,'dark_contrast');
 
-console.log('PASS V55 adaptive OCR scoring, retry gate, brightness and deskew plan');
+assert.strictEqual(
+  A.isStrictImprovement(
+    {critical:2,sanity:2,meanConfidence:.90,total:3},
+    {critical:2,sanity:2,meanConfidence:.91,total:8}
+  ),
+  false,
+  'extra non-critical fields alone must not replace baseline'
+);
+assert.strictEqual(
+  A.isStrictImprovement(
+    {critical:2,sanity:2,meanConfidence:.80,total:3},
+    {critical:3,sanity:3,meanConfidence:.60,total:3}
+  ),
+  true,
+  'more Critical coverage must win'
+);
+assert.strictEqual(
+  A.isStrictImprovement(
+    {critical:3,sanity:2,meanConfidence:.80,total:3},
+    {critical:3,sanity:3,meanConfidence:.70,total:3}
+  ),
+  true,
+  'better Critical sanity must win'
+);
+assert.strictEqual(
+  A.isStrictImprovement(
+    {critical:3,sanity:3,meanConfidence:.80,total:3},
+    {critical:3,sanity:3,meanConfidence:.89,total:3}
+  ),
+  true,
+  'material confidence gain may replace baseline'
+);
+
+console.log('PASS V55 adaptive OCR scoring, retry gate, strict replacement, brightness and deskew plan');
