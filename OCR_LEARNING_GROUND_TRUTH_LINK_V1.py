@@ -12,6 +12,7 @@ Example:
   python OCR_LEARNING_GROUND_TRUTH_LINK_V1.py \
     --manifest /private/manifest.local.json \
     --records /private/Records.csv \
+    --deleted-records /private/DeletedRecords.json \
     --output /private/ground_truth.local.json
 
 Optional manual mapping:
@@ -83,6 +84,29 @@ def record_index(rows):
         if rid: out[rid]=r
     return out
 
+def load_deleted_records(path):
+    if not path:return []
+    p=Path(path)
+    if p.suffix.lower()=='.json':
+        data=json.loads(p.read_text(encoding='utf-8-sig'))
+        if isinstance(data,dict):
+            data=data.get('deletedRecords') or data.get('items') or data.get('records') or []
+        rows=data if isinstance(data,list) else []
+    else:
+        raw=p.read_text(encoding='utf-8-sig',errors='replace')
+        dialect=csv.excel_tab if p.suffix.lower()=='.tsv' else csv.excel
+        rows=list(csv.DictReader(raw.splitlines(),dialect=dialect))
+    out=[]
+    for r in rows:
+        if not isinstance(r,dict):continue
+        rec=r.get('Record JSON') or r.get('recordJson') or r.get('record') or r
+        if isinstance(rec,str):
+            try:rec=json.loads(rec)
+            except:continue
+        if isinstance(rec,dict):out.append({str(k):v for k,v in rec.items()})
+    return out
+
+
 def truth_for(row,source):
     if source=='vendor':
         out={k:value(row,v) for k,v in VENDOR_MAP.items()}
@@ -108,13 +132,21 @@ def main():
     ap=argparse.ArgumentParser()
     ap.add_argument('--manifest',required=True)
     ap.add_argument('--records',required=True)
+    ap.add_argument('--deleted-records')
     ap.add_argument('--output',required=True)
     ap.add_argument('--manual-map')
     args=ap.parse_args()
 
     manifest=json.loads(Path(args.manifest).read_text(encoding='utf-8-sig'))
-    rows=load_records(args.records); idx=record_index(rows); manual=load_manual(args.manual_map)
-    out=[]; stats={'uniqueImages':0,'autoFilenameLinked':0,'manualMapped':0,'recordMatched':0,'partialTruth':0,'unresolved':0}
+    rows=load_records(args.records)
+    idx=record_index(rows)
+    deleted_idx=record_index(load_deleted_records(args.deleted_records))
+    manual=load_manual(args.manual_map)
+    out=[]; stats={
+      'uniqueImages':0,'autoFilenameLinked':0,'manualMapped':0,
+      'currentRecordMatched':0,'deletedRecordCandidate':0,
+      'partialTruth':0,'unresolved':0
+    }
 
     for item in manifest.get('items',[]):
         if item.get('exactDuplicateOf'):continue
@@ -130,11 +162,20 @@ def main():
         if ref and origin=='manual':stats['manualMapped']+=1
 
         row=idx.get(ref['recordId']) if ref and ref.get('recordId') else None
+        deleted_row=deleted_idx.get(ref['recordId']) if ref and ref.get('recordId') and not row else None
         truth={}
+        confidence='UNRESOLVED'
         if row:
-            truth=truth_for(row,ref['source']);stats['recordMatched']+=1
+            truth=truth_for(row,ref['source'])
+            confidence='CURRENT_RECORD'
+            stats['currentRecordMatched']+=1
+        elif deleted_row:
+            truth=truth_for(deleted_row,ref['source'])
+            confidence='DELETED_RECORD_REFERENCE'
+            stats['deletedRecordCandidate']+=1
         if m and isinstance(m.get('truth'),dict):
             truth.update({str(k):clean(v) for k,v in m['truth'].items()})
+            confidence='MANUAL_REVIEWED'
 
         expected=VENDOR_MAP.keys() if ref and ref.get('source')=='vendor' else WMS_FIELDS
         missing=[k for k in expected if clean(truth.get(k,''))=='']
@@ -148,6 +189,8 @@ def main():
           'sha256':item.get('sha256',''),'set':item.get('set',''),'role':item.get('role',''),
           'name':name,'nearGroup':item.get('nearGroup'),'recordId':(ref or {}).get('recordId',''),
           'source':(ref or {}).get('source',''),'linkOrigin':origin,'groundTruthStatus':status,
+          'truthConfidence':confidence,
+          'eligibleForOfficialDataset':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and status=='linked',
           'truth':truth,'missingFields':missing if ref else [],'conditions':item.get('conditions',[])
         })
 
