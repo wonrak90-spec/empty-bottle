@@ -74,6 +74,12 @@ const CONFIG = {
                         sb.src='v26-ocr-benchmark.js?v=20260919b';
                         sb.async=false;
                         sb.onload=()=>{
+                          if(document.getElementById('v55OcrBenchmarkLoader'))return;
+                          const sbr=document.createElement('script');
+                          sbr.id='v55OcrBenchmarkLoader';
+                          sbr.src='v55-ocr-benchmark.js?v=20260919a';
+                          sbr.async=false;
+                          sbr.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
                           const sl=document.createElement('script');
                           sl.id='v55OcrLearningLoader';
@@ -96,6 +102,8 @@ const CONFIG = {
                             document.body.appendChild(sa);
                           };
                           document.body.appendChild(sl);
+                          };
+                          document.body.appendChild(sbr);
                         };
                         document.body.appendChild(sb);
                       };
