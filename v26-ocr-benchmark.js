@@ -79,7 +79,7 @@
     return typeof parseLabelText==='function'?(parseLabelText(text||'')||{}):{};
   }
   function summarize(rows){
-    const field={},template={},condition={};
+    const field={},template={},condition={},groups={};
     let ok=0,total=0,critOk=0,critTotal=0;
     for(const r of rows){
       for(const f of r.fields){
@@ -87,6 +87,12 @@
         field[f.key].total++;total++;
         if(f.ok){field[f.key].ok++;ok++;}
         if(f.critical){critTotal++;if(f.ok)critOk++;}
+      }
+      const gid=r.sourceGroup||r.file||'-';
+      if(!groups[gid])groups[gid]={criticalOk:0,criticalTotal:0,images:0};
+      groups[gid].images++;
+      for(const f of r.fields){
+        if(f.critical){groups[gid].criticalTotal++;if(f.ok)groups[gid].criticalOk++;}
       }
       const t=r.template||r.labelType||'-';
       if(!template[t])template[t]={images:0,ok:0,total:0};template[t].images++;
@@ -101,7 +107,12 @@
       });
     }
     const pct=(a,b)=>b?Math.round(a/b*1000)/10:0;
-    return {images:rows.length,accuracy:pct(ok,total),criticalAccuracy:pct(critOk,critTotal),field,template,condition};
+    const groupScores=Object.values(groups).filter(g=>g.criticalTotal>0).map(g=>g.criticalOk/g.criticalTotal*100);
+    const groupWeightedCriticalAccuracy=groupScores.length
+      ? Math.round(groupScores.reduce((a,b)=>a+b,0)/groupScores.length*10)/10
+      : 0;
+    return {images:rows.length,sourceGroups:Object.keys(groups).length,accuracy:pct(ok,total),
+      criticalAccuracy:pct(critOk,critTotal),groupWeightedCriticalAccuracy,field,template,condition};
   }
   function pctObj(o){return o.total?Math.round(o.ok/o.total*1000)/10:0;}
 
@@ -170,7 +181,7 @@
       for(let i=0;i<jobs.length;i++){
         const j=jobs[i];
         const path=imagePath(zip,j.folder,j.file);
-        if(!path){B.results.push({file:j.file,labelType:j.fields&&j.fields.label_type||j.label_type||'',template:j.fields&&j.fields.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split,latency:0,error:'이미지 없음',fields:[]});continue;}
+        if(!path){B.results.push({file:j.file,sourceGroup:j.source_group||j.sourceGroup||j.file,labelType:j.fields&&j.fields.label_type||j.label_type||'',template:j.fields&&j.fields.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split,latency:0,error:'이미지 없음',fields:[]});continue;}
         status.textContent='OCR 평가 '+(i+1)+' / '+jobs.length+' · '+j.file;
         const bytes=zip[path],blob=new Blob([bytes],{type:/\.png$/i.test(j.file)?'image/png':'image/jpeg'});
         const data=await blobToDataUrl(blob);
@@ -187,7 +198,7 @@
           const cmp=compareField(k,expected[k],pred[k]);
           if(cmp)fs.push({key:k,...cmp,critical:critical(k,type)});
         }
-        B.results.push({file:j.file,labelType:type,template:expected.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split||'',latency:r.latency||0,error:err,fields:fs,raw:r.text||''});
+        B.results.push({file:j.file,sourceGroup:j.source_group||j.sourceGroup||j.file,labelType:type,template:expected.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split||'',latency:r.latency||0,error:err,fields:fs,raw:r.text||''});
         await sleep(20);
       }
       B.summary=summarize(B.results);
@@ -207,7 +218,7 @@
     const temp=Object.entries(s.template).map(([k,v])=>'<div><b>'+esc(k)+'</b> '+pctObj(v)+'% <small>('+v.images+'장)</small></div>').join('');
     const cond=Object.entries(s.condition).map(([k,v])=>'<div><b>'+esc(k)+'</b> '+pctObj(v)+'% <small>('+v.images+'장)</small></div>').join('');
     const fld=Object.entries(s.field).sort((a,b)=>pctObj(a[1])-pctObj(b[1])).map(([k,v])=>'<span style="display:inline-block;margin:3px;padding:5px 7px;border:1px solid #ddd;border-radius:8px">'+esc(k)+' <b>'+pctObj(v)+'%</b> ('+v.ok+'/'+v.total+')</span>').join('');
-    sum.innerHTML='<div style="display:grid;grid-template-columns:repeat(3,1fr);gap:8px"><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>전체 필드 정확도</small><div style="font-size:26px;font-weight:800">'+s.accuracy+'%</div></div><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>Critical Field</small><div style="font-size:26px;font-weight:800">'+s.criticalAccuracy+'%</div></div><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>평가 이미지</small><div style="font-size:26px;font-weight:800">'+s.images+'장</div></div></div>'+
+    sum.innerHTML='<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px"><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>전체 필드 정확도</small><div style="font-size:26px;font-weight:800">'+s.accuracy+'%</div></div><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>Critical Field</small><div style="font-size:26px;font-weight:800">'+s.criticalAccuracy+'%</div></div><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>Group 균등 Critical</small><div style="font-size:26px;font-weight:800">'+s.groupWeightedCriticalAccuracy+'%</div><small>'+s.sourceGroups+' groups</small></div><div style="border:1px solid #ddd;padding:10px;border-radius:10px"><small>평가 이미지</small><div style="font-size:26px;font-weight:800">'+s.images+'장</div></div></div>'+
       '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:10px"><div><b>템플릿별</b>'+temp+'</div><div><b>촬영조건별</b>'+cond+'</div></div><div style="margin-top:10px"><b>필드별</b><div>'+fld+'</div></div>';
 
     detail.innerHTML='<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr><th style="text-align:left">파일</th><th>구분</th><th>정확</th><th>오류필드</th><th>시간</th></tr></thead><tbody>'+
@@ -217,10 +228,10 @@
 
   B.downloadCsv=function(){
     if(!B.results.length)return;
-    const rows=[['file','template','conditions','field','critical','ok','expected','actual','latency_ms','error']];
+    const rows=[['file','source_group','template','conditions','field','critical','ok','expected','actual','latency_ms','error']];
     for(const r of B.results){
-      if(!r.fields.length)rows.push([r.file,r.template,(r.conditions||[r.condition]).join('|'),'','',false,'','',r.latency,r.error]);
-      for(const f of r.fields)rows.push([r.file,r.template,(r.conditions||[r.condition]).join('|'),f.key,f.critical,f.ok,f.expected,f.actual,r.latency,r.error]);
+      if(!r.fields.length)rows.push([r.file,r.sourceGroup,r.template,(r.conditions||[r.condition]).join('|'),'','',false,'','',r.latency,r.error]);
+      for(const f of r.fields)rows.push([r.file,r.sourceGroup,r.template,(r.conditions||[r.condition]).join('|'),f.key,f.critical,f.ok,f.expected,f.actual,r.latency,r.error]);
     }
     const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
     const csv='\ufeff'+rows.map(x=>x.map(q).join(',')).join('\r\n');
