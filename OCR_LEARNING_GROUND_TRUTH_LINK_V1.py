@@ -193,7 +193,11 @@ def main():
           'truthConfidence':confidence,
           'verifiedFields':verified,
           'eligibleForBenchmark':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and len(verified)>0,
-          'eligibleForOfficialDataset':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and len(verified)>0,
+          # Field-level final values are enough for a benchmark, but NOT enough
+          # for PP-OCR recognition fine-tuning. Fine-tuning requires an
+          # administrator-approved image transcription/annotation.
+          'eligibleForFineTuning':bool(m and m.get('adminApproved') is True and m.get('transcription')),
+          'transcription':clean(m.get('transcription')) if m else '',
           'truth':truth,'missingFields':missing if ref else [],'conditions':item.get('conditions',[])
         })
 
