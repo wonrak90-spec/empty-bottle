@@ -1,6 +1,5 @@
 import json, subprocess, sys, tempfile, zipfile, hashlib
 from pathlib import Path
-from PIL import Image
 
 ROOT=Path(__file__).resolve().parents[1]
 TOOL=ROOT/'OCR_LEARNING_DATASET_PACK_V1.py'
@@ -13,11 +12,11 @@ def main():
         td=Path(td)
         orig=td/'orig';aug=td/'aug';hold=td/'hold'
         orig.mkdir();aug.mkdir();hold.mkdir()
-        Image.new('RGB',(20,20),'white').save(orig/'a.jpg')
-        Image.new('RGB',(20,20),'gray').save(orig/'b.jpg')
-        Image.new('RGB',(20,20),'black').save(aug/'a__rot.jpg')
-        Image.new('RGB',(20,20),'blue').save(aug/'b__blur.jpg')
-        Image.new('RGB',(20,20),'red').save(hold/'field.jpg')
+        (orig/'a.jpg').write_bytes(b'JPEG-A')
+        (orig/'b.jpg').write_bytes(b'JPEG-B')
+        (aug/'a__rot.jpg').write_bytes(b'JPEG-A-ROT')
+        (aug/'b__blur.jpg').write_bytes(b'JPEG-B-BLUR')
+        (hold/'field.jpg').write_bytes(b'JPEG-HOLDOUT')
         originals=[
           {'file':'a.jpg','dataset_split':'train','source_group':'G1','sha256':h(orig/'a.jpg'),'verified':True,'fields':{'label_type':'wms','inboundNo':'1'}},
           {'file':'b.jpg','dataset_split':'validation','source_group':'G2','sha256':h(orig/'b.jpg'),'verified':True,'fields':{'label_type':'vendor','qty':'10'}}
