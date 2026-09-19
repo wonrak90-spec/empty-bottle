@@ -1,7 +1,7 @@
 from pathlib import Path
 
 ROOT=Path(__file__).resolve().parents[1]
-JS=(ROOT/'v26-ocr-benchmark.js').read_text(encoding='utf-8')
+JS=(ROOT/'v55-ocr-benchmark.js').read_text(encoding='utf-8')
 
 def main():
     assert "labels_holdout.jsonl" in JS, "browser benchmark must read labeled holdout manifest"
