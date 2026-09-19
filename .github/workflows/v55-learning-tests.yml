@@ -6,6 +6,7 @@ on:
       - 'v55-ocr-learning.js'
       - 'v55-ocr-learning-admin.js'
       - 'v55-ocr-learning-diagnostics.js'
+      - 'v55-ocr-benchmark.js'
       - 'OCR_LEARNING_*.gs'
       - 'OCR_LEARNING_*.md'
       - 'OCR_LEARNING_*.py'
@@ -44,7 +45,7 @@ jobs:
           while IFS= read -r file; do
             [ -z "$file" ] && continue
             case "$file" in
-              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|OCR_LEARNING_*.py|v55-ocr-learning*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
+              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|OCR_LEARNING_*.py|v55-*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
               *) bad="${bad}${file}"$'\n' ;;
             esac
             case "$file" in
@@ -85,6 +86,7 @@ jobs:
           node --check v55-ocr-learning.js
           node --check v55-ocr-learning-admin.js
           node --check v55-ocr-learning-diagnostics.js
+          node --check v55-ocr-benchmark.js
           cp OCR_LEARNING_STORE_V1.gs /tmp/ocr-learning-store.js
           cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
           node --check /tmp/ocr-learning-store.js
