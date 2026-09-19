@@ -57,7 +57,9 @@ def main():
         truth=s.get('truth') or {};pred=s.get('prediction') or {}
         src=str(s.get('source','wms'));condition=str(s.get('condition','unknown'));samples+=1
         for k,t in truth.items():
-            if str(t).strip()=='' and str(pred.get(k,'')).strip()=='': continue
+            # Empty Ground Truth means "not verified / unknown", not an expected blank.
+            # Never penalize OCR for a field whose truth was not confirmed.
+            if str(t).strip()=='': continue
             ok=norm(k,t)==norm(k,pred.get(k,''))
             add(overall,ok);add(by_condition[condition],ok);add(by_source[src],ok);add(by_field[k],ok)
             if k in CRITICAL.get(src,[]):add(critical,ok)
