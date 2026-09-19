@@ -135,17 +135,32 @@
     try{
       status.textContent='ZIP 확인 중...';status.className='status warn';
       const zip=await unzip(file);
+      const holdKey=findEntry(zip,'labels_holdout.jsonl');
       const origKey=findEntry(zip,'labels_original.jsonl');
-      if(!origKey)throw new Error('labels_original.jsonl을 찾지 못했습니다.');
-      const originals=parseJsonl(zip[origKey]).filter(x=>x.verified!==false&&x.split==='holdout');
-      let jobs=originals.map(x=>({...x,folder:'holdout_real',
+      let originals=[];
+      let holdoutFolder='holdout';
+      if(holdKey){
+        originals=parseJsonl(zip[holdKey]).filter(x=>x.verified!==false);
+      }else if(origKey){
+        originals=parseJsonl(zip[origKey]).filter(x=>{
+          const s=x.split||x.dataset_split||'';
+          return x.verified!==false&&(s==='holdout'||s==='final_holdout');
+        });
+        holdoutFolder='holdout_real';
+      }else{
+        throw new Error('labels_holdout.jsonl 또는 holdout이 포함된 labels_original.jsonl을 찾지 못했습니다.');
+      }
+      let jobs=originals.map(x=>({...x,folder:holdoutFolder,
+        split:x.split||x.dataset_split||'final_holdout',
         conditions:Array.isArray(x.conditions)&&x.conditions.length?x.conditions:['real_holdout'],
         condition:(Array.isArray(x.conditions)&&x.conditions.length?x.conditions[0]:'real_holdout')}));
       if($('v26BenchAug')&&$('v26BenchAug').checked){
         const augKey=findEntry(zip,'labels_augmented.jsonl');
         if(augKey){
           const aug=parseJsonl(zip[augKey]).filter(x=>x.label_verified!==false);
-          jobs=jobs.concat(aug.map(x=>({...x,folder:'augmented_train',split:'augmented',
+          jobs=jobs.concat(aug.map(x=>({...x,
+            folder:'augmented/'+(x.dataset_split||'train'),
+            split:x.dataset_split||'augmented',
             conditions:Array.isArray(x.conditions)&&x.conditions.length?x.conditions:[x.augmentation||'augmented'],
             condition:(Array.isArray(x.conditions)&&x.conditions.length?x.conditions[0]:(x.augmentation||'augmented'))})));
         }
