@@ -7,10 +7,10 @@ EVAL=ROOT/'OCR_LEARNING_ROBUSTNESS_EVAL_V1.py'
 def run_case(pred2):
     data={
       'samples':[
-        {'id':'A','split':'holdout','source':'wms','condition':'film_glare',
+        {'id':'A','split':'holdout','source':'wms','condition':'perspective_left_strong',
          'truth':{'inboundNo':'26001','itemCode':'A100','product':'병A','displayQty':'13,608.000','containerFrom':'001'},
          'prediction':{'inboundNo':'26001','itemCode':'A100','product':'병A','displayQty':'13608','containerFrom':'001'}},
-        {'id':'B','split':'holdout','source':'wms','condition':'lowlight',
+        {'id':'B','split':'holdout','source':'wms','condition':'angle_glare',
          'truth':{'inboundNo':'26002','itemCode':'B200','product':'병B','displayQty':'10000','containerFrom':'002'},
          'prediction':pred2}
       ]
@@ -26,6 +26,8 @@ def main():
     result=json.loads(pass90.stdout)
     assert result['criticalAccuracy']==90.0,result
     assert result['gate']['passed'] is True,result
+    assert 'perspective_left_strong' in result['byCondition'],result
+    assert 'angle_glare' in result['byCondition'],result
 
     fail80=run_case({'inboundNo':'26002','itemCode':'B200','product':'WRONG','displayQty':'10000','containerFrom':'999'})
     assert fail80.returncode==2,fail80.stderr+fail80.stdout
