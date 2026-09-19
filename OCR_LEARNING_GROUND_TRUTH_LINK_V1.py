@@ -185,12 +185,15 @@ def main():
         else:
             status='needs_review';stats['unresolved']+=1
 
+        verified=[k for k,v in truth.items() if clean(v)!='']
         out.append({
           'sha256':item.get('sha256',''),'set':item.get('set',''),'role':item.get('role',''),
           'name':name,'nearGroup':item.get('nearGroup'),'recordId':(ref or {}).get('recordId',''),
           'source':(ref or {}).get('source',''),'linkOrigin':origin,'groundTruthStatus':status,
           'truthConfidence':confidence,
-          'eligibleForOfficialDataset':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and status=='linked',
+          'verifiedFields':verified,
+          'eligibleForBenchmark':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and len(verified)>0,
+          'eligibleForOfficialDataset':confidence in ('CURRENT_RECORD','MANUAL_REVIEWED') and len(verified)>0,
           'truth':truth,'missingFields':missing if ref else [],'conditions':item.get('conditions',[])
         })
 
