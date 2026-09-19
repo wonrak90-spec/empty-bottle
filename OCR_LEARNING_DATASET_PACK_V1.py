@@ -65,18 +65,24 @@ def sha256(path):
 
 def main():
     ap=argparse.ArgumentParser()
-    ap.add_argument('--labels-original',required=True)
-    ap.add_argument('--labels-augmented',required=True)
-    ap.add_argument('--original-dir',required=True)
-    ap.add_argument('--augmented-dir',required=True)
+    ap.add_argument('--labels-original')
+    ap.add_argument('--labels-augmented')
+    ap.add_argument('--original-dir')
+    ap.add_argument('--augmented-dir')
     ap.add_argument('--final-holdout-dir')
     ap.add_argument('--labels-holdout')
     ap.add_argument('--output',required=True)
     args=ap.parse_args()
 
-    originals=read_jsonl(args.labels_original)
-    augmented=read_jsonl(args.labels_augmented)
+    originals=read_jsonl(args.labels_original) if args.labels_original else []
+    augmented=read_jsonl(args.labels_augmented) if args.labels_augmented else []
     holdout=read_jsonl(args.labels_holdout) if args.labels_holdout else []
+    if originals and not args.original_dir:
+        raise SystemExit('--labels-original requires --original-dir')
+    if augmented and not args.augmented_dir:
+        raise SystemExit('--labels-augmented requires --augmented-dir')
+    if not originals and not augmented and not holdout:
+        raise SystemExit('no dataset labels supplied')
 
     bad_split=[x for x in originals+augmented if x.get('dataset_split') not in ('train','validation')]
     if bad_split: raise SystemExit('dataset_split must be train or validation')
