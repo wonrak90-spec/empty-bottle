@@ -71,8 +71,48 @@ const CONFIG = {
                         if(document.getElementById('v26OcrBenchmarkLoader'))return;
                         const sb=document.createElement('script');
                         sb.id='v26OcrBenchmarkLoader';
-                        sb.src='v26-ocr-benchmark.js?v=20260918b';
+                        sb.src='v26-ocr-benchmark.js?v=20260919b';
                         sb.async=false;
+                        sb.onload=()=>{
+                          if(document.getElementById('v55AdaptiveOcrLoader'))return;
+                          const sad=document.createElement('script');
+                          sad.id='v55AdaptiveOcrLoader';
+                          sad.src='v55-adaptive-ocr.js?v=20260919a';
+                          sad.async=false;
+                          sad.onload=()=>{
+                          if(document.getElementById('v55OcrBenchmarkLoader'))return;
+                          const sbr=document.createElement('script');
+                          sbr.id='v55OcrBenchmarkLoader';
+                          sbr.src='v55-ocr-benchmark.js?v=20260919c';
+                          sbr.async=false;
+                          sbr.onload=()=>{
+                          if(document.getElementById('v55OcrLearningLoader'))return;
+                          const sl=document.createElement('script');
+                          sl.id='v55OcrLearningLoader';
+                          sl.src='v55-ocr-learning.js?v=20260918b';
+                          sl.async=false;
+                          sl.onload=()=>{
+                            if(document.getElementById('v55OcrLearningAdminLoader'))return;
+                            const sa=document.createElement('script');
+                            sa.id='v55OcrLearningAdminLoader';
+                            sa.src='v55-ocr-learning-admin.js?v=20260918d';
+                            sa.async=false;
+                            sa.onload=()=>{
+                              if(document.getElementById('v55OcrLearningDiagnosticsLoader'))return;
+                              const sd=document.createElement('script');
+                              sd.id='v55OcrLearningDiagnosticsLoader';
+                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918c';
+                              sd.async=false;
+                              document.body.appendChild(sd);
+                            };
+                            document.body.appendChild(sa);
+                          };
+                          document.body.appendChild(sl);
+                          };
+                          document.body.appendChild(sbr);
+                          };
+                          document.body.appendChild(sad);
+                        };
                         document.body.appendChild(sb);
                       };
                       document.body.appendChild(ss);
