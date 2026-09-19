@@ -8,6 +8,7 @@ def run_case(pred2):
     data={
       'samples':[
         {'id':'A','split':'holdout','source':'wms','condition':'perspective_left_strong',
+         'conditions':['perspective_left_strong','film_glare'],
          'truth':{'inboundNo':'26001','itemCode':'A100','product':'병A','displayQty':'13,608.000','containerFrom':'001','containerTo':''},
          'prediction':{'inboundNo':'26001','itemCode':'A100','product':'병A','displayQty':'13608','containerFrom':'001','containerTo':'999'}},
         {'id':'B','split':'holdout','source':'wms','condition':'angle_glare',
@@ -28,6 +29,7 @@ def main():
     assert result['byField'].get('containerTo') is None,result
     assert result['gate']['passed'] is True,result
     assert 'perspective_left_strong' in result['byCondition'],result
+    assert 'film_glare' in result['byCondition'],result
     assert 'angle_glare' in result['byCondition'],result
 
     fail80=run_case({'inboundNo':'26002','itemCode':'B200','product':'WRONG','displayQty':'10000','containerFrom':'999'})
