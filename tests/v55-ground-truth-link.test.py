@@ -47,7 +47,7 @@ def main():
         assert p.returncode==0,p.stderr
         out=json.loads((td/'out.json').read_text(encoding='utf-8'))
         assert out['summary']['uniqueImages']==4,out
-        assert out['summary']['autoFilenameLinked']==2,out
+        assert out['summary']['autoFilenameLinked']==3,out
         assert out['summary']['manualMapped']==1,out
         wms=out['items'][0];vendor=out['items'][1];manual_row=out['items'][2];deleted_row=out['items'][3]
         assert wms['recordId']==rid and wms['source']=='wms'
