@@ -74,10 +74,16 @@ const CONFIG = {
                         sb.src='v26-ocr-benchmark.js?v=20260919b';
                         sb.async=false;
                         sb.onload=()=>{
+                          if(document.getElementById('v55AdaptiveOcrLoader'))return;
+                          const sad=document.createElement('script');
+                          sad.id='v55AdaptiveOcrLoader';
+                          sad.src='v55-adaptive-ocr.js?v=20260919a';
+                          sad.async=false;
+                          sad.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
                           const sbr=document.createElement('script');
                           sbr.id='v55OcrBenchmarkLoader';
-                          sbr.src='v55-ocr-benchmark.js?v=20260919a';
+                          sbr.src='v55-ocr-benchmark.js?v=20260919c';
                           sbr.async=false;
                           sbr.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
@@ -104,6 +110,8 @@ const CONFIG = {
                           document.body.appendChild(sl);
                           };
                           document.body.appendChild(sbr);
+                          };
+                          document.body.appendChild(sad);
                         };
                         document.body.appendChild(sb);
                       };
