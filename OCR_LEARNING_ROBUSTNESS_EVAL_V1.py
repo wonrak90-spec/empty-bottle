@@ -55,13 +55,20 @@ def main():
     for s in data.get('samples',[]):
         if args.split and str(s.get('split',''))!=args.split: continue
         truth=s.get('truth') or {};pred=s.get('prediction') or {}
-        src=str(s.get('source','wms'));condition=str(s.get('condition','unknown'));samples+=1
+        src=str(s.get('source','wms'))
+        conditions=s.get('conditions')
+        if not isinstance(conditions,list) or not conditions:
+            conditions=[str(s.get('condition','unknown'))]
+        conditions=[str(x) for x in conditions if str(x).strip()] or ['unknown']
+        samples+=1
         for k,t in truth.items():
             # Empty Ground Truth means "not verified / unknown", not an expected blank.
             # Never penalize OCR for a field whose truth was not confirmed.
             if str(t).strip()=='': continue
             ok=norm(k,t)==norm(k,pred.get(k,''))
-            add(overall,ok);add(by_condition[condition],ok);add(by_source[src],ok);add(by_field[k],ok)
+            add(overall,ok)
+            for condition in set(conditions): add(by_condition[condition],ok)
+            add(by_source[src],ok);add(by_field[k],ok)
             if k in CRITICAL.get(src,[]):add(critical,ok)
     result={'schema':'OCR-ROBUSTNESS-EVAL-V1','split':args.split,'samples':samples,
             'overallAccuracy':pct(overall),'criticalAccuracy':pct(critical),
