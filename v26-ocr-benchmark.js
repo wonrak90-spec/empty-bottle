@@ -91,9 +91,14 @@
       const t=r.template||r.labelType||'-';
       if(!template[t])template[t]={images:0,ok:0,total:0};template[t].images++;
       for(const f of r.fields){template[t].total++;if(f.ok)template[t].ok++;}
-      const c=r.condition||r.split||'real';
-      if(!condition[c])condition[c]={images:0,ok:0,total:0};condition[c].images++;
-      for(const f of r.fields){condition[c].total++;if(f.ok)condition[c].ok++;}
+      const tags=Array.isArray(r.conditions)&&r.conditions.length
+        ? r.conditions
+        : [r.condition||r.split||'real'];
+      [...new Set(tags.filter(Boolean))].forEach(c=>{
+        if(!condition[c])condition[c]={images:0,ok:0,total:0};
+        condition[c].images++;
+        for(const f of r.fields){condition[c].total++;if(f.ok)condition[c].ok++;}
+      });
     }
     const pct=(a,b)=>b?Math.round(a/b*1000)/10:0;
     return {images:rows.length,accuracy:pct(ok,total),criticalAccuracy:pct(critOk,critTotal),field,template,condition};
@@ -133,12 +138,16 @@
       const origKey=findEntry(zip,'labels_original.jsonl');
       if(!origKey)throw new Error('labels_original.jsonl을 찾지 못했습니다.');
       const originals=parseJsonl(zip[origKey]).filter(x=>x.verified!==false&&x.split==='holdout');
-      let jobs=originals.map(x=>({...x,folder:'holdout_real',condition:'real_holdout'}));
+      let jobs=originals.map(x=>({...x,folder:'holdout_real',
+        conditions:Array.isArray(x.conditions)&&x.conditions.length?x.conditions:['real_holdout'],
+        condition:(Array.isArray(x.conditions)&&x.conditions.length?x.conditions[0]:'real_holdout')}));
       if($('v26BenchAug')&&$('v26BenchAug').checked){
         const augKey=findEntry(zip,'labels_augmented.jsonl');
         if(augKey){
           const aug=parseJsonl(zip[augKey]).filter(x=>x.label_verified!==false);
-          jobs=jobs.concat(aug.map(x=>({...x,folder:'augmented_train',split:'augmented',condition:x.augmentation||'augmented'})));
+          jobs=jobs.concat(aug.map(x=>({...x,folder:'augmented_train',split:'augmented',
+            conditions:Array.isArray(x.conditions)&&x.conditions.length?x.conditions:[x.augmentation||'augmented'],
+            condition:(Array.isArray(x.conditions)&&x.conditions.length?x.conditions[0]:(x.augmentation||'augmented'))})));
         }
       }
       if(!jobs.length)throw new Error('평가할 이미지가 없습니다.');
@@ -146,7 +155,7 @@
       for(let i=0;i<jobs.length;i++){
         const j=jobs[i];
         const path=imagePath(zip,j.folder,j.file);
-        if(!path){B.results.push({file:j.file,labelType:j.fields&&j.fields.label_type||j.label_type||'',template:j.fields&&j.fields.template||j.template||'',condition:j.condition,split:j.split,latency:0,error:'이미지 없음',fields:[]});continue;}
+        if(!path){B.results.push({file:j.file,labelType:j.fields&&j.fields.label_type||j.label_type||'',template:j.fields&&j.fields.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split,latency:0,error:'이미지 없음',fields:[]});continue;}
         status.textContent='OCR 평가 '+(i+1)+' / '+jobs.length+' · '+j.file;
         const bytes=zip[path],blob=new Blob([bytes],{type:/\.png$/i.test(j.file)?'image/png':'image/jpeg'});
         const data=await blobToDataUrl(blob);
@@ -163,7 +172,7 @@
           const cmp=compareField(k,expected[k],pred[k]);
           if(cmp)fs.push({key:k,...cmp,critical:critical(k,type)});
         }
-        B.results.push({file:j.file,labelType:type,template:expected.template||j.template||'',condition:j.condition,split:j.split||'',latency:r.latency||0,error:err,fields:fs,raw:r.text||''});
+        B.results.push({file:j.file,labelType:type,template:expected.template||j.template||'',condition:j.condition,conditions:j.conditions||[],split:j.split||'',latency:r.latency||0,error:err,fields:fs,raw:r.text||''});
         await sleep(20);
       }
       B.summary=summarize(B.results);
@@ -193,10 +202,10 @@
 
   B.downloadCsv=function(){
     if(!B.results.length)return;
-    const rows=[['file','template','condition','field','critical','ok','expected','actual','latency_ms','error']];
+    const rows=[['file','template','conditions','field','critical','ok','expected','actual','latency_ms','error']];
     for(const r of B.results){
-      if(!r.fields.length)rows.push([r.file,r.template,r.condition,'','',false,'','',r.latency,r.error]);
-      for(const f of r.fields)rows.push([r.file,r.template,r.condition,f.key,f.critical,f.ok,f.expected,f.actual,r.latency,r.error]);
+      if(!r.fields.length)rows.push([r.file,r.template,(r.conditions||[r.condition]).join('|'),'','',false,'','',r.latency,r.error]);
+      for(const f of r.fields)rows.push([r.file,r.template,(r.conditions||[r.condition]).join('|'),f.key,f.critical,f.ok,f.expected,f.actual,r.latency,r.error]);
     }
     const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
     const csv='\ufeff'+rows.map(x=>x.map(q).join(',')).join('\r\n');
