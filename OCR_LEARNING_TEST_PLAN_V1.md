@@ -175,7 +175,10 @@ Expected:
 Seed exact-unique만 `OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py`에 입력한다.
 
 Expected:
-- best_autocontrast / lowlight / overexpose / blur / lowres / rotation / film_glare / harsh_combo 생성
+- Seed 1장당 22개 증강조건 생성
+- 최상조건에도 정면 0°, ±5° 및 약한 좌/우 원근 포함
+- 최악조건에 ±15°/±20° 회전, 좌/우/상/하 강한 원근 포함
+- angle+glare / angle+lowlight / angle+blur / combined_worst 복합조건 생성
 - 파생본은 원본과 동일 splitConstraint
 - 생성 이미지가 GitHub에 추가되지 않음
 
