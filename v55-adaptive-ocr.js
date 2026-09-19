@@ -57,6 +57,17 @@
     return type==='vendor' ? s.critical<3 : s.critical<5;
   };
 
+  A.isStrictImprovement=function(base,candidate){
+    if(!candidate||!base)return false;
+    if(candidate.critical>base.critical)return true;
+    if(candidate.critical<base.critical)return false;
+    if(candidate.sanity>base.sanity)return true;
+    if(candidate.sanity<base.sanity)return false;
+    // Same Critical coverage and sanity: only accept a materially stronger OCR
+    // confidence. Extra non-critical fields alone must never replace baseline.
+    return candidate.meanConfidence>=base.meanConfidence+0.08;
+  };
+
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
     return {x:Number(p&&p.x)||0,y:Number(p&&p.y)||0};
@@ -196,7 +207,7 @@
         const p=parse(type,r);
         const score=A.scoreParsed(type,p,r.items);
         attempts.push({method:step.name,score:score.value,critical:score.critical,latency:r.latency||0});
-        if(score.value>best.score.value){
+        if(A.isStrictImprovement(best.score,score)){
           best={result:r,parsed:p,score,method:step.name};
         }
         if(!A.needsRetry(type,best.parsed))break;
