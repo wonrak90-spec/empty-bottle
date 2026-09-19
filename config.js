@@ -71,7 +71,7 @@ const CONFIG = {
                         if(document.getElementById('v26OcrBenchmarkLoader'))return;
                         const sb=document.createElement('script');
                         sb.id='v26OcrBenchmarkLoader';
-                        sb.src='v26-ocr-benchmark.js?v=20260919a';
+                        sb.src='v26-ocr-benchmark.js?v=20260919b';
                         sb.async=false;
                         sb.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
