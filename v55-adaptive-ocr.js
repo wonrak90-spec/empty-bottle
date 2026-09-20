@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.3',
+    VERSION:'V55-ADAPTIVE-OCR-2.4',
     MAX_EXTRA_PASSES:4
   };
 
@@ -20,6 +20,14 @@
   function present(v){return v!=null&&String(v).trim()!=='';}
   function digits(v){return String(v??'').replace(/[^0-9]/g,'');}
   function allFields(parsed){return Object.keys(parsed||{}).filter(k=>present(parsed[k]));}
+  function isQtyScaledInbound(parsed,v){
+    const d=digits(v),q=digits(parsed&&parsed.displayQty);
+    return !!(d&&q&&d.length===8&&d===q+'000');
+  }
+  function wmsInboundSane(parsed){
+    const d=digits(parsed&&parsed.inboundNo);
+    return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(parsed,d);
+  }
 
   A.criticalKeys=function(type){return (CRITICAL[type]||CRITICAL.wms).slice();};
 
@@ -32,7 +40,7 @@
       if(!present(v))continue;
       critical++;
       if(k==='inboundNo'){
-        const d=digits(v); if(d.length===8)sanity++;
+        if(wmsInboundSane(parsed))sanity++;
       }else if(k==='itemCode'){
         const d=digits(v); if(d.length>=4&&d.length<=14)sanity++;
       }else if(k==='displayQty'||k==='qty'){
@@ -56,8 +64,7 @@
     const s=A.scoreParsed(type,parsed,[]);
     if(type==='vendor')return s.critical<3;
     if(s.critical<5)return true;
-    const inbound=digits(parsed&&parsed.inboundNo);
-    if(inbound&&inbound.length!==8)return true;
+    if(!wmsInboundSane(parsed))return true;
     return false;
   };
 
@@ -208,7 +215,10 @@
         const v=digits(String(m[1]).replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
         if(v)return v;
       }
-      return '';
+      const lone=[...new Set((text.match(/(?<![0-9OoQDIl|])[0-9OoQDIl|]{1,4}(?![0-9OoQDIl|])/g)||[])
+        .map(x=>digits(x.replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1')))
+        .filter(x=>x&&Number(x)>0))];
+      return lone.length===1?lone[0]:'';
     }
     if(type==='wms'&&field==='inboundNo'){
       let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*([0-9OoQDIl|]{7,10})/);
@@ -228,8 +238,7 @@
 
   function retryTarget(type,parsed){
     if(type==='vendor')return 'palletNo';
-    const inbound=digits(parsed&&parsed.inboundNo);
-    return inbound.length===8?'':'inboundNo';
+    return wmsInboundSane(parsed)?'':'inboundNo';
   }
 
   function formulaFactors(text){
@@ -252,11 +261,10 @@
       const factors=formulaFactors(text);
       return factors.includes(String(Number(p)));
     }
-    const inbound=digits(parsed&&parsed.inboundNo);
-    return inbound.length!==8;
+    return !wmsInboundSane(parsed);
   };
 
-  function targetValueSane(type,field,v,sourceText){
+  function targetValueSane(type,field,v,sourceText,context){
     const d=digits(v);
     if(type==='vendor'&&field==='palletNo'){
       if(!d||d.length>4)return false;
@@ -264,7 +272,7 @@
       return !factors.includes(String(Number(d)));
     }
     if(type==='wms'&&field==='inboundNo'){
-      return d.length===8&&!isDate8(d);
+      return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(context||{},d);
     }
     return !!d;
   }
@@ -277,6 +285,18 @@
     good.sort((a,b)=>(freq[b.v]-freq[a.v])||((Number(b.conf)||0)-(Number(a.conf)||0)));
     const pick=good[0],need=Math.max(1,Number(requiredVotes)||1);
     return (freq[pick.v]||0)>=need?pick:null;
+  };
+
+  A.sanitizeFullRetryCandidate=function(type,base,candidate){
+    const out={...(candidate||{})};
+    const target=type==='vendor'?'palletNo':'inboundNo';
+    const before=String((base&&base[target])??'').trim();
+    const after=String((out&&out[target])??'').trim();
+    // Whole-image retries may recover text/quantity, but a new or changed
+    // Critical numeric identifier must come through the dedicated dual-ROI
+    // consensus gate. This blocks PL48-style formula digits entering via ROI.
+    if(after&&after!==before)delete out[target];
+    return out;
   };
 
   A.plan=function(type,parsed,items,brightness){
@@ -314,7 +334,7 @@
 
     const runFull=async(name,variant)=>{
       const r=await V26KoreanOCR.recognize(variant,false,'');
-      const rawParsed=parse(type,r);
+      const rawParsed=A.sanitizeFullRetryCandidate(type,best.parsed,parse(type,r));
       // Whole-image/ROI candidates may ADD missing Critical values, but they
       // must not overwrite an already populated Critical value. This prevents
       // a visually noisy retry from destroying a correct baseline field.
@@ -352,7 +372,7 @@
               const v=extractTargetField(type,target,rr);
               const scores=(rr.items||[]).map(x=>Number(x&&x.score)).filter(Number.isFinite);
               const conf=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
-              const sane=v&&targetValueSane(type,target,v,first.text||'');
+              const sane=v&&targetValueSane(type,target,v,first.text||'',best.parsed);
               attempts.push({method:fr.kind||('field_roi_'+target),latency:rr.latency||0,recovered:v||'',sane:!!sane,confidence:conf});
               if(sane)candidates.push({v,rr,conf,method:fr.kind||('field_roi_'+target)});
             }catch(e){
@@ -405,5 +425,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.3] consensus-gated numeric recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.4] numeric targets require dual-ROI consensus');
 })();
