@@ -77,19 +77,25 @@ const CONFIG = {
                           if(document.getElementById('v55VendorParserLoader'))return;
                           const svp=document.createElement('script');
                           svp.id='v55VendorParserLoader';
-                          svp.src='v55-vendor-parser.js?v=20260920a';
+                          svp.src='v55-vendor-parser.js?v=20260920b';
                           svp.async=false;
                           svp.onload=()=>{
+                          if(document.getElementById('v55WmsParserLoader'))return;
+                          const swp=document.createElement('script');
+                          swp.id='v55WmsParserLoader';
+                          swp.src='v55-wms-parser.js?v=20260920a';
+                          swp.async=false;
+                          swp.onload=()=>{
                           if(document.getElementById('v55AdaptiveOcrLoader'))return;
                           const sad=document.createElement('script');
                           sad.id='v55AdaptiveOcrLoader';
-                          sad.src='v55-adaptive-ocr.js?v=20260920a';
+                          sad.src='v55-adaptive-ocr.js?v=20260920b';
                           sad.async=false;
                           sad.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
                           const sbr=document.createElement('script');
                           sbr.id='v55OcrBenchmarkLoader';
-                          sbr.src='v55-ocr-benchmark.js?v=20260920a';
+                          sbr.src='v55-ocr-benchmark.js?v=20260920b';
                           sbr.async=false;
                           sbr.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
@@ -118,6 +124,8 @@ const CONFIG = {
                           document.body.appendChild(sbr);
                           };
                           document.body.appendChild(sad);
+                          };
+                          document.body.appendChild(swp);
                           };
                           document.body.appendChild(svp);
                         };
