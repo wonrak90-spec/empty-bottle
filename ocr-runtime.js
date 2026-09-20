@@ -12,7 +12,7 @@
 
   const $=id=>document.getElementById(id);
   const R=window.OcrRuntime={
-    VERSION:'OCR-RUNTIME-1.0',
+    VERSION:'OCR-RUNTIME-1.1',
     OCR_RELEASE:'V4.6',
     REQUIRE_WORKER_CONFIRM:true,
     sessions:{wms:null,vendor:null,multi:null},
@@ -281,9 +281,30 @@
 
     try{
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저에서 카메라를 사용할 수 없습니다.');
-      const stream=await navigator.mediaDevices.getUserMedia({
-        video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false
-      });
+      let stream=null;
+      try{
+        stream=await navigator.mediaDevices.getUserMedia({
+          video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false
+        });
+      }catch(primaryErr){
+        const name=String(primaryErr&&primaryErr.name||'');
+        const msg=String(primaryErr&&primaryErr.message||primaryErr||'');
+        // Some desktop/mobile browsers fail the preferred rear-camera request
+        // even though another camera is available. Retry once with generic video.
+        if(/NotFound|Overconstrained|DevicesNotFound/i.test(name+' '+msg)){
+          try{
+            stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
+          }catch(fallbackErr){
+            const fn=String(fallbackErr&&fallbackErr.name||'');
+            const fm=String(fallbackErr&&fallbackErr.message||fallbackErr||'');
+            if(/NotFound|DevicesNotFound/i.test(fn+' '+fm))
+              throw new Error('사용 가능한 카메라를 찾지 못했습니다. 이 기기에서는 사진 촬영/갤러리를 사용하세요.');
+            throw fallbackErr;
+          }
+        }else{
+          throw primaryErr;
+        }
+      }
       await tuneCamera(stream);
       const st={
         id:++R.seq,mode,stream,track:stream.getVideoTracks()[0]||null,
