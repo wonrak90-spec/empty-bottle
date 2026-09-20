@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.5',
+    VERSION:'V55-ADAPTIVE-OCR-2.4',
     MAX_EXTRA_PASSES:4
   };
 
@@ -382,9 +382,9 @@
 
           if(candidates.length){
             // A single local OCR hit can still be a digit substitution (36 -> 26).
-            // V4.5 uses three geometrically/preprocessing-distinct target views,
-            // but still requires two independent votes before replacing a
-            // Critical numeric field. One-view hits remain worker-verification cases.
+            // With the dual target ROI, require two independent variants to agree
+            // before replacing a Critical numeric field. This keeps Safe-Merge
+            // conservative while still allowing strong recoveries such as 70/70.
             const requiredVotes=variants.length>=2?2:1;
             const pick=A.pickTargetConsensus(candidates,requiredVotes);
             if(pick){
@@ -425,5 +425,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.5] numeric targets require 2-of-N ROI consensus');
+  console.info('[V55-ADAPTIVE-OCR-2.4] numeric targets require dual-ROI consensus');
 })();
