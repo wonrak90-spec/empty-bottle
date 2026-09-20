@@ -8,8 +8,8 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-1',
-    MAX_EXTRA_PASSES:3
+    VERSION:'V55-ADAPTIVE-OCR-2',
+    MAX_EXTRA_PASSES:4
   };
 
   const CRITICAL={
@@ -32,7 +32,7 @@
       if(!present(v))continue;
       critical++;
       if(k==='inboundNo'){
-        const d=digits(v); if(d.length>=6&&d.length<=12)sanity++;
+        const d=digits(v); if(d.length===8)sanity++;
       }else if(k==='itemCode'){
         const d=digits(v); if(d.length>=4&&d.length<=14)sanity++;
       }else if(k==='displayQty'||k==='qty'){
@@ -54,7 +54,11 @@
 
   A.needsRetry=function(type,parsed){
     const s=A.scoreParsed(type,parsed,[]);
-    return type==='vendor' ? s.critical<3 : s.critical<5;
+    if(type==='vendor')return s.critical<3;
+    if(s.critical<5)return true;
+    const inbound=digits(parsed&&parsed.inboundNo);
+    if(inbound&&inbound.length!==8)return true;
+    return false;
   };
 
   A.isStrictImprovement=function(base,candidate){
@@ -165,6 +169,49 @@
     return c.toDataURL('image/jpeg',.92);
   }
 
+  function isDate8(v){
+    const d=digits(v);
+    if(d.length!==8)return false;
+    const y=Number(d.slice(0,4)),m=Number(d.slice(4,6)),day=Number(d.slice(6,8));
+    return y>=2020&&y<=2099&&m>=1&&m<=12&&day>=1&&day<=31;
+  }
+
+  function extractTargetField(type,field,r){
+    const text=String(r&&r.text||'');
+    if(type==='vendor'&&field==='palletNo'){
+      let m=text.match(/P\s*[/\-]\s*L\s*N\s*o\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
+      if(!m)m=text.match(/P\s*[-/]?\s*(?:번\s*호|No\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
+      if(m){
+        const v=digits(String(m[1]).replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+        if(v)return v;
+      }
+      return '';
+    }
+    if(type==='wms'&&field==='inboundNo'){
+      let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*([0-9OoQDIl|]{7,10})/);
+      if(m){
+        const v=digits(String(m[1]).replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+        if(v.length===8&&!isDate8(v))return v;
+      }
+      const cand=(text.match(/[0-9OoQDIl|]{8}/g)||[])
+        .map(x=>digits(x.replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1')))
+        .find(x=>x.length===8&&!isDate8(x));
+      return cand||'';
+    }
+    return '';
+  }
+
+  A.extractTargetField=extractTargetField;
+
+  function retryTarget(type,parsed){
+    if(type==='vendor'){
+      const p=digits(parsed&&parsed.palletNo);
+      return !p?'palletNo':'';
+    }
+    const inbound=digits(parsed&&parsed.inboundNo);
+    return inbound.length===8?'':'inboundNo';
+  }
+
   A.plan=function(type,parsed,items,brightness){
     const plan=[];
     if(brightness<92)plan.push({name:'bright_contrast',kind:'filter',filter:'brightness(1.32) contrast(1.22) saturate(.75)'});
@@ -197,27 +244,64 @@
         attempts,totalLatency:Math.round(performance.now()-started),extraPasses:0};
     }
 
-    let stats={brightness:128};
-    try{stats=await imageStats(dataUrl);}catch(_){}
-    const plan=A.plan(type,firstParsed,first.items,stats.brightness);
+    const runFull=async(name,variant)=>{
+      const r=await V26KoreanOCR.recognize(variant,false,'');
+      const p=parse(type,r);
+      const score=A.scoreParsed(type,p,r.items);
+      attempts.push({method:name,score:score.value,critical:score.critical,latency:r.latency||0});
+      if(A.isStrictImprovement(best.score,score))best={result:r,parsed:p,score,method:name};
+    };
 
-    for(const step of plan){
-      let variant;
+    // 1) Whole-label text cluster crop + upscale for distant/low-resolution shots.
+    if(attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess&&first.items&&first.items.length){
       try{
-        variant=step.kind==='rotate'
-          ? await rotated(dataUrl,step.deg)
-          : await filtered(dataUrl,step.filter);
-        const r=await V26KoreanOCR.recognize(variant,false,'');
-        const p=parse(type,r);
-        const score=A.scoreParsed(type,p,r.items);
-        attempts.push({method:step.name,score:score.value,critical:score.critical,latency:r.latency||0});
-        if(A.isStrictImprovement(best.score,score)){
-          best={result:r,parsed:p,score,method:step.name};
-        }
-        if(!A.needsRetry(type,best.parsed))break;
-      }catch(e){
-        attempts.push({method:step.name,error:String(e&&e.message?e.message:e)});
+        const roi=await V55RoiPreprocess.clusterCrop(dataUrl,first.items);
+        if(roi)await runFull('roi_zoom',roi.dataUrl);
+      }catch(e){attempts.push({method:'roi_zoom',error:String(e&&e.message?e.message:e)});}
+    }
+
+    // 2) Small field ROI is merged into the current best result instead of
+    // replacing the whole label. This is especially useful for P/L or WMS inbound.
+    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
+      const target=retryTarget(type,best.parsed);
+      if(target){
+        try{
+          const fr=await V55RoiPreprocess.fieldStrip(dataUrl,first.items,type,target);
+          if(fr){
+            const rr=await V26KoreanOCR.recognize(fr.dataUrl,false,'');
+            const v=extractTargetField(type,target,rr);
+            const merged={...best.parsed};
+            if(v)merged[target]=v;
+            const score=A.scoreParsed(type,merged,rr.items);
+            attempts.push({method:'field_roi_'+target,score:score.value,critical:score.critical,latency:rr.latency||0,recovered:v||''});
+            if(v&&A.isStrictImprovement(best.score,score))best={result:rr,parsed:merged,score,method:'field_roi_'+target};
+          }
+        }catch(e){attempts.push({method:'field_roi_'+target,error:String(e&&e.message?e.message:e)});}
       }
+    }
+
+    // 3) Rectify a trapezoidal text cloud when side/vertical perspective is evident.
+    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
+      try{
+        const pr=await V55RoiPreprocess.perspectiveCrop(dataUrl,first.items);
+        if(pr)await runFull('perspective_roi',pr.dataUrl);
+      }catch(e){attempts.push({method:'perspective_roi',error:String(e&&e.message?e.message:e)});}
+    }
+
+    // 4) Keep one proven legacy transform. Prefer deskew when OCR geometry gives
+    // a meaningful angle; otherwise use brightness/contrast correction.
+    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES){
+      let stats={brightness:128};try{stats=await imageStats(dataUrl);}catch(_){}
+      const skew=A.estimateSkew(first.items);
+      let step=null;
+      if(Math.abs(skew)>=3&&Math.abs(skew)<=25)step={name:'deskew_'+Math.round(skew),kind:'rotate',deg:-skew};
+      else if(stats.brightness<92)step={name:'bright_contrast',kind:'filter',filter:'brightness(1.32) contrast(1.22) saturate(.75)'};
+      else if(stats.brightness>196)step={name:'dark_contrast',kind:'filter',filter:'brightness(.84) contrast(1.28) saturate(.8)'};
+      else step={name:'contrast',kind:'filter',filter:'contrast(1.28) brightness(1.04) saturate(.8)'};
+      try{
+        const variant=step.kind==='rotate'?await rotated(dataUrl,step.deg):await filtered(dataUrl,step.filter);
+        await runFull(step.name,variant);
+      }catch(e){attempts.push({method:step.name,error:String(e&&e.message?e.message:e)});}
     }
 
     return {...best,baseline:{result:first,parsed:firstParsed,score:firstScore},
@@ -225,5 +309,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-1] benchmark-only adaptive OCR ready');
+  console.info('[V55-ADAPTIVE-OCR-2] ROI/perspective benchmark recovery ready');
 })();
