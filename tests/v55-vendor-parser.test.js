@@ -56,4 +56,27 @@ assert.strictEqual(d2.palletNo,'21');
 assert.strictEqual(P._test.cleanProduct('품명 까스활명수75m 당진 3F'),'까스활명수75ml');
 assert.strictEqual(P._test.cleanProduct('품명 유리병(각병) 100mi'),'유리병(각병) 100ml');
 
-console.log('PASS V55 vendor parser: Donghwa + Donga recovery');
+// Layout recovery: Donghwa label/value split into separate OCR boxes and one
+// multiplication symbol missing in the quantity formula.
+const donghwaItems=[
+  {text:'P-번호',poly:[[10,100],[90,100],[90,120],[10,120]]},
+  {text:'75',poly:[[130,100],[160,100],[160,120],[130,120]]}
+];
+const d3=P.parse('판콜에이병\n30ml\n40×41 13단=21,320 본',donghwaItems);
+assert.strictEqual(P.lastTemplate,'동화지앤피');
+assert.strictEqual(d3.product,'판콜에이병 30ml');
+assert.strictEqual(d3.qty,'21320');
+assert.strictEqual(d3.palletNo,'75');
+
+// Layout recovery: Donga P/L value must come from the same row, not 900
+// from the packaging formula.
+const dongaItems=[
+  {text:'P/L No.',poly:[[10,80],[90,80],[90,100],[10,100]]},
+  {text:'21',poly:[[130,80],[160,80],[160,100],[130,100]]},
+  {text:'900×12=10,800본',poly:[[10,140],[220,140],[220,165],[10,165]]}
+];
+const d4=P.parse('동아에코팩(주)\n품명 까스활명수75ml\n포장사양 900×12=10,800 본',dongaItems);
+assert.strictEqual(d4.palletNo,'21');
+assert.strictEqual(d4.qty,'10800');
+
+console.log('PASS V55 vendor parser V3: layout-aware Donghwa + Donga recovery');
