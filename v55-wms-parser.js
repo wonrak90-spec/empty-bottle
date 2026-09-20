@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.1'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.2'};
 
   function fixDigits(s){
     return String(s||'')
@@ -57,6 +57,15 @@
   }
   function recoverInbound(raw,items,out){
     const rr=rows(items);
+
+    // Raw-text fallback for OCR that inserts spaces inside the 8-digit
+    // inbound number (for example "2600 3373").  Keep it tied to the
+    // inbound-number label so unrelated quantity/date rows cannot be joined.
+    const rawMatch=fixDigits(String(raw||'')).match(/입\s*고\s*번\s*호\s*[:：-]?\s*((?:[0-9][\s\-]*){8,10})/);
+    if(rawMatch){
+      const d=String(rawMatch[1]||'').replace(/\D/g,'');
+      if(validInbound(d,out||{}))return d;
+    }
 
     // First choice: digits on the same row as the inbound-number label.
     for(const row of rr){
@@ -110,5 +119,5 @@
   };
 
   P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound};
-  console.info('[V55-WMS-PARSER-2.1] quantity-artifact-safe inbound recovery ready');
+  console.info('[V55-WMS-PARSER-2.2] split-digit + quantity-artifact-safe inbound recovery ready');
 })();
