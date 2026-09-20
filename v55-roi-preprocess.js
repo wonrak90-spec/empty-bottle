@@ -7,7 +7,7 @@
   if(window.__V55_ROI_PREPROCESS__)return;
   window.__V55_ROI_PREPROCESS__=true;
 
-  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3'};
+  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3.1'};
 
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
@@ -160,10 +160,10 @@
 
     const isWms=type==='wms';
     const rect={
-      x:Math.max(0,x1-rw*(isWms?.15:.10)),
-      y:Math.max(0,y1-rh*(isWms?.70:.45)),
-      w:isWms?Math.max(rw*3.20,iw*.55):Math.max(rw*1.85,iw*.30),
-      h:rh*(isWms?2.30:1.90)
+      x:Math.max(0,x1-rw*(isWms?.12:.10)),
+      y:Math.max(0,y1-rh*(isWms?.42:.45)),
+      w:isWms?Math.max(rw*3.55,iw*.60):Math.max(rw*1.85,iw*.30),
+      h:rh*(isWms?1.82:1.90)
     };
     rect.w=Math.min(iw-rect.x,rect.w);
     rect.h=Math.min(ih-rect.y,rect.h);
@@ -174,10 +174,25 @@
     const img=await loadImage(dataUrl),iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
     const fr=fieldRectFromItems(items,iw,ih,type,field);
     if(!fr)return [];
+
     const contrast=await cropRect(dataUrl,fr.rect,2000,'grayscale(1) contrast(1.42) brightness(1.04)');
+
+    // A second, geometrically different view keeps more row context and
+    // suppresses film glare. It is intentionally not just another threshold
+    // of the same crop: 2-of-3 consensus should represent distinct evidence.
+    const r=fr.rect;
+    const contextRect={
+      x:Math.max(0,r.x-r.w*.08),
+      y:Math.max(0,r.y-r.h*.22),
+      w:Math.min(iw-Math.max(0,r.x-r.w*.08),r.w*1.16),
+      h:Math.min(ih-Math.max(0,r.y-r.h*.22),r.h*1.44)
+    };
+    const context=await cropRect(dataUrl,contextRect,2100,'grayscale(1) brightness(.88) contrast(1.60)');
+
     const binary=await thresholdCrop(dataUrl,fr.rect,2000);
     return [
       {...contrast,kind:'field_roi_contrast',field,rowText:fr.rowText},
+      {...context,kind:'field_roi_context',field,rowText:fr.rowText},
       {...binary,kind:'field_roi_binary',field,rowText:fr.rowText}
     ];
   };
@@ -281,5 +296,5 @@
   };
 
   R._test={polyBox,ocrScale,unionBounds,rowGroups,fieldRectFromItems,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
-  console.info('[V55-ROI-PREPROCESS-3] tight vendor + wide WMS target ROI ready');
+  console.info('[V55-ROI-PREPROCESS-3.1] 3-view target ROI with glare-safe context ready');
 })();
