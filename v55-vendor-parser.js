@@ -59,13 +59,18 @@
     for(const row of rows){
       const text=row.text||'';
       if(!labelRe.test(text))continue;
-      const m=text.match(valueRe);
-      if(m&&m[1])return m[1];
+
+      // Never let characters inside the label itself (e.g. the "L" in
+      // "P/L No.") become the numeric value. Read only the tail after label.
+      const tail=text.replace(labelRe,' ').trim();
+      const tm=tail.match(valueRe);
+      if(tm&&tm[1])return tm[1];
+
       let labelX=-Infinity;
       for(const it of row.items)if(labelRe.test(it.text||''))labelX=Math.max(labelX,it.x);
-      const right=row.items.filter(it=>it.x>labelX&&valueRe.test(it.text||'')).sort((a,b)=>a.x-b.x);
-      if(right.length){
-        const mm=(right[0].text||'').match(valueRe);
+      const right=row.items.filter(it=>it.x>labelX).sort((a,b)=>a.x-b.x);
+      for(const it of right){
+        const mm=(it.text||'').match(valueRe);
         if(mm&&mm[1])return mm[1];
       }
     }
