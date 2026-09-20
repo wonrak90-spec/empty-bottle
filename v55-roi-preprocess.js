@@ -113,17 +113,20 @@
       row=rows.find(r=>type==='vendor'?/P\s*[/\-]|번\s*호|No\.?/i.test(r.text):/입\s*고|번\s*호/.test(r.text));
     }
     if(!row)return null;
+    const x1=Math.min(...row.items.map(x=>x.x1)),x2=Math.max(...row.items.map(x=>x.x2));
     const y1=Math.min(...row.items.map(x=>x.y1)),y2=Math.max(...row.items.map(x=>x.y2));
-    const h=Math.max(20,y2-y1);
+    const rw=Math.max(80,x2-x1),rh=Math.max(20,y2-y1);
     const rect={
-      x:Math.max(0,Math.min(...row.items.map(x=>x.x1))-iw*.05),
-      y:Math.max(0,y1-h*2.2),
-      w:iw*.82,
-      h:Math.min(ih, h*5.4)
+      x:Math.max(0,x1-rw*.18),
+      y:Math.max(0,y1-rh*1.15),
+      w:Math.min(iw, rw*1.55),
+      h:Math.min(ih, rh*3.3)
     };
     if(rect.x+rect.w>iw)rect.w=iw-rect.x;
     if(rect.y+rect.h>ih)rect.h=ih-rect.y;
-    return {...await cropRect(dataUrl,rect,1800,'contrast(1.16) brightness(1.04)'),kind:'field_roi',field,rowText:row.text};
+    // Target rows benefit more from local grayscale/contrast than from a broad
+    // crop that includes unrelated numbers elsewhere on the label.
+    return {...await cropRect(dataUrl,rect,1900,'grayscale(1) contrast(1.34) brightness(1.06)'),kind:'field_roi',field,rowText:row.text};
   };
 
   function quadFromBoxes(boxes){
