@@ -12,7 +12,7 @@
 
   const $=id=>document.getElementById(id);
   const R=window.OcrRuntime={
-    VERSION:'OCR-RUNTIME-1.1',
+    VERSION:'OCR-RUNTIME-1.2',
     OCR_RELEASE:'V4.6',
     REQUIRE_WORKER_CONFIRM:true,
     sessions:{wms:null,vendor:null,multi:null},
@@ -27,6 +27,52 @@
   function wrapId(mode){return 'v22LiveWrap_'+mode;}
   function safeError(err){return String(err&&err.message?err.message:err||'알 수 없는 오류');}
   function countFields(p){return Object.keys(p||{}).filter(k=>String(p[k]??'').trim()).length;}
+
+  function ensureLiveHud(mode){
+    const wrap=$(wrapId(mode));if(!wrap)return null;
+    let hud=$('ocrHud_'+mode);
+    if(hud)return hud;
+
+    // The HUD lives inside the camera area so progress remains visible even
+    // when the normal status block is below the mobile viewport.
+    hud=document.createElement('div');
+    hud.id='ocrHud_'+mode;
+    hud.style.cssText='position:absolute;left:8px;right:8px;top:8px;bottom:58px;z-index:8;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;';
+    hud.innerHTML=
+      '<div id="ocrHudTop_'+mode+'" style="align-self:center;max-width:94%;padding:7px 11px;border-radius:999px;background:rgba(0,0,0,.72);color:#fff;font:700 12px/1.25 system-ui,-apple-system,sans-serif;text-align:center;box-shadow:0 2px 8px rgba(0,0,0,.25)">자동 인식 준비</div>'+
+      '<div style="width:100%;background:rgba(0,0,0,.72);border-radius:10px;padding:8px 10px;box-sizing:border-box">'+
+        '<div id="ocrHudText_'+mode+'" style="color:#fff;font:700 13px/1.35 system-ui,-apple-system,sans-serif;text-align:center">라벨을 프레임 안에 맞춰주세요</div>'+
+        '<div style="height:5px;background:rgba(255,255,255,.22);border-radius:999px;overflow:hidden;margin-top:7px">'+
+          '<div id="ocrHudBar_'+mode+'" style="height:100%;width:5%;background:#fff;border-radius:999px;transition:width .18s ease"></div>'+
+        '</div>'+
+      '</div>';
+    wrap.appendChild(hud);
+
+    const hint=wrap.querySelector('.v22-live-hint');
+    if(hint)hint.style.display='none';
+    return hud;
+  }
+
+  function liveHud(mode,text,stage,progress){
+    const wrap=$(wrapId(mode));if(!wrap)return;
+    ensureLiveHud(mode);
+    const top=$('ocrHudTop_'+mode),body=$('ocrHudText_'+mode),bar=$('ocrHudBar_'+mode);
+    const label=mode==='vendor'?'업체 라벨 자동 인식':'WMS 자동 인식';
+    if(top){
+      top.textContent=label+' · '+(stage||'진행 중');
+      top.style.background=stage==='완료'?'rgba(22,120,70,.88)':(stage==='오류'?'rgba(170,45,45,.88)':'rgba(0,0,0,.72)');
+    }
+    if(body)body.textContent=text||'라벨을 프레임 안에 맞춰주세요';
+    if(bar){
+      const pct=Math.max(5,Math.min(100,Number(progress)||5));
+      bar.style.width=pct+'%';
+      bar.style.background=stage==='완료'?'#7ee2a8':(stage==='오류'?'#ff9b9b':'#fff');
+    }
+    const guide=wrap.querySelector('.v22-guide');
+    if(guide){
+      guide.style.borderColor=stage==='완료'?'#7ee2a8':(stage==='오류'?'#ff9b9b':'rgba(255,255,255,.92)');
+    }
+  }
 
   function parse(mode,text,items){
     try{
@@ -215,11 +261,14 @@
     const preview=$(previewId(mode));
     if(preview){preview.src=data;preview.classList.remove('hidden');}
     setStatus(status,(mode==='vendor'?'업체 라벨':'WMS')+' 최적 프레임 선택 완료 · V4.6 정밀 인식 중...','warn');
+    liveHud(mode,'가장 선명한 화면을 선택했습니다 · V4.6 OCR 분석 중','OCR 분석',82);
 
     try{
       const r=await recognize(data,mode,status);
       const out=await applyResult(mode,r,data,(mode==='vendor'?'업체 라벨':'WMS')+' 자동 인식 완료');
       if(out.count<2)throw new Error('인식 항목이 부족합니다.');
+      liveHud(mode,'인식 완료 · '+out.count+'개 항목을 자동 입력했습니다','완료',100);
+      await new Promise(resolve=>setTimeout(resolve,650));
       stopLive(mode,false);
     }catch(e){
       if(R.sessions[mode]!==st)return;
@@ -227,10 +276,13 @@
       if(st.failures<2){
         st.processing=false;st.started=Date.now();st.prev=null;st.samples=0;st.goodSamples=0;st.bestScore=-Infinity;st.bestData='';
         setStatus(status,'1차 인식 실패 · 더 선명한 프레임으로 자동 재시도합니다.','warn');
+        liveHud(mode,'1차 인식이 부족합니다 · 더 선명한 화면을 자동으로 다시 찾습니다','자동 재시도',35);
         schedule(st,()=>liveTick(mode),350);
         return;
       }
       setStatus(status,'실시간 인식 실패 · '+safeError(e)+' · 사진 OCR 또는 현재 화면 확정을 사용하세요.','bad');
+      liveHud(mode,'실시간 인식 실패 · 사진 촬영 또는 갤러리를 사용하세요','오류',100);
+      await new Promise(resolve=>setTimeout(resolve,850));
       stopLive(mode,false);
     }finally{
       if(R.sessions[mode]===st)st.processing=false;
@@ -246,7 +298,8 @@
 
     if(Date.now()-st.started>12000){
       setStatus(sid(mode),'자동 감지 시간이 초과되었습니다 · 라벨을 더 가까이 맞춘 후 다시 시도하세요.','warn');
-      stopLive(mode,false);return;
+      liveHud(mode,'자동 감지 시간이 초과되었습니다 · 라벨을 더 가까이 맞춰주세요','오류',100);
+      setTimeout(()=>stopLive(mode,false),800);return;
     }
 
     const cur=sampleFrame(video);
@@ -261,8 +314,10 @@
       }
     }
     setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 자동 스캔 · '+q.msg,'warn');
-
     const elapsed=Date.now()-st.started;
+    const scanProgress=Math.min(72,12+Math.round((elapsed/3000)*55)+(st.goodSamples*5));
+    liveHud(mode,q.msg,q.acceptable?'프레임 확인':'화면 조정',scanProgress);
+
     const ready=!!st.bestData&&(
       (elapsed>=900&&st.goodSamples>=2&&st.bestScore>=(mode==='vendor'?40:42)) ||
       (elapsed>=1700&&st.goodSamples>=1) ||
@@ -315,10 +370,14 @@
       if(window.V22)V22.live=R.sessions;
       if(window.V26KoreanOCR&&V26KoreanOCR.live)V26KoreanOCR.live[mode]=st;
       video.srcObject=stream;await video.play();wrap.classList.remove('hidden');
+      ensureLiveHud(mode);
+      liveHud(mode,'카메라 연결 완료 · 라벨 전체를 프레임 안에 맞춰주세요','카메라 연결',8);
       setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 자동 스캔 시작 · 라벨 전체를 프레임 안에 맞춰주세요.','warn');
       schedule(st,()=>liveTick(mode),220);
     }catch(e){
       setStatus(sid(mode),'카메라 실행 실패 · '+safeError(e),'bad');
+      const wrap=$(wrapId(mode));
+      if(wrap&&!wrap.classList.contains('hidden'))liveHud(mode,'카메라를 시작하지 못했습니다 · '+safeError(e),'오류',100);
     }
   }
 
@@ -350,11 +409,16 @@
     const data=cropVideo(video,2300);if(!data)return;
     const preview=$(previewId(mode));if(preview){preview.src=data;preview.classList.remove('hidden');}
     setStatus(sid(mode),'현재 화면 V4.6 정밀 인식 중...','warn');
+    liveHud(mode,'현재 화면을 확정했습니다 · V4.6 OCR 분석 중','OCR 분석',82);
     try{
       const r=await recognize(data,mode,sid(mode));
-      await applyResult(mode,r,data,'현재 화면 OCR 완료');
+      const out=await applyResult(mode,r,data,'현재 화면 OCR 완료');
+      liveHud(mode,'현재 화면 인식 완료 · '+out.count+'개 항목 자동 입력','완료',100);
+      await new Promise(resolve=>setTimeout(resolve,650));
     }catch(e){
       setStatus(sid(mode),'OCR 실패 · '+safeError(e)+' · 직접 입력할 수 있습니다.','bad');
+      liveHud(mode,'OCR 실패 · 사진 촬영/갤러리 또는 직접 입력을 사용하세요','오류',100);
+      await new Promise(resolve=>setTimeout(resolve,750));
     }finally{
       stopLive(mode,false);
     }
