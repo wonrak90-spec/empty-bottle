@@ -159,7 +159,7 @@
     }
     if(pv){
       const v=num(pv);
-      if(v&&Number(v)<500)out.palletNo=v;
+      if(v)out.palletNo=v;
     }
 
     // Prefer the printed final count after '=' or a verified multiplicative formula.
@@ -200,11 +200,14 @@
     }
     if(plv){
       const v=num(plv);
-      if(v&&Number(v)<500)out.palletNo=v;
+      if(v)out.palletNo=v;
+    }else if(out.palletNo){
+      // Only reject the generic parser's value when it is clearly the first
+      // packaging factor from a formula such as 900×12. Explicit P/L values,
+      // including larger values such as 946, remain valid.
+      const formula=(joined+' '+String(raw||'')).match(/([0-9]{2,4})\s*[xX×*]\s*([0-9]{1,4})/);
+      if(formula&&num(formula[1])===num(out.palletNo))delete out.palletNo;
     }
-
-    // Packaging factors such as 900×12 are never pallet numbers.
-    if(out.palletNo&&Number(out.palletNo)>=500)delete out.palletNo;
 
     if(window.V26Qty&&typeof V26Qty.vendorFormula==='function'){
       const f=V26Qty.vendorFormula(joined);
