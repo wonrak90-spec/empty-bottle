@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2',
+    VERSION:'V55-ADAPTIVE-OCR-2.1',
     MAX_EXTRA_PASSES:4
   };
 
@@ -66,10 +66,33 @@
     if(candidate.critical>base.critical)return true;
     if(candidate.critical<base.critical)return false;
     if(candidate.sanity>base.sanity)return true;
-    if(candidate.sanity<base.sanity)return false;
-    // Same Critical coverage and sanity: only accept a materially stronger OCR
-    // confidence. Extra non-critical fields alone must never replace baseline.
-    return candidate.meanConfidence>=base.meanConfidence+0.08;
+    return false;
+  };
+
+  function fieldSane(k,v){
+    if(!present(v))return false;
+    const d=digits(v);
+    if(k==='inboundNo')return d.length===8;
+    if(k==='itemCode')return d.length>=4&&d.length<=14;
+    if(k==='displayQty'||k==='qty')return Number(d)>0;
+    if(k==='containerFrom'||k==='containerTo'||k==='palletNo')return d.length>=1&&d.length<=8;
+    if(k==='product')return String(v).replace(/\s/g,'').length>=2;
+    return true;
+  }
+
+  A.mergeCandidate=function(type,base,candidate,replaceField){
+    const out={...(base||{})},cand=candidate||{},crit=new Set(A.criticalKeys(type));
+    for(const k of Object.keys(cand)){
+      if(!present(cand[k]))continue;
+      if(!crit.has(k)){
+        if(!present(out[k]))out[k]=cand[k];
+        continue;
+      }
+      if(!present(out[k]))out[k]=cand[k];
+      else if(!fieldSane(k,out[k])&&fieldSane(k,cand[k]))out[k]=cand[k];
+      else if(replaceField===k&&fieldSane(k,cand[k]))out[k]=cand[k];
+    }
+    return out;
   };
 
   function point(p){
@@ -204,10 +227,7 @@
   A.extractTargetField=extractTargetField;
 
   function retryTarget(type,parsed){
-    if(type==='vendor'){
-      const p=digits(parsed&&parsed.palletNo);
-      return !p?'palletNo':'';
-    }
+    if(type==='vendor')return 'palletNo';
     const inbound=digits(parsed&&parsed.inboundNo);
     return inbound.length===8?'':'inboundNo';
   }
@@ -246,11 +266,17 @@
 
     const runFull=async(name,variant)=>{
       const r=await V26KoreanOCR.recognize(variant,false,'');
-      const p=parse(type,r);
+      const rawParsed=parse(type,r);
+      // Whole-image/ROI candidates may ADD missing Critical values, but they
+      // must not overwrite an already populated Critical value. This prevents
+      // a visually noisy retry from destroying a correct baseline field.
+      const p=A.mergeCandidate(type,best.parsed,rawParsed,'');
       const score=A.scoreParsed(type,p,r.items);
       attempts.push({method:name,score:score.value,critical:score.critical,latency:r.latency||0});
       if(A.isStrictImprovement(best.score,score))best={result:r,parsed:p,score,method:name};
     };
+
+    const initialNeedsRetry=A.needsRetry(type,firstParsed);
 
     // 1) Whole-label text cluster crop + upscale for distant/low-resolution shots.
     if(attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess&&first.items&&first.items.length){
@@ -262,7 +288,7 @@
 
     // 2) Small field ROI is merged into the current best result instead of
     // replacing the whole label. This is especially useful for P/L or WMS inbound.
-    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
+    if(initialNeedsRetry&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
       const target=retryTarget(type,best.parsed);
       if(target){
         try{
@@ -270,24 +296,22 @@
           if(fr){
             const rr=await V26KoreanOCR.recognize(fr.dataUrl,false,'');
             const v=extractTargetField(type,target,rr);
-            const merged={...best.parsed};
-            if(v)merged[target]=v;
+            const merged=v?A.mergeCandidate(type,best.parsed,{[target]:v},target):{...best.parsed};
             const score=A.scoreParsed(type,merged,rr.items);
             attempts.push({method:'field_roi_'+target,score:score.value,critical:score.critical,latency:rr.latency||0,recovered:v||''});
-            if(v&&A.isStrictImprovement(best.score,score))best={result:rr,parsed:merged,score,method:'field_roi_'+target};
+            if(v){
+              const changed=String(best.parsed&&best.parsed[target]??'')!==String(merged[target]??'');
+              if(changed||A.isStrictImprovement(best.score,score))best={result:rr,parsed:merged,score,method:'field_roi_'+target};
+            }
           }
         }catch(e){attempts.push({method:'field_roi_'+target,error:String(e&&e.message?e.message:e)});}
       }
     }
 
-    // 3) Rectify a trapezoidal text cloud when side/vertical perspective is evident.
-    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
-      try{
-        const pr=await V55RoiPreprocess.perspectiveCrop(dataUrl,first.items);
-        if(pr)await runFull('perspective_roi',pr.dataUrl);
-      }catch(e){attempts.push({method:'perspective_roi',error:String(e&&e.message?e.message:e)});}
-    }
-
+    // 3) Perspective rectify stays available in V55RoiPreprocess for future
+    // experiments, but is disabled in the active retry chain: V4 Holdout made
+    // 11 attempts and selected it 0 times, so it only added latency.
+    
     // 4) Keep one proven legacy transform. Prefer deskew when OCR geometry gives
     // a meaningful angle; otherwise use brightness/contrast correction.
     if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES){
@@ -309,5 +333,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2] ROI/perspective benchmark recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.1] safe-merge ROI benchmark recovery ready');
 })();
