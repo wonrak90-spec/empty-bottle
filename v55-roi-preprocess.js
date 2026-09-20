@@ -7,7 +7,7 @@
   if(window.__V55_ROI_PREPROCESS__)return;
   window.__V55_ROI_PREPROCESS__=true;
 
-  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-2'};
+  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3'};
 
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
@@ -158,17 +158,15 @@
     const y1=Math.min(...row.items.map(x=>x.y1)),y2=Math.max(...row.items.map(x=>x.y2));
     const rw=Math.max(80,x2-x1),rh=Math.max(20,y2-y1);
 
-    // WMS first row can be partly hidden by film glare; keep more right-side
-    // context. Vendor P/L rows stay tighter to avoid packaging formula numbers.
-    const widthFactor=type==='wms'?2.10:1.45;
+    const isWms=type==='wms';
     const rect={
-      x:Math.max(0,x1-rw*.12),
-      y:Math.max(0,y1-rh*.85),
-      w:Math.min(iw,rw*widthFactor),
-      h:Math.min(ih,rh*2.7)
+      x:Math.max(0,x1-rw*(isWms?.15:.10)),
+      y:Math.max(0,y1-rh*(isWms?.70:.45)),
+      w:isWms?Math.max(rw*3.20,iw*.55):Math.max(rw*1.85,iw*.30),
+      h:rh*(isWms?2.30:1.90)
     };
-    if(rect.x+rect.w>iw)rect.w=iw-rect.x;
-    if(rect.y+rect.h>ih)rect.h=ih-rect.y;
+    rect.w=Math.min(iw-rect.x,rect.w);
+    rect.h=Math.min(ih-rect.y,rect.h);
     return {rect,rowText:row.text};
   }
 
@@ -282,6 +280,6 @@
     return {dataUrl:oc.toDataURL('image/jpeg',.93),kind:'perspective_roi',strength,width:ow,height:oh};
   };
 
-  R._test={polyBox,ocrScale,unionBounds,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
-  console.info('[V55-ROI-PREPROCESS-2] dual target ROI + crop recovery ready');
+  R._test={polyBox,ocrScale,unionBounds,rowGroups,fieldRectFromItems,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
+  console.info('[V55-ROI-PREPROCESS-3] tight vendor + wide WMS target ROI ready');
 })();
