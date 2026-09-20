@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.2',
+    VERSION:'V55-ADAPTIVE-OCR-2.3',
     MAX_EXTRA_PASSES:4
   };
 
@@ -235,10 +235,12 @@
   function formulaFactors(text){
     const out=[];
     const s=String(text||'').replace(/,/g,'');
-    const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:\s*[xX×*]\s*([0-9]{1,4}))?/g;
+    // Also catch OCR where one multiplication mark disappears:
+    // 40×41 13단 -> factors 40, 41, 13.
+    const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:(?:\s*[xX×*]\s*([0-9]{1,4}))|(?:\s+([0-9]{1,3})\s*단))?/g;
     let m;
     while((m=re.exec(s))!==null){
-      [m[1],m[2],m[3]].filter(Boolean).forEach(v=>out.push(String(Number(v))));
+      [m[1],m[2],m[3],m[4]].filter(Boolean).forEach(v=>out.push(String(Number(v))));
     }
     return out.filter(Boolean);
   }
@@ -266,6 +268,16 @@
     }
     return !!d;
   }
+
+  A.pickTargetConsensus=function(candidates,requiredVotes){
+    const good=(candidates||[]).filter(x=>x&&present(x.v));
+    if(!good.length)return null;
+    const freq={};
+    for(const x of good)freq[x.v]=(freq[x.v]||0)+1;
+    good.sort((a,b)=>(freq[b.v]-freq[a.v])||((Number(b.conf)||0)-(Number(a.conf)||0)));
+    const pick=good[0],need=Math.max(1,Number(requiredVotes)||1);
+    return (freq[pick.v]||0)>=need?pick:null;
+  };
 
   A.plan=function(type,parsed,items,brightness){
     const plan=[];
@@ -349,15 +361,19 @@
           }
 
           if(candidates.length){
-            const freq={};
-            for(const x of candidates)freq[x.v]=(freq[x.v]||0)+1;
-            candidates.sort((a,b)=>(freq[b.v]-freq[a.v])||(b.conf-a.conf));
-            const pick=candidates[0];
-            const merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
-            const score=A.scoreParsed(type,merged,pick.rr.items);
-            const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
-            if(changed||A.isStrictImprovement(best.score,score)){
-              best={result:pick.rr,parsed:merged,score,method:pick.method};
+            // A single local OCR hit can still be a digit substitution (36 -> 26).
+            // With the dual target ROI, require two independent variants to agree
+            // before replacing a Critical numeric field. This keeps Safe-Merge
+            // conservative while still allowing strong recoveries such as 70/70.
+            const requiredVotes=variants.length>=2?2:1;
+            const pick=A.pickTargetConsensus(candidates,requiredVotes);
+            if(pick){
+              const merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+              const score=A.scoreParsed(type,merged,pick.rr.items);
+              const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
+              if(changed||A.isStrictImprovement(best.score,score)){
+                best={result:pick.rr,parsed:merged,score,method:pick.method};
+              }
             }
           }
         }catch(e){attempts.push({method:'field_roi_'+target,error:String(e&&e.message?e.message:e)});}
@@ -389,5 +405,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.2] suspicious-target dual-ROI recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.3] consensus-gated numeric recovery ready');
 })();
