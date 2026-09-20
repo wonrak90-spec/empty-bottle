@@ -65,6 +65,27 @@ assert.strictEqual(
   A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'43'},'40×41×13단=21,320 본'),
   false
 );
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'13'},'40×41 13단=21,320 본'),
+  true,
+  'missing multiplication mark must still identify 13 as a formula factor'
+);
+
+assert.strictEqual(
+  A.pickTargetConsensus([{v:'26',conf:.95}],2),
+  null,
+  'single numeric ROI hit must not replace a Critical target'
+);
+assert.strictEqual(
+  A.pickTargetConsensus([{v:'70',conf:.91},{v:'70',conf:.94}],2).v,
+  '70',
+  'two independent ROI variants agreeing on the value must be accepted'
+);
+assert.strictEqual(
+  A.pickTargetConsensus([{v:'70',conf:.95},{v:'7',conf:.96}],2),
+  null,
+  'disagreeing target OCR variants must not replace the field'
+);
 
 const bright=A.plan('vendor',{product:'병'},[],220);
 assert.strictEqual(bright[0].name,'dark_contrast');
