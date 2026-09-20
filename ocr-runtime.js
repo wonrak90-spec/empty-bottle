@@ -322,15 +322,18 @@
     const mode=st.mode;
     const elapsed=Date.now()-st.started;
     const out=await applyResult(mode,st.bestResult,st.bestData,reason||'실시간 OCR 완료');
+    const firstApplyMs=Number(st.firstApplyMs)||elapsed;
     R.metrics[mode]={
       started:st.started,
+      firstApplyMs,
       elapsedMs:elapsed,
+      targetMet:firstApplyMs<=R.TARGET_LIVE_MS,
       attempts:st.attempts,
       bestFields:st.bestCount,
       lastOcrMs:st.lastOcrMs||0,
       stableCount:st.stable
     };
-    liveHud(mode,'인식 완료 · '+out.count+'개 항목 자동 입력 · '+elapsed+'ms','완료',100);
+    liveHud(mode,'1차 자동입력 '+firstApplyMs+'ms · 안정확인 '+elapsed+'ms · '+out.count+'개 항목','완료',100);
     setTimeout(()=>stopLive(mode,false),220);
     return true;
   }
@@ -367,13 +370,17 @@
       // Show useful fields immediately for work speed, but do not create a
       // Learning snapshot until the live result is finalized.
       if(cnt>=2){
+        if(!st.firstApplyMs)st.firstApplyMs=Date.now()-st.started;
         await applyResult(mode,r,data,'실시간 OCR 미리보기',{previewOnly:true});
       }
 
       const elapsed=Date.now()-st.started;
       const progress=Math.min(92,25+st.attempts*20);
       liveHud(mode,'OCR '+st.lastOcrMs+'ms · '+cnt+'개 항목 · '+st.stable+'/2 안정 확인','실시간 OCR',progress);
-      setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 실시간 OCR · '+cnt+'개 항목 · '+st.lastOcrMs+'ms','warn');
+      const speedText=st.firstApplyMs
+        ?(' · 1차입력 '+st.firstApplyMs+'ms'+(st.firstApplyMs<=R.TARGET_LIVE_MS?' ✓':' · 2초 초과'))
+        :'';
+      setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 실시간 OCR · '+cnt+'개 항목 · OCR '+st.lastOcrMs+'ms'+speedText,'warn');
 
       if(cnt>=liveNeed(mode)&&st.stable>=2){
         await finalizeLive(st,'실시간 OCR 안정 인식 완료');
@@ -444,7 +451,7 @@
       const st={
         id:++R.seq,mode,stream,track:stream.getVideoTracks()[0]||null,
         running:true,processing:false,started:Date.now(),timer:null,
-        attempts:0,lastSig:'',stable:0,bestCount:0,bestResult:null,bestData:'',bestOcrMs:Infinity,lastOcrMs:0
+        attempts:0,lastSig:'',stable:0,bestCount:0,bestResult:null,bestData:'',bestOcrMs:Infinity,lastOcrMs:0,firstApplyMs:0
       };
       R.sessions[mode]=st;
       if(window.V22)V22.live=R.sessions;
