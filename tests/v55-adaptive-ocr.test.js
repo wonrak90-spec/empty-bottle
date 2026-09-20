@@ -16,7 +16,7 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.1');
+assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.2');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -78,6 +78,17 @@ assert.strictEqual(
   A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'13'},'40×41 13단=21,320 본'),
   true,
   'missing multiplication mark must still identify 13 as a formula factor'
+);
+
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'까스활명수75ml',qty:'10800',palletNo:'900'},'포장사양 9OO×12=10,800 본'),
+  true,
+  'OCR-confused 9OO factor must still block pallet 900'
+);
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'40'},'4O×41×13단=21,320 본'),
+  true,
+  'OCR-confused 4O factor must still block pallet 40'
 );
 
 assert.strictEqual(
@@ -168,4 +179,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.4.1: safe dual consensus + split WMS recovery');
+console.log('PASS V55 adaptive OCR V2.4.2: formula-confusion guard + safe dual consensus + split WMS recovery');
