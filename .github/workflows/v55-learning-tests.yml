@@ -130,8 +130,10 @@ jobs:
           mkdir -p dist_v43/vendor/ort dist_v43/vendor/models
           npm install --no-save @paddleocr/paddleocr-js@0.4.2 onnxruntime-web@1.22.0 fflate@0.8.2 esbuild@0.25.9
 
-          PADDLE_ENTRY="$(node -p "require.resolve('@paddleocr/paddleocr-js')")"
-          FFLATE_ENTRY="$(node -p "require.resolve('fflate')")"
+          PADDLE_ENTRY="node_modules/@paddleocr/paddleocr-js/dist/index.mjs"
+          FFLATE_ENTRY="node_modules/fflate/esm/browser.js"
+          test -f "$PADDLE_ENTRY"
+          test -f "$FFLATE_ENTRY"
           npx esbuild "$PADDLE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/paddleocr.bundle.js
           npx esbuild "$FFLATE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/fflate.bundle.js
 
