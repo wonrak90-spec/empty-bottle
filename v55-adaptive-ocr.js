@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.1',
+    VERSION:'V55-ADAPTIVE-OCR-2.2',
     MAX_EXTRA_PASSES:4
   };
 
@@ -232,6 +232,41 @@
     return inbound.length===8?'':'inboundNo';
   }
 
+  function formulaFactors(text){
+    const out=[];
+    const s=String(text||'').replace(/,/g,'');
+    const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:\s*[xX×*]\s*([0-9]{1,4}))?/g;
+    let m;
+    while((m=re.exec(s))!==null){
+      [m[1],m[2],m[3]].filter(Boolean).forEach(v=>out.push(String(Number(v))));
+    }
+    return out.filter(Boolean);
+  }
+
+  A.suspiciousTarget=function(type,parsed,text){
+    if(type==='vendor'){
+      const p=digits(parsed&&parsed.palletNo);
+      if(!p)return true;
+      const factors=formulaFactors(text);
+      return factors.includes(String(Number(p)));
+    }
+    const inbound=digits(parsed&&parsed.inboundNo);
+    return inbound.length!==8;
+  };
+
+  function targetValueSane(type,field,v,sourceText){
+    const d=digits(v);
+    if(type==='vendor'&&field==='palletNo'){
+      if(!d||d.length>4)return false;
+      const factors=formulaFactors(sourceText);
+      return !factors.includes(String(Number(d)));
+    }
+    if(type==='wms'&&field==='inboundNo'){
+      return d.length===8&&!isDate8(d);
+    }
+    return !!d;
+  }
+
   A.plan=function(type,parsed,items,brightness){
     const plan=[];
     if(brightness<92)plan.push({name:'bright_contrast',kind:'filter',filter:'brightness(1.32) contrast(1.22) saturate(.75)'});
@@ -259,7 +294,8 @@
     let best={result:first,parsed:firstParsed,score:firstScore,method:'baseline'};
     const attempts=[{method:'baseline',score:firstScore.value,critical:firstScore.critical,latency:first.latency||0}];
 
-    if(!A.needsRetry(type,firstParsed)){
+    const suspicious=A.suspiciousTarget(type,firstParsed,first.text||'');
+    if(!A.needsRetry(type,firstParsed)&&!suspicious){
       return {...best,baseline:{result:first,parsed:firstParsed,score:firstScore},
         attempts,totalLatency:Math.round(performance.now()-started),extraPasses:0};
     }
@@ -276,7 +312,7 @@
       if(A.isStrictImprovement(best.score,score))best={result:r,parsed:p,score,method:name};
     };
 
-    const initialNeedsRetry=A.needsRetry(type,firstParsed);
+    const initialNeedsRetry=A.needsRetry(type,firstParsed)||suspicious;
 
     // 1) Whole-label text cluster crop + upscale for distant/low-resolution shots.
     if(attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess&&first.items&&first.items.length){
@@ -286,22 +322,42 @@
       }catch(e){attempts.push({method:'roi_zoom',error:String(e&&e.message?e.message:e)});}
     }
 
-    // 2) Small field ROI is merged into the current best result instead of
-    // replacing the whole label. This is especially useful for P/L or WMS inbound.
+    // 2) Target field ROI: run two local variants (contrast + binary).
+    // Only values that are sane in the context of the original label can replace
+    // the target field. Packaging formula factors such as 900 or 40 are rejected.
     if(initialNeedsRetry&&attempts.length-1<A.MAX_EXTRA_PASSES&&window.V55RoiPreprocess){
       const target=retryTarget(type,best.parsed);
       if(target){
         try{
-          const fr=await V55RoiPreprocess.fieldStrip(dataUrl,first.items,type,target);
-          if(fr){
-            const rr=await V26KoreanOCR.recognize(fr.dataUrl,false,'');
-            const v=extractTargetField(type,target,rr);
-            const merged=v?A.mergeCandidate(type,best.parsed,{[target]:v},target):{...best.parsed};
-            const score=A.scoreParsed(type,merged,rr.items);
-            attempts.push({method:'field_roi_'+target,score:score.value,critical:score.critical,latency:rr.latency||0,recovered:v||''});
-            if(v){
-              const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
-              if(changed||A.isStrictImprovement(best.score,score))best={result:rr,parsed:merged,score,method:'field_roi_'+target};
+          const variants=typeof V55RoiPreprocess.fieldStripVariants==='function'
+            ? await V55RoiPreprocess.fieldStripVariants(dataUrl,first.items,type,target)
+            : [await V55RoiPreprocess.fieldStrip(dataUrl,first.items,type,target)].filter(Boolean);
+          const candidates=[];
+          for(const fr of variants){
+            if(!fr||attempts.length-1>=A.MAX_EXTRA_PASSES)break;
+            try{
+              const rr=await V26KoreanOCR.recognize(fr.dataUrl,false,'');
+              const v=extractTargetField(type,target,rr);
+              const scores=(rr.items||[]).map(x=>Number(x&&x.score)).filter(Number.isFinite);
+              const conf=scores.length?scores.reduce((a,b)=>a+b,0)/scores.length:0;
+              const sane=v&&targetValueSane(type,target,v,first.text||'');
+              attempts.push({method:fr.kind||('field_roi_'+target),latency:rr.latency||0,recovered:v||'',sane:!!sane,confidence:conf});
+              if(sane)candidates.push({v,rr,conf,method:fr.kind||('field_roi_'+target)});
+            }catch(e){
+              attempts.push({method:fr.kind||('field_roi_'+target),error:String(e&&e.message?e.message:e)});
+            }
+          }
+
+          if(candidates.length){
+            const freq={};
+            for(const x of candidates)freq[x.v]=(freq[x.v]||0)+1;
+            candidates.sort((a,b)=>(freq[b.v]-freq[a.v])||(b.conf-a.conf));
+            const pick=candidates[0];
+            const merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+            const score=A.scoreParsed(type,merged,pick.rr.items);
+            const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
+            if(changed||A.isStrictImprovement(best.score,score)){
+              best={result:pick.rr,parsed:merged,score,method:pick.method};
             }
           }
         }catch(e){attempts.push({method:'field_roi_'+target,error:String(e&&e.message?e.message:e)});}
@@ -314,7 +370,7 @@
     
     // 4) Keep one proven legacy transform. Prefer deskew when OCR geometry gives
     // a meaningful angle; otherwise use brightness/contrast correction.
-    if(A.needsRetry(type,best.parsed)&&attempts.length-1<A.MAX_EXTRA_PASSES){
+    if((A.needsRetry(type,best.parsed)||A.suspiciousTarget(type,best.parsed,first.text||''))&&attempts.length-1<A.MAX_EXTRA_PASSES){
       let stats={brightness:128};try{stats=await imageStats(dataUrl);}catch(_){}
       const skew=A.estimateSkew(first.items);
       let step=null;
@@ -333,5 +389,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.1] safe-merge ROI benchmark recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.2] suspicious-target dual-ROI recovery ready');
 })();
