@@ -51,6 +51,21 @@ assert.strictEqual(dark[0].name,'bright_contrast');
 assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'P/L No. 946'}),'946');
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호 26003373'}),'26003373');
 
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'까스활명수75ml',qty:'10800',palletNo:'900'},'포장사양 900×12=10,800 본'),
+  true,
+  'packaging factor 900 must trigger pallet retry'
+);
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'40'},'40×41×13단=21,320 본'),
+  true,
+  'packaging factor 40 must trigger pallet retry'
+);
+assert.strictEqual(
+  A.suspiciousTarget('vendor',{product:'판콜에이병 30ml',qty:'21320',palletNo:'43'},'40×41×13단=21,320 본'),
+  false
+);
+
 const bright=A.plan('vendor',{product:'병'},[],220);
 assert.strictEqual(bright[0].name,'dark_contrast');
 
