@@ -24,6 +24,8 @@ const wmsGood={
   displayQty:'21320',containerFrom:'0004',containerTo:'0028'
 };
 assert.strictEqual(A.needsRetry('wms',wmsGood),false);
+assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'0003373'}),true,
+  '7-digit damaged WMS inbound number must retry');
 
 const wmsWeak={inboundNo:'26003373',displayQty:'21320'};
 assert.strictEqual(A.needsRetry('wms',wmsWeak),true);
@@ -41,9 +43,13 @@ assert.ok(skew>8&&skew<11,'expected approx +10deg skew, got '+skew);
 const plan=A.plan('wms',wmsWeak,[{poly:[[0,0],[100,17],[100,40],[0,23]]}],120);
 assert.ok(plan.some(x=>String(x.name).startsWith('deskew_')),'deskew candidate missing');
 assert.ok(plan.length<=A.MAX_EXTRA_PASSES);
+assert.strictEqual(A.MAX_EXTRA_PASSES,4);
 
 const dark=A.plan('vendor',{product:'병'},[],60);
 assert.strictEqual(dark[0].name,'bright_contrast');
+
+assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'P/L No. 946'}),'946');
+assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호 26003373'}),'26003373');
 
 const bright=A.plan('vendor',{product:'병'},[],220);
 assert.strictEqual(bright[0].name,'dark_contrast');
