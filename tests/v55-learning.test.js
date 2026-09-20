@@ -181,7 +181,8 @@ async function test(name,fn){
     const entry=ctx.V55OcrLearning.loadQueue()[0];
     assert.strictEqual(entry.ocr.inboundNo,'26003373');
     assert.strictEqual(entry.ocr.displayQty,'21320');
-    assert.strictEqual(entry.changedFields,0);
+    assert.strictEqual(entry.diff.inboundNo.changed,false);
+    assert.strictEqual(entry.diff.displayQty.changed,false);
   });
 
   await test('Learning 재파싱은 V55 parser를 V26보다 우선함', async()=>{
