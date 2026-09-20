@@ -76,6 +76,7 @@
       if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(text||'',items||[]);
       return typeof parseVendorLabel==='function'?(parseVendorLabel(text||'')||{}):{};
     }
+    if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')return V55WmsParser.parse(text||'',items||[]);
     if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function')return V26WmsCardScan.parseWms(text||'',items||[]);
     return typeof parseLabelText==='function'?(parseLabelText(text||'')||{}):{};
   }
