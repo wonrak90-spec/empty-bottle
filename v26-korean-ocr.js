@@ -36,9 +36,12 @@
   }
   function parseMode(mode,text,items){
     if(mode==='vendor'){
-      if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(text||'',items||[]);
+      if(window.V55VendorParser&&typeof V55VendorParser.parse==='function')return V55VendorParser.parse(text||'',items||[])||{};
+      if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(text||'',items||[])||{};
       return parseVendorLabel(text||'');
     }
+    if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')return V55WmsParser.parse(text||'',items||[])||{};
+    if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function')return V26WmsCardScan.parseWms(text||'',items||[])||{};
     return parseLabelText(text||'');
   }
   function countFields(obj){
@@ -212,8 +215,41 @@
   }
   KO.recognize=localOcr;
 
-  function applyLocalResult(mode,text,items,dataUrl,label,latency){
-    const parsed=parseMode(mode,text,items);
+  // Release-candidate assist path.
+  // - Baseline OCR remains V26 PP-OCRv5.
+  // - Photo / explicit capture may use V55 Adaptive OCR V4.6.
+  // - Final numeric identifiers stay subject to V4.4 dual-ROI consensus.
+  // - Live streaming does NOT run the adaptive retry chain to protect latency.
+  async function assistOcr(dataUrl,mode,statusEl){
+    const baseline=await localOcr(dataUrl,false,statusEl);
+    const type=mode==='vendor'?'vendor':'wms';
+    if(!window.V55AdaptiveOCR||typeof V55AdaptiveOCR.recognize!=='function'){
+      return {text:baseline.text,items:baseline.items||[],parsed:parseMode(mode,baseline.text,baseline.items||[]),latency:baseline.latency||0,method:'baseline'};
+    }
+    try{
+      const out=await V55AdaptiveOCR.recognize(dataUrl,type,baseline);
+      const parsed=(out&&out.parsed)||parseMode(mode,baseline.text,baseline.items||[]);
+      return {
+        text:baseline.text,
+        items:baseline.items||[],
+        parsed,
+        latency:Number(out&&out.totalLatency)||Number(baseline.latency)||0,
+        method:String(out&&out.method||'baseline'),
+        attempts:Array.isArray(out&&out.attempts)?out.attempts:[]
+      };
+    }catch(err){
+      console.warn('[V55 Assist] adaptive fallback to baseline',err);
+      return {text:baseline.text,items:baseline.items||[],parsed:parseMode(mode,baseline.text,baseline.items||[]),latency:baseline.latency||0,method:'baseline_fallback'};
+    }
+  }
+  KO.recognizeAssist=assistOcr;
+
+  function applyLocalResult(mode,text,items,dataUrl,label,latency,parsedOverride){
+    const parsed=parsedOverride||parseMode(mode,text,items);
+    try{
+      if(window.V55OcrLearning&&typeof V55OcrLearning.noteApplied==='function')
+        V55OcrLearning.noteApplied(mode,text,parsed);
+    }catch(_){}
     if(mode==='vendor'){
       lastOcrText.vendor=text;
       if(parsed.product)$('vProduct').value=parsed.product;
@@ -256,9 +292,10 @@
     const sid=statusId(mode);
     setStatus(sid,KO.engine?'한국어 로컬 OCR 인식 중...':'한국어 OCR 모델 준비 중 · 최초 1회만 다운로드합니다.','warn');
     try{
-      const r=await localOcr(dataUrl,false,sid);
-      const out=applyLocalResult(mode,r.text,r.items,dataUrl,'한국어 로컬 OCR 완료',r.latency);
-      if(out.count<2)setStatus(sid,'한국어 OCR 결과가 부족합니다 · 라벨을 정면에서 더 가까이 촬영하거나 직접 입력하세요.','warn');
+      const r=await assistOcr(dataUrl,mode,sid);
+      const out=applyLocalResult(mode,r.text,r.items,dataUrl,'V4.6 보조 OCR 완료',r.latency,r.parsed);
+      if(out.count<2)setStatus(sid,'인식 결과가 부족합니다 · 라벨을 정면에서 더 가까이 촬영하거나 직접 입력하세요.','warn');
+      else setStatus(sid,'V4.6 보조 OCR 완료 · '+out.count+'개 항목 · 작업자 확인 후 확정하세요.','ok');
     }catch(err){setStatus(sid,'한국어 OCR 실패 · '+safeError(err),'bad');}
   };
 
@@ -329,8 +366,12 @@
     V22.captureLive=async function(mode){
       const video=$('v22LiveVideo_'+mode);if(!video||!video.videoWidth)return;
       const data=cropVideo(video,2300);const preview=$(previewId(mode));if(preview){preview.src=data;preview.classList.remove('hidden');}
-      const sid=statusId(mode);setStatus(sid,'한국어 로컬 OCR 정밀 인식 중...','warn');
-      try{const r=await localOcr(data,false,sid);applyLocalResult(mode,r.text,r.items,data,'한국어 정밀 OCR 완료',r.latency);}
+      const sid=statusId(mode);setStatus(sid,'V4.6 보조 OCR 정밀 인식 중...','warn');
+      try{
+        const r=await assistOcr(data,mode,sid);
+        applyLocalResult(mode,r.text,r.items,data,'V4.6 보조 OCR 완료',r.latency,r.parsed);
+        setStatus(sid,'V4.6 보조 OCR 완료 · 작업자 확인 후 확정하세요.','ok');
+      }
       catch(err){setStatus(sid,'한국어 OCR 실패 · '+safeError(err),'bad');}
       finally{V22.stopLive(mode,false);}
     };
@@ -345,9 +386,9 @@
 
   function updateUi(){
     const sub=document.querySelector('header .sub');
-    if(sub)sub.textContent='한국어 PP-OCRv5 로컬 인식 · WMS/업체 라벨 · Google Sheets 저장';
-    const wst=$('wmsStatus');if(wst)wst.textContent='한국어 로컬 OCR로 WMS 라벨을 읽습니다 · 서버 OCR 호출 없음.';
-    const vst=$('vendorStatus');if(vst)vst.textContent='한국어 로컬 OCR로 업체 라벨을 읽고 WMS 정보와 비교합니다.';
+    if(sub)sub.textContent='V4.6 보조 OCR · 작업자 확인 필수 · WMS/업체 라벨 · Google Sheets 저장';
+    const wst=$('wmsStatus');if(wst)wst.textContent='V4.6 보조 OCR로 WMS 라벨을 읽습니다 · 자동입력 후 작업자가 반드시 확인합니다.';
+    const vst=$('vendorStatus');if(vst)vst.textContent='V4.6 보조 OCR로 업체 라벨을 읽고 WMS 정보와 비교합니다 · 최종 확인은 작업자가 합니다.';
     const wa=$('v26Actions_wms'),va=$('v26Actions_vendor');
     [wa,va].forEach(a=>{if(!a)return;const b=a.querySelector('button');if(b)b.textContent='🎥 한국어 실시간 인식';});
     document.querySelectorAll('#v26Actions_wms button,#v26Actions_vendor button').forEach(b=>{
@@ -357,7 +398,7 @@
 
   function init(){
     updateUi();setTimeout(updateUi,500);setTimeout(updateUi,1600);
-    console.info('[V26-KO-OCR-1] PP-OCRv5 Korean local browser OCR active');
+    console.info('[V26-KO-OCR-1] PP-OCRv5 + V55 V4.6 assist mode active');
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init,{once:true});else init();
 })();
