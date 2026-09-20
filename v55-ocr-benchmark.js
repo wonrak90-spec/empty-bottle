@@ -72,6 +72,7 @@
   }
   function predicted(type,text,items){
     if(type==='vendor'){
+      if(window.V55VendorParser&&typeof V55VendorParser.parse==='function')return V55VendorParser.parse(text||'',items||[]);
       if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(text||'',items||[]);
       return typeof parseVendorLabel==='function'?(parseVendorLabel(text||'')||{}):{};
     }
