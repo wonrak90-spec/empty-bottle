@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.1',
     MAX_EXTRA_PASSES:4
   };
 
@@ -221,13 +221,29 @@
       return lone.length===1?lone[0]:'';
     }
     if(type==='wms'&&field==='inboundNo'){
-      let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*([0-9OoQDIl|]{7,10})/);
+      const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+
+      // Prefer the value immediately following the inbound-number label, but
+      // tolerate OCR inserting whitespace between digit groups: 2600 3373.
+      let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*((?:[0-9OoQDIl|][\s\-]*){8,10})/);
       if(m){
-        const v=digits(String(m[1]).replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+        const v=fix(m[1]);
         if(v.length===8&&!isDate8(v))return v;
       }
+
+      // Target ROI OCR may omit the label but preserve one line containing the
+      // 8-digit value split into groups.  Accept only a line whose normalized
+      // numeric content is exactly eight digits; do not join unrelated rows.
+      const lines=text.split(/\r?\n+/).map(x=>x.trim()).filter(Boolean);
+      for(const line of lines){
+        const parts=line.match(/[0-9OoQDIl|]{1,4}/g)||[];
+        if(!parts.length)continue;
+        const v=fix(parts.join(''));
+        if(v.length===8&&!isDate8(v))return v;
+      }
+
       const cand=(text.match(/[0-9OoQDIl|]{8}/g)||[])
-        .map(x=>digits(x.replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1')))
+        .map(x=>fix(x))
         .find(x=>x.length===8&&!isDate8(x));
       return cand||'';
     }
@@ -425,5 +441,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4] numeric targets require dual-ROI consensus');
+  console.info('[V55-ADAPTIVE-OCR-2.4.1] dual-ROI consensus + split WMS number recovery');
 })();
