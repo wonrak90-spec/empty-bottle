@@ -10,17 +10,28 @@
 
   const $=id=>document.getElementById(id);
   const KO=window.V26KoreanOCR;
-  const WMS=window.V26WmsCardScan;
-  if(!KO||typeof KO.recognize!=='function'||!WMS){
-    console.warn('[V26-PROD-WMS] OCR/WMS layer not ready');
+  if(!KO||typeof KO.recognize!=='function'){
+    console.warn('[V26-PROD-WMS] OCR layer not ready');
     return;
   }
 
-  const P=window.V26ProdWms={VERSION:'V26-PROD-WMS-1',state:null};
+  const P=window.V26ProdWms={VERSION:'V26-PROD-WMS-2',state:null};
   const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 
   function normNo(v){return String(v||'').replace(/\D/g,'').replace(/^0+(?=\d)/,'');}
   function itemKey(x){return [x&&x.id,x&&x.recordId,x&&x.inboundNo,x&&x.containerNo,x&&x.code].map(v=>String(v||'')).join('|');}
+  function parseWms(text,items){
+    if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')return V55WmsParser.parse(text||'',items||[])||{};
+    return typeof parseLabelText==='function'?parseLabelText(text||'')||{}:{};
+  }
+  function lookupCandidates(parsed){
+    const p=parsed||{},out=[];
+    const push=v=>{v=String(v||'').trim();if(v&&out.indexOf(v)<0)out.push(v);};
+    if(p.inboundNo&&p.containerFrom)push(p.inboundNo+'-'+p.containerFrom);
+    if(p.inboundNo&&p.containerTo&&p.containerTo!==p.containerFrom)push(p.inboundNo+'-'+p.containerTo);
+    push(p.containerFrom);push(p.containerTo);push(p.inboundNo);
+    return out;
+  }
 
   function ensureUi(){
     const card=$('prodRunCard');if(!card||$('btnProdWmsAuto'))return;
@@ -87,7 +98,7 @@
   async function resolvePallet(parsed){
     const inbound=String(parsed.inboundNo||'').trim();
     const cont=String(parsed.containerFrom||'').trim();
-    const candidates=(WMS.lookupCandidates?WMS.lookupCandidates(parsed):[]).slice(0,4);
+    const candidates=lookupCandidates(parsed).slice(0,4);
     const seen=new Map();
     for(const q of candidates){
       try{
@@ -116,8 +127,10 @@
     if(!data)return;
     overlayStatus('한국어 OCR 인식 중',true);
     try{
-      const r=await KO.recognize(data,false,'prodSearchStatus');
-      const parsed=WMS.parseWms?WMS.parseWms(r.text,r.items):(parseLabelText(r.text)||{});
+      const r=(window.OcrRuntime&&typeof OcrRuntime.recognize==='function')
+        ? await OcrRuntime.recognize(data,'wms','prodSearchStatus')
+        : await KO.recognize(data,false,'prodSearchStatus');
+      const parsed=r.parsed||parseWms(r.text,r.items);
       const key=[parsed.inboundNo,parsed.containerFrom].filter(Boolean).join('-');
       overlayStatus(key?('인식 완료 · '+key):'WMS 정보 인식 완료',true);
       if(typeof setStatus==='function')setStatus('prodSearchStatus','WMS 라벨 인식 완료 · 검수 이력 확인 중...','warn');
