@@ -35,6 +35,9 @@ const wmsTarget=R._test.fieldRectFromItems([
   {text:'입고번호',score:.9,poly:[[10,20],[90,20],[90,40],[10,40]]}
 ],1000,800,'wms','inboundNo');
 assert.ok(wmsTarget&&wmsTarget.rect.w>=500,'WMS target crop must extend right when value box is missing');
+assert.ok(wmsTarget&&wmsTarget.rect.h<50,'WMS target crop must stay close to the inbound-number row');
+assert.ok(String(R.fieldStripVariants).includes('field_roi_context'),
+  'V4.5 target ROI must include the contextual glare-safe view');
 
 const src=[
   {x:10,y:20},{x:210,y:30},{x:200,y:130},{x:20,y:120}
@@ -49,4 +52,4 @@ assert.ok(otsu>=20&&otsu<=240,'Otsu threshold out of expected range: '+otsu);
 const sol=R._test.solveLinear([[1,0],[0,1]],[3,4]);
 assert.deepStrictEqual(Array.from(sol),[3,4]);
 
-console.log('PASS V55 ROI/perspective preprocessing geometry');
+console.log('PASS V55 ROI V3.1: contextual 3-view target preprocessing geometry');
