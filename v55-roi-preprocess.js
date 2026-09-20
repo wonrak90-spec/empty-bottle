@@ -7,7 +7,7 @@
   if(window.__V55_ROI_PREPROCESS__)return;
   window.__V55_ROI_PREPROCESS__=true;
 
-  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-1'};
+  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-2'};
 
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
@@ -76,6 +76,47 @@
     return {dataUrl:c.toDataURL('image/jpeg',.93),rect:{x,y,w,h},scale};
   }
 
+  function otsuThreshold(gray){
+    const hist=new Array(256).fill(0);
+    for(const v of gray)hist[v]++;
+    const total=gray.length;
+    let sum=0;for(let i=0;i<256;i++)sum+=i*hist[i];
+    let sumB=0,wB=0,best=127,maxVar=-1;
+    for(let t=0;t<256;t++){
+      wB+=hist[t]; if(!wB)continue;
+      const wF=total-wB; if(!wF)break;
+      sumB+=t*hist[t];
+      const mB=sumB/wB,mF=(sum-sumB)/wF;
+      const between=wB*wF*(mB-mF)*(mB-mF);
+      if(between>maxVar){maxVar=between;best=t;}
+    }
+    return best;
+  }
+
+  async function thresholdCrop(dataUrl,rect,targetLong){
+    const img=await loadImage(dataUrl),iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
+    const x=clamp(rect.x,0,iw-1),y=clamp(rect.y,0,ih-1);
+    const w=clamp(rect.w,1,iw-x),h=clamp(rect.h,1,ih-y);
+    const long=Math.max(w,h),scale=Math.min(3.2,Math.max(1,(targetLong||1900)/Math.max(1,long)));
+    const c=document.createElement('canvas');
+    c.width=Math.max(1,Math.round(w*scale));c.height=Math.max(1,Math.round(h*scale));
+    const ctx=c.getContext('2d',{alpha:false,willReadFrequently:true});
+    ctx.fillStyle='#fff';ctx.fillRect(0,0,c.width,c.height);
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    ctx.drawImage(img,x,y,w,h,0,0,c.width,c.height);
+    const im=ctx.getImageData(0,0,c.width,c.height),d=im.data,gray=new Uint8Array(c.width*c.height);
+    for(let i=0,j=0;i<d.length;i+=4,j++)gray[j]=Math.round(d[i]*.299+d[i+1]*.587+d[i+2]*.114);
+    let t=otsuThreshold(gray);
+    // Slightly darker threshold protects thin printed strokes under glare.
+    t=Math.max(70,Math.min(210,t-8));
+    for(let i=0,j=0;i<d.length;i+=4,j++){
+      const v=gray[j]<t?0:255;
+      d[i]=v;d[i+1]=v;d[i+2]=v;d[i+3]=255;
+    }
+    ctx.putImageData(im,0,0);
+    return {dataUrl:c.toDataURL('image/png'),rect:{x,y,w,h},scale,threshold:t};
+  }
+
   R.clusterCrop=async function(dataUrl,items){
     const img=await loadImage(dataUrl),iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
     const boxes=itemBoxes(items,iw,ih);
@@ -98,8 +139,7 @@
     return rows.sort((a,b)=>a.cy-b.cy).map(r=>{r.items.sort((a,b)=>a.x1-b.x1);r.text=r.items.map(x=>x.text).join(' ');return r;});
   }
 
-  R.fieldStrip=async function(dataUrl,items,type,field){
-    const img=await loadImage(dataUrl),iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
+  function fieldRectFromItems(items,iw,ih,type,field){
     const boxes=itemBoxes(items,iw,ih);
     if(!boxes.length)return null;
     const rows=rowGroups(boxes);
@@ -107,26 +147,46 @@
     if(type==='vendor'&&field==='palletNo')re=/P\s*[/\-]?\s*(?:L\s*)?(?:No\.?|번\s*호)?|P\s*[-/]\s*번호/i;
     if(type==='wms'&&field==='inboundNo')re=/입\s*고\s*번\s*호/i;
     if(!re)return null;
+
     let row=rows.find(r=>re.test(r.text));
     if(!row){
-      // Labels can be fragmented into boxes; use a row containing the strongest marker.
       row=rows.find(r=>type==='vendor'?/P\s*[/\-]|번\s*호|No\.?/i.test(r.text):/입\s*고|번\s*호/.test(r.text));
     }
     if(!row)return null;
+
     const x1=Math.min(...row.items.map(x=>x.x1)),x2=Math.max(...row.items.map(x=>x.x2));
     const y1=Math.min(...row.items.map(x=>x.y1)),y2=Math.max(...row.items.map(x=>x.y2));
     const rw=Math.max(80,x2-x1),rh=Math.max(20,y2-y1);
+
+    // WMS first row can be partly hidden by film glare; keep more right-side
+    // context. Vendor P/L rows stay tighter to avoid packaging formula numbers.
+    const widthFactor=type==='wms'?2.10:1.45;
     const rect={
-      x:Math.max(0,x1-rw*.18),
-      y:Math.max(0,y1-rh*1.15),
-      w:Math.min(iw, rw*1.55),
-      h:Math.min(ih, rh*3.3)
+      x:Math.max(0,x1-rw*.12),
+      y:Math.max(0,y1-rh*.85),
+      w:Math.min(iw,rw*widthFactor),
+      h:Math.min(ih,rh*2.7)
     };
     if(rect.x+rect.w>iw)rect.w=iw-rect.x;
     if(rect.y+rect.h>ih)rect.h=ih-rect.y;
-    // Target rows benefit more from local grayscale/contrast than from a broad
-    // crop that includes unrelated numbers elsewhere on the label.
-    return {...await cropRect(dataUrl,rect,1900,'grayscale(1) contrast(1.34) brightness(1.06)'),kind:'field_roi',field,rowText:row.text};
+    return {rect,rowText:row.text};
+  }
+
+  R.fieldStripVariants=async function(dataUrl,items,type,field){
+    const img=await loadImage(dataUrl),iw=img.naturalWidth||img.width,ih=img.naturalHeight||img.height;
+    const fr=fieldRectFromItems(items,iw,ih,type,field);
+    if(!fr)return [];
+    const contrast=await cropRect(dataUrl,fr.rect,2000,'grayscale(1) contrast(1.42) brightness(1.04)');
+    const binary=await thresholdCrop(dataUrl,fr.rect,2000);
+    return [
+      {...contrast,kind:'field_roi_contrast',field,rowText:fr.rowText},
+      {...binary,kind:'field_roi_binary',field,rowText:fr.rowText}
+    ];
+  };
+
+  R.fieldStrip=async function(dataUrl,items,type,field){
+    const variants=await R.fieldStripVariants(dataUrl,items,type,field);
+    return variants[0]||null;
   };
 
   function quadFromBoxes(boxes){
@@ -222,6 +282,6 @@
     return {dataUrl:oc.toDataURL('image/jpeg',.93),kind:'perspective_roi',strength,width:ow,height:oh};
   };
 
-  R._test={polyBox,ocrScale,unionBounds,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc};
-  console.info('[V55-ROI-PREPROCESS-1] crop, field ROI, perspective recovery ready');
+  R._test={polyBox,ocrScale,unionBounds,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
+  console.info('[V55-ROI-PREPROCESS-2] dual target ROI + crop recovery ready');
 })();
