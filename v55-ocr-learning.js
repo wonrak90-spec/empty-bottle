@@ -95,7 +95,7 @@
   }
   L.noteApplied=function(mode,raw,parsed){
     const m=mode==='single'?'wms':mode;
-    if(!m||!L.applied[m])return;
+    if(!m||!Object.prototype.hasOwnProperty.call(L.applied,m))return;
     L.applied[m]={raw:String(raw||''),parsed:Object.assign({},parsed||{}),ts:Date.now()};
   };
 
