@@ -48,6 +48,10 @@ assert.strictEqual(r2.inboundNo,'26003373');
 const r3=P.parse('damaged',items);
 assert.strictEqual(r3.inboundNo,'26003373');
 
+const rSplit=P.parse('입고번호 2600 3373',[]);
+assert.strictEqual(rSplit.inboundNo,'26003373',
+  'split digit groups after the inbound label must be rejoined safely');
+
 const r4=P.parse('qtyArtifact',items);
 assert.strictEqual(r4.inboundNo,'26003373',
   '21,320.000 -> 21320000 quantity artifact must not block true inbound recovery');
@@ -60,4 +64,4 @@ assert.strictEqual(P._test.isQtyScaledArtifact('21320000',{displayQty:'21320'}),
 assert.strictEqual(P._test.isDate8('20260917'),true);
 assert.strictEqual(P._test.isDate8('26003373'),false);
 
-console.log('PASS V55 WMS parser V2.1: inbound recovery + quantity artifact rejection');
+console.log('PASS V55 WMS parser V2.2: split-digit recovery + quantity artifact rejection');
