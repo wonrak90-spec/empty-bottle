@@ -26,6 +26,8 @@ const wmsGood={
 assert.strictEqual(A.needsRetry('wms',wmsGood),false);
 assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'0003373'}),true,
   '7-digit damaged WMS inbound number must retry');
+assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'21320000',displayQty:'21320'}),true,
+  'quantity-scaled 21320.000 artifact must not be accepted as inbound number');
 
 const wmsWeak={inboundNo:'26003373',displayQty:'21320'};
 assert.strictEqual(A.needsRetry('wms',wmsWeak),true);
@@ -49,6 +51,10 @@ const dark=A.plan('vendor',{product:'병'},[],60);
 assert.strictEqual(dark[0].name,'bright_contrast');
 
 assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'P/L No. 946'}),'946');
+assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'75'}),'75',
+  'target ROI may recover a lone pallet number even when the label text is missed');
+assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'40 41 13'}),'',
+  'ambiguous numeric-only target ROI must not guess a pallet number');
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호 26003373'}),'26003373');
 
 assert.strictEqual(
@@ -133,6 +139,22 @@ assert.strictEqual(safeMerged.product,'까스활명수75ml');
 assert.strictEqual(safeMerged.qty,'10800');
 assert.strictEqual(safeMerged.palletNo,'20');
 
+const sanitizedVendor=A.sanitizeFullRetryCandidate(
+  'vendor',
+  {product:'판콜에이병 30ml',qty:'21320'},
+  {product:'판콜에이병 30ml',qty:'21320',palletNo:'40'}
+);
+assert.strictEqual(sanitizedVendor.palletNo,undefined,
+  'whole-label ROI must not introduce a new pallet number');
+
+const sanitizedWms=A.sanitizeFullRetryCandidate(
+  'wms',
+  {inboundNo:'',itemCode:'2000990',displayQty:'21320'},
+  {inboundNo:'21320000',itemCode:'2000990',displayQty:'21320'}
+);
+assert.strictEqual(sanitizedWms.inboundNo,undefined,
+  'whole-label ROI must not introduce a changed WMS inbound number');
+
 const targetMerged=A.mergeCandidate(
   'vendor',
   {product:'까스활명수75ml',qty:'10800',palletNo:'900'},
@@ -143,4 +165,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR safe merge, retry gate, target recovery and deskew plan');
+console.log('PASS V55 adaptive OCR V2.4: consensus-only numeric targets + WMS artifact retry');
