@@ -1,4 +1,4 @@
-const CACHE = '공병입고-ocr-runtime2-20260921';
+const CACHE = '공병입고-ocr-runtime3-20260921';
 const SHELL = [
   './',
   './index.html',
