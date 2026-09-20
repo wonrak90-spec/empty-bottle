@@ -8,7 +8,7 @@ ctx.window=ctx;
 ctx.V26WmsCardScan={
   parseWms(text){
     return {
-      inboundNo:/damaged/.test(String(text||''))?'0003373':'',
+      inboundNo:/damaged/.test(String(text||''))?'0003373':(/qtyArtifact/.test(String(text||''))?'21320000':''),
       itemCode:'2000990',
       product:'판콜액 병',
       displayQty:'21320',
@@ -47,10 +47,17 @@ assert.strictEqual(r2.inboundNo,'26003373');
 // A populated 7-digit damaged value must not block an 8-digit recovery.
 const r3=P.parse('damaged',items);
 assert.strictEqual(r3.inboundNo,'26003373');
-assert.strictEqual(P._test.validInbound('0003373'),false);
-assert.strictEqual(P._test.validInbound('26003373'),true);
+
+const r4=P.parse('qtyArtifact',items);
+assert.strictEqual(r4.inboundNo,'26003373',
+  '21,320.000 -> 21320000 quantity artifact must not block true inbound recovery');
+
+assert.strictEqual(P._test.validInbound('0003373',{}),false);
+assert.strictEqual(P._test.validInbound('26003373',{displayQty:'21320'}),true);
+assert.strictEqual(P._test.validInbound('21320000',{displayQty:'21320'}),false);
+assert.strictEqual(P._test.isQtyScaledArtifact('21320000',{displayQty:'21320'}),true);
 
 assert.strictEqual(P._test.isDate8('20260917'),true);
 assert.strictEqual(P._test.isDate8('26003373'),false);
 
-console.log('PASS V55 WMS parser: inbound-number layout and fallback recovery');
+console.log('PASS V55 WMS parser V2.1: inbound recovery + quantity artifact rejection');
