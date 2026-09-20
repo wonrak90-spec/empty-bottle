@@ -77,7 +77,7 @@ const CONFIG = {
                           if(document.getElementById('v55VendorParserLoader'))return;
                           const svp=document.createElement('script');
                           svp.id='v55VendorParserLoader';
-                          svp.src='v55-vendor-parser.js?v=20260920b';
+                          svp.src='v55-vendor-parser.js?v=20260920c';
                           svp.async=false;
                           svp.onload=()=>{
                           if(document.getElementById('v55WmsParserLoader'))return;
@@ -86,16 +86,22 @@ const CONFIG = {
                           swp.src='v55-wms-parser.js?v=20260920a';
                           swp.async=false;
                           swp.onload=()=>{
+                          if(document.getElementById('v55RoiPreprocessLoader'))return;
+                          const srp=document.createElement('script');
+                          srp.id='v55RoiPreprocessLoader';
+                          srp.src='v55-roi-preprocess.js?v=20260920a';
+                          srp.async=false;
+                          srp.onload=()=>{
                           if(document.getElementById('v55AdaptiveOcrLoader'))return;
                           const sad=document.createElement('script');
                           sad.id='v55AdaptiveOcrLoader';
-                          sad.src='v55-adaptive-ocr.js?v=20260920b';
+                          sad.src='v55-adaptive-ocr.js?v=20260920c';
                           sad.async=false;
                           sad.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
                           const sbr=document.createElement('script');
                           sbr.id='v55OcrBenchmarkLoader';
-                          sbr.src='v55-ocr-benchmark.js?v=20260920b';
+                          sbr.src='v55-ocr-benchmark.js?v=20260920c';
                           sbr.async=false;
                           sbr.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
@@ -124,6 +130,8 @@ const CONFIG = {
                           document.body.appendChild(sbr);
                           };
                           document.body.appendChild(sad);
+                          };
+                          document.body.appendChild(srp);
                           };
                           document.body.appendChild(swp);
                           };
