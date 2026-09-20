@@ -167,6 +167,35 @@ async function test(name,fn){
     assert.strictEqual(entry.diff.displayQty.final,'13608');
   });
 
+  await test('실제 화면에 적용된 V4.6 OCR 값이 Learning 기준값으로 기록됨', async()=>{
+    const {ctx,state}=makeContext();
+    state.wmsParsed={inboundNo:'WRONG',displayQty:'999'};
+    ctx.V55OcrLearning.noteApplied('wms','WMS RAW',{
+      inboundNo:'26003373',product:'판콜액 병',itemCode:'2000990',
+      displayQty:'21320',containerFrom:'0004',containerTo:'0028'
+    });
+    await ctx.apiPost('saveSingle',wmsPayload({
+      inboundNo:'26003373',product:'판콜액 병',itemCode:'2000990',
+      displayQty:'21320',containerFrom:'0004',containerTo:'0028'
+    }));
+    const entry=ctx.V55OcrLearning.loadQueue()[0];
+    assert.strictEqual(entry.ocr.inboundNo,'26003373');
+    assert.strictEqual(entry.ocr.displayQty,'21320');
+    assert.strictEqual(entry.changedFields,0);
+  });
+
+  await test('Learning 재파싱은 V55 parser를 V26보다 우선함', async()=>{
+    const {ctx,state}=makeContext();
+    ctx.V55WmsParser={parse(){return {inboundNo:'26009999',displayQty:'777'};}};
+    state.wmsParsed={inboundNo:'V26',displayQty:'1'};
+    await ctx.apiPost('saveSingle',wmsPayload({
+      inboundNo:'26009999',displayQty:'777',ocrRaw:'V55 RAW'
+    }));
+    const entry=ctx.V55OcrLearning.loadQueue()[0];
+    assert.strictEqual(entry.ocr.inboundNo,'26009999');
+    assert.strictEqual(entry.ocr.displayQty,'777');
+  });
+
   await test('사진 바이너리를 Learning queue에 저장하지 않음', async()=>{
     const {ctx,state}=makeContext();
     state.wmsParsed={inboundNo:'26091801',displayQty:'13608'};
@@ -237,6 +266,7 @@ async function test(name,fn){
     assert.strictEqual(typeof ctx.V55OcrLearning.flush,'function');
     assert.strictEqual(typeof ctx.V55OcrLearning.loadQueue,'function');
     assert.strictEqual(typeof ctx.V55OcrLearning.noteManualEdit,'function');
+    assert.strictEqual(typeof ctx.V55OcrLearning.noteApplied,'function');
   });
 
   if(process.exitCode) process.exit(process.exitCode);
