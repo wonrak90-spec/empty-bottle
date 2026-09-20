@@ -70,6 +70,9 @@ jobs:
       - name: Run V55 regression tests
         run: node tests/v55-learning.test.js
 
+      - name: Run V4.6 worker-assist wiring tests
+        run: node tests/v55-live-assist-static.test.js
+
       - name: Run V55 backend and metrics tests
         run: node tests/v55-learning-backend.test.js
 
