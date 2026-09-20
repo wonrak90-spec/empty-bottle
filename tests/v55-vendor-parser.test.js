@@ -55,6 +55,8 @@ assert.strictEqual(d2.palletNo,'21');
 
 assert.strictEqual(P._test.cleanProduct('품명 까스활명수75m 당진 3F'),'까스활명수75ml');
 assert.strictEqual(P._test.cleanProduct('품명 유리병(각병) 100mi'),'유리병(각병) 100ml');
+assert.strictEqual(P._test.cleanProduct('명 판콜에이병 30ml'),'판콜에이병 30ml');
+assert.strictEqual(P._test.cleanProduct('높명 판콜 에이 병 30ml'),'판콜에이병 30ml');
 
 // Layout recovery: Donghwa label/value split into separate OCR boxes and one
 // multiplication symbol missing in the quantity formula.
@@ -91,4 +93,4 @@ const d6=P.parse('판콜에이병 30ml\n40×41×13단=21,320 본',[]);
 assert.strictEqual(d6.palletNo,undefined);
 assert.deepStrictEqual(Array.from(P._test.formulaFactors('40×41 13단=21,320 본')),['40','41','13']);
 
-console.log('PASS V55 vendor parser V3.1: layout-aware + formula-safe pallet recovery');
+console.log('PASS V55 vendor parser V3.2: product-noise normalization + formula-safe recovery');
