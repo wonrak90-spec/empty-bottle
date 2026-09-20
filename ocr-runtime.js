@@ -12,9 +12,11 @@
 
   const $=id=>document.getElementById(id);
   const R=window.OcrRuntime={
-    VERSION:'OCR-RUNTIME-1.2',
+    VERSION:'OCR-RUNTIME-1.3-FAST',
     OCR_RELEASE:'V4.6',
     REQUIRE_WORKER_CONFIRM:true,
+    TARGET_LIVE_MS:2000,
+    metrics:{},
     sessions:{wms:null,vendor:null,multi:null},
     seq:0
   };
@@ -27,6 +29,13 @@
   function wrapId(mode){return 'v22LiveWrap_'+mode;}
   function safeError(err){return String(err&&err.message?err.message:err||'알 수 없는 오류');}
   function countFields(p){return Object.keys(p||{}).filter(k=>String(p[k]??'').trim()).length;}
+  function signature(mode,p){
+    p=p||{};
+    return mode==='vendor'
+      ?[p.product,p.qty,p.lotNo,p.palletNo].filter(Boolean).join('|')
+      :[p.inboundNo,p.itemCode,p.displayQty,p.containerFrom,p.containerTo].filter(Boolean).join('|');
+  }
+  function liveNeed(mode){return mode==='vendor'?2:4;}
 
   function ensureLiveHud(mode){
     const wrap=$(wrapId(mode));if(!wrap)return null;
@@ -119,6 +128,23 @@
   }
   R.recognize=recognize;
 
+  // Live camera path is deliberately lightweight: one fast PP-OCRv5 pass +
+  // V55 parser only. Adaptive ROI retries are reserved for explicit photo/
+  // capture flows so live recognition can stay close to the 2-second target.
+  async function recognizeFast(dataUrl,mode,statusId){
+    const KO=window.V26KoreanOCR;
+    if(!KO||typeof KO.recognize!=='function')throw new Error('한국어 OCR 엔진이 준비되지 않았습니다.');
+    const r=await KO.recognize(dataUrl,true,statusId||sid(mode));
+    return {
+      text:String(r.text||''),
+      items:r.items||[],
+      parsed:parse(mode,r.text,r.items||[]),
+      latency:Number(r.latency)||0,
+      method:'live_fast'
+    };
+  }
+  R.recognizeFast=recognizeFast;
+
   async function storedPhoto(mode,dataUrl){
     let stored=dataUrl;
     try{if(typeof window.shrinkForUpload==='function')stored=await shrinkForUpload(dataUrl,1400,.72);}catch(_){}
@@ -130,9 +156,11 @@
     return stored;
   }
 
-  async function applyResult(mode,r,dataUrl,label){
+  async function applyResult(mode,r,dataUrl,label,opts){
+    opts=opts||{};
+    const previewOnly=!!opts.previewOnly;
     const p=r&&r.parsed||{},raw=String(r&&r.text||'');
-    await storedPhoto(mode,dataUrl);
+    if(!previewOnly)await storedPhoto(mode,dataUrl);
     try{
       if(mode==='vendor'){
         lastOcrText.vendor=raw;
@@ -158,17 +186,17 @@
       }
     }catch(e){console.warn('[OCR Runtime] apply form',e);}
 
-    try{
-      if(p.itemCode&&typeof loadItemInfo==='function')loadItemInfo(p.itemCode);
-    }catch(_){}
-    try{if(typeof showOcrRaw==='function')showOcrRaw(mode);}catch(_){}
-    try{
-      if(window.V55OcrLearning&&typeof V55OcrLearning.noteApplied==='function')
-        V55OcrLearning.noteApplied(mode,raw,p);
-    }catch(_){}
+    if(!previewOnly){
+      try{if(p.itemCode&&typeof loadItemInfo==='function')loadItemInfo(p.itemCode);}catch(_){}
+      try{if(typeof showOcrRaw==='function')showOcrRaw(mode);}catch(_){}
+      try{
+        if(window.V55OcrLearning&&typeof V55OcrLearning.noteApplied==='function')
+          V55OcrLearning.noteApplied(mode,raw,p);
+      }catch(_){}
+    }
 
     const n=countFields(p);
-    setStatus(sid(mode),(label||'V4.6 OCR 완료')+' · '+n+'개 항목 · 작업자 확인 후 확정하세요.','ok');
+    if(!previewOnly)setStatus(sid(mode),(label||'V4.6 OCR 완료')+' · '+n+'개 항목 · 작업자 확인 후 확정하세요.','ok');
     return {count:n,parsed:p};
   }
   R.apply=applyResult;
@@ -289,42 +317,100 @@
     }
   }
 
+  async function finalizeLive(st,reason){
+    if(!st||!st.bestResult||!st.bestData)return false;
+    const mode=st.mode;
+    const elapsed=Date.now()-st.started;
+    const out=await applyResult(mode,st.bestResult,st.bestData,reason||'실시간 OCR 완료');
+    R.metrics[mode]={
+      started:st.started,
+      elapsedMs:elapsed,
+      attempts:st.attempts,
+      bestFields:st.bestCount,
+      lastOcrMs:st.lastOcrMs||0,
+      stableCount:st.stable
+    };
+    liveHud(mode,'인식 완료 · '+out.count+'개 항목 자동 입력 · '+elapsed+'ms','완료',100);
+    setTimeout(()=>stopLive(mode,false),220);
+    return true;
+  }
+
   async function liveTick(mode){
     mode=modeOf(mode);
     const st=R.sessions[mode],video=$(videoId(mode));
     if(!st||!st.running||!video)return;
-    if(st.processing)return;
-    if(!video.videoWidth){schedule(st,()=>liveTick(mode),180);return;}
+    if(st.processing){schedule(st,()=>liveTick(mode),90);return;}
+    if(!video.videoWidth){schedule(st,()=>liveTick(mode),90);return;}
 
-    if(Date.now()-st.started>12000){
-      setStatus(sid(mode),'자동 감지 시간이 초과되었습니다 · 라벨을 더 가까이 맞춘 후 다시 시도하세요.','warn');
-      liveHud(mode,'자동 감지 시간이 초과되었습니다 · 라벨을 더 가까이 맞춰주세요','오류',100);
-      setTimeout(()=>stopLive(mode,false),800);return;
-    }
+    st.processing=true;
+    st.attempts++;
+    const startedPass=performance.now();
+    try{
+      // Stable pre-cleanup behavior: OCR the live frame first, then judge
+      // stability from actual parsed values. Do not wait 0.9~3s for a generic
+      // sharpness score before OCR starts.
+      const data=cropVideo(video,1800);
+      const r=await recognizeFast(data,mode,sid(mode));
+      st.lastOcrMs=Math.round(performance.now()-startedPass);
+      const parsed=r.parsed||{},cnt=countFields(parsed),sig=signature(mode,parsed);
 
-    const cur=sampleFrame(video);
-    if(!cur){schedule(st,()=>liveTick(mode),180);return;}
-    const diff=frameDiff(cur,st.prev);st.prev=cur;st.samples++;
-    const q=quality(mode,cur,diff);
-    if(q.acceptable){
-      st.goodSamples++;
-      if(q.score>st.bestScore){
-        const data=cropVideo(video,2300);
-        if(data){st.bestScore=q.score;st.bestData=data;}
+      if(sig&&sig===st.lastSig)st.stable++;
+      else{st.lastSig=sig;st.stable=sig?1:0;}
+
+      if(cnt>st.bestCount || (cnt===st.bestCount&&st.lastOcrMs<(st.bestOcrMs||Infinity))){
+        st.bestCount=cnt;
+        st.bestResult=r;
+        st.bestData=data;
+        st.bestOcrMs=st.lastOcrMs;
       }
-    }
-    setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 자동 스캔 · '+q.msg,'warn');
-    const elapsed=Date.now()-st.started;
-    const scanProgress=Math.min(72,12+Math.round((elapsed/3000)*55)+(st.goodSamples*5));
-    liveHud(mode,q.msg,q.acceptable?'프레임 확인':'화면 조정',scanProgress);
 
-    const ready=!!st.bestData&&(
-      (elapsed>=900&&st.goodSamples>=2&&st.bestScore>=(mode==='vendor'?40:42)) ||
-      (elapsed>=1700&&st.goodSamples>=1) ||
-      elapsed>=3000
-    );
-    if(ready){await processBest(st);return;}
-    schedule(st,()=>liveTick(mode),170);
+      // Show useful fields immediately for work speed, but do not create a
+      // Learning snapshot until the live result is finalized.
+      if(cnt>=2){
+        await applyResult(mode,r,data,'실시간 OCR 미리보기',{previewOnly:true});
+      }
+
+      const elapsed=Date.now()-st.started;
+      const progress=Math.min(92,25+st.attempts*20);
+      liveHud(mode,'OCR '+st.lastOcrMs+'ms · '+cnt+'개 항목 · '+st.stable+'/2 안정 확인','실시간 OCR',progress);
+      setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 실시간 OCR · '+cnt+'개 항목 · '+st.lastOcrMs+'ms','warn');
+
+      if(cnt>=liveNeed(mode)&&st.stable>=2){
+        await finalizeLive(st,'실시간 OCR 안정 인식 완료');
+        return;
+      }
+
+      // 2-second work-efficiency target: if two-pass consensus has not formed
+      // by the target, keep the best actual OCR result rather than waiting for
+      // a 3~12 second frame-quality/adaptive retry chain.
+      if(elapsed>=R.TARGET_LIVE_MS&&st.bestResult&&st.bestCount>=2){
+        await finalizeLive(st,'실시간 OCR 빠른 확정');
+        return;
+      }
+
+      if(st.attempts>=4){
+        if(st.bestResult&&st.bestCount>=2)await finalizeLive(st,'실시간 OCR 최선 결과');
+        else{
+          setStatus(sid(mode),'인식이 부족합니다 · 사진 OCR 또는 직접 입력을 사용하세요.','warn');
+          liveHud(mode,'인식 항목이 부족합니다 · 사진 OCR 또는 직접 입력을 사용하세요','오류',100);
+          setTimeout(()=>stopLive(mode,false),300);
+        }
+        return;
+      }
+    }catch(e){
+      if(st.attempts>=2){
+        if(st.bestResult&&st.bestCount>=2)await finalizeLive(st,'실시간 OCR 최선 결과');
+        else{
+          setStatus(sid(mode),'실시간 OCR 실패 · '+safeError(e),'warn');
+          liveHud(mode,'실시간 OCR 실패 · 사진 OCR을 사용하세요','오류',100);
+          setTimeout(()=>stopLive(mode,false),300);
+        }
+        return;
+      }
+    }finally{
+      if(R.sessions[mode]===st)st.processing=false;
+    }
+    if(R.sessions[mode]===st&&st.running)schedule(st,()=>liveTick(mode),120);
   }
 
   async function startLive(mode){
@@ -337,43 +423,37 @@
     try{
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('이 브라우저에서 카메라를 사용할 수 없습니다.');
       let stream=null;
-      try{
-        stream=await navigator.mediaDevices.getUserMedia({
-          video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false
-        });
-      }catch(primaryErr){
-        const name=String(primaryErr&&primaryErr.name||'');
-        const msg=String(primaryErr&&primaryErr.message||primaryErr||'');
-        // Some desktop/mobile browsers fail the preferred rear-camera request
-        // even though another camera is available. Retry once with generic video.
-        if(/NotFound|Overconstrained|DevicesNotFound/i.test(name+' '+msg)){
-          try{
-            stream=await navigator.mediaDevices.getUserMedia({video:true,audio:false});
-          }catch(fallbackErr){
-            const fn=String(fallbackErr&&fallbackErr.name||'');
-            const fm=String(fallbackErr&&fallbackErr.message||fallbackErr||'');
-            if(/NotFound|DevicesNotFound/i.test(fn+' '+fm))
-              throw new Error('사용 가능한 카메라를 찾지 못했습니다. 이 기기에서는 사진 촬영/갤러리를 사용하세요.');
-            throw fallbackErr;
-          }
-        }else{
-          throw primaryErr;
-        }
+      const attempts=[
+        {video:{facingMode:{ideal:'environment'},width:{ideal:2560},height:{ideal:1440}},audio:false},
+        {video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false},
+        {video:true,audio:false}
+      ];
+      let lastErr=null;
+      for(const constraints of attempts){
+        try{stream=await navigator.mediaDevices.getUserMedia(constraints);break;}
+        catch(e){lastErr=e;}
       }
+      if(!stream){
+        const name=String(lastErr&&lastErr.name||''),msg=String(lastErr&&lastErr.message||lastErr||'');
+        if(/NotFound|DevicesNotFound/i.test(name+' '+msg))
+          throw new Error('사용 가능한 카메라를 찾지 못했습니다. 이 기기에서는 사진 촬영/갤러리를 사용하세요.');
+        throw lastErr||new Error('카메라를 시작하지 못했습니다.');
+      }
+
       await tuneCamera(stream);
       const st={
         id:++R.seq,mode,stream,track:stream.getVideoTracks()[0]||null,
         running:true,processing:false,started:Date.now(),timer:null,
-        prev:null,samples:0,goodSamples:0,bestScore:-Infinity,bestData:'',failures:0
+        attempts:0,lastSig:'',stable:0,bestCount:0,bestResult:null,bestData:'',bestOcrMs:Infinity,lastOcrMs:0
       };
       R.sessions[mode]=st;
       if(window.V22)V22.live=R.sessions;
       if(window.V26KoreanOCR&&V26KoreanOCR.live)V26KoreanOCR.live[mode]=st;
       video.srcObject=stream;await video.play();wrap.classList.remove('hidden');
       ensureLiveHud(mode);
-      liveHud(mode,'카메라 연결 완료 · 라벨 전체를 프레임 안에 맞춰주세요','카메라 연결',8);
-      setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 자동 스캔 시작 · 라벨 전체를 프레임 안에 맞춰주세요.','warn');
-      schedule(st,()=>liveTick(mode),220);
+      liveHud(mode,'카메라 연결 완료 · 바로 OCR을 시작합니다','카메라 연결',12);
+      setStatus(sid(mode),(mode==='vendor'?'업체 라벨':'WMS')+' 빠른 실시간 OCR 시작 · 목표 2초 이내','warn');
+      schedule(st,()=>liveTick(mode),120);
     }catch(e){
       setStatus(sid(mode),'카메라 실행 실패 · '+safeError(e),'bad');
       const wrap=$(wrapId(mode));
@@ -472,8 +552,17 @@
     V22.refocus=refocus;
     V22.live=R.sessions;
     R.start=startLive;R.stop=stopLive;R.stopAll=stopAll;R.capture=captureLive;R.refocus=refocus;R.installed=true;
+    // Pre-warm the local OCR model so the first camera scan does not pay the
+    // model initialization cost. The same initPromise is reused if the worker
+    // starts scanning immediately.
+    setTimeout(()=>{
+      try{
+        if(window.V26KoreanOCR&&typeof V26KoreanOCR.ensureEngine==='function')
+          V26KoreanOCR.ensureEngine('').catch(()=>{});
+      }catch(_){}
+    },250);
     updateUi();setTimeout(updateUi,600);setTimeout(updateUi,1600);
-    console.info('[OCR-RUNTIME-1.0] single camera/OCR owner active');
+    console.info('[OCR-RUNTIME-1.3-FAST] OCR-result stability + 2s live target active');
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});else install();
