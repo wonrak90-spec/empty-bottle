@@ -92,6 +92,8 @@
 
   function parse(type,r){
     if(type==='vendor'){
+      if(window.V55VendorParser&&typeof V55VendorParser.parse==='function')
+        return V55VendorParser.parse(r.text||'',r.items||[])||{};
       if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')
         return V26VendorTemplates.parse(r.text||'',r.items||[])||{};
       if(typeof window.parseVendorLabel==='function')return window.parseVendorLabel(r.text||'')||{};
