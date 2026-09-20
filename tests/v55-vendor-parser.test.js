@@ -10,7 +10,7 @@ ctx.V26VendorTemplates={
   parse(raw){
     const s=String(raw||'');
     if(/까스활명수/.test(s))return {product:'까스활명수75m1 당진 3F',qty:'10800',palletNo:'900'};
-    if(/판콜/.test(s))return {product:'30ml',qty:'559'};
+    if(/판콜/.test(s))return {product:'30ml',qty:'559',palletNo:'40'};
     return {};
   }
 };
@@ -85,4 +85,10 @@ const d5=P.parse('판콜에이병 30ml\nP-번호 946\n40×41×13단=21,320 본',
 assert.strictEqual(d5.palletNo,'946');
 assert.strictEqual(d5.qty,'21320');
 
-console.log('PASS V55 vendor parser V3: layout-aware Donghwa + Donga recovery');
+// If no explicit P-number survives, a generic pallet value that is actually
+// a packaging factor must be discarded rather than treated as a pallet ID.
+const d6=P.parse('판콜에이병 30ml\n40×41×13단=21,320 본',[]);
+assert.strictEqual(d6.palletNo,undefined);
+assert.deepStrictEqual(Array.from(P._test.formulaFactors('40×41 13단=21,320 본')),['40','41','13']);
+
+console.log('PASS V55 vendor parser V3.1: layout-aware + formula-safe pallet recovery');
