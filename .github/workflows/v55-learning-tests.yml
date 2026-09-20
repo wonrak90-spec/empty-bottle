@@ -134,7 +134,7 @@ jobs:
           FFLATE_ENTRY="node_modules/fflate/esm/browser.js"
           test -f "$PADDLE_ENTRY"
           test -f "$FFLATE_ENTRY"
-          npx esbuild "$PADDLE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/paddleocr.bundle.js
+          npx esbuild "$PADDLE_ENTRY" --bundle --format=esm --platform=browser --external:fs --external:path --outfile=dist_v43/vendor/paddleocr.bundle.js
           npx esbuild "$FFLATE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/fflate.bundle.js
 
           cp node_modules/onnxruntime-web/dist/*.wasm dist_v43/vendor/ort/
