@@ -337,7 +337,7 @@ jobs:
           Write-Host "OCR V55 V4.3 Benchmark server"
           Write-Host $url
           Write-Host "이 창을 닫으면 서버가 종료됩니다."
-          $mime=@{'.html'='text/html; charset=utf-8';'.js'='application/javascript; charset=utf-8';'.css'='text/css; charset=utf-8';'.json'='application/json; charset=utf-8';'.png'='image/png';'.jpg'='image/jpeg';'.jpeg'='image/jpeg';'.svg'='image/svg+xml';'.ico'='image/x-icon';'.txt'='text/plain; charset=utf-8'}
+          $mime=@{'.html'='text/html; charset=utf-8';'.js'='application/javascript; charset=utf-8';'.mjs'='application/javascript; charset=utf-8';'.css'='text/css; charset=utf-8';'.json'='application/json; charset=utf-8';'.wasm'='application/wasm';'.tar'='application/x-tar';'.png'='image/png';'.jpg'='image/jpeg';'.jpeg'='image/jpeg';'.svg'='image/svg+xml';'.ico'='image/x-icon';'.txt'='text/plain; charset=utf-8'}
           while($listener.IsListening){
             try{
               $ctx=$listener.GetContext();$path=[System.Web.HttpUtility]::UrlDecode($ctx.Request.Url.AbsolutePath.TrimStart('/'))
