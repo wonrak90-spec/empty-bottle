@@ -12,6 +12,7 @@
     queueKey:'emptyBottle.ocrLearning.queue.v1',
     backendKey:'emptyBottle.ocrLearning.backend.v1',
     cache:{wms:null,vendor:null,multi:null,production_wms:null,other:null},
+    applied:{wms:null,vendor:null,multi:null},
     manual:{wms:{},vendor:{},multi:{}},
     queueMax:1500,lastQueueError:'',
     nativePost:null,wrapped:false,syncing:false
@@ -61,16 +62,27 @@
     const c=L.cache[mode];if(!c||Date.now()-c.ts>120000||txt(c.text)!==txt(raw))return [];
     return Array.isArray(c.items)?c.items:[];
   }
+  function applied(mode,raw){
+    const a=L.applied[mode||'wms'];
+    if(!a||Date.now()-a.ts>120000||txt(a.raw)!==txt(raw))return null;
+    return a.parsed&&typeof a.parsed==='object'?Object.assign({},a.parsed):null;
+  }
   function parseWms(raw,mode){
     try{
-      if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function')return V26WmsCardScan.parseWms(raw||'',items(mode||'wms',raw))||{};
+      const hit=applied(mode||'wms',raw);if(hit)return hit;
+      const its=items(mode||'wms',raw);
+      if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')return V55WmsParser.parse(raw||'',its)||{};
+      if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function')return V26WmsCardScan.parseWms(raw||'',its)||{};
       if(typeof parseLabelText==='function')return parseLabelText(raw||'')||{};
     }catch(_){}
     return {};
   }
   function parseVendor(raw,mode){
     try{
-      if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(raw||'',items(mode||'vendor',raw))||{};
+      const hit=applied(mode||'vendor',raw);if(hit)return hit;
+      const its=items(mode||'vendor',raw);
+      if(window.V55VendorParser&&typeof V55VendorParser.parse==='function')return V55VendorParser.parse(raw||'',its)||{};
+      if(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')return V26VendorTemplates.parse(raw||'',its)||{};
       if(typeof parseVendorLabel==='function')return parseVendorLabel(raw||'')||{};
     }catch(_){}
     return {};
@@ -81,6 +93,12 @@
     }catch(_){}
     return '';
   }
+  L.noteApplied=function(mode,raw,parsed){
+    const m=mode==='single'?'wms':mode;
+    if(!m||!L.applied[m])return;
+    L.applied[m]={raw:String(raw||''),parsed:Object.assign({},parsed||{}),ts:Date.now()};
+  };
+
   L.noteManualEdit=function(mode,key,value){
     if(!mode||!key)return;
     const bag=L.manual[mode]||(L.manual[mode]={});
@@ -118,7 +136,7 @@
       captureKey:'',capturedAt:new Date().toISOString(),recordId:String(recordId||''),source,
       template:'',datasetVersion:'',photoUrl:'',palletSeq:'',productionId:'',
       ocrEngine:'PP-OCRv5 Korean local',ocrModel:'korean_PP-OCRv5_mobile_rec',
-      frontendVersion:L.VERSION,ocrRaw:String(raw||''),ocr:pick(ocr,fields),final:pick(final,fields),
+      frontendVersion:L.VERSION,ocrAssistVersion:(window.V55AdaptiveOCR&&V55AdaptiveOCR.VERSION)||'',ocrRaw:String(raw||''),ocr:pick(ocr,fields),final:pick(final,fields),
       diff:d.out,comparedFields:d.compared,changedFields:d.changed,
       manualEditedFields:edited,manualChangedFields:manualChanged,manualEditCount:editCount,
       correctionType:manualChanged.length?'OCR_KEYIN_CORRECTION':(edited.length?'KEYIN_NO_FINAL_CHANGE':(d.changed?'NON_KEYIN_DIFFERENCE':'NO_CORRECTION'))
