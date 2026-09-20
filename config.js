@@ -89,19 +89,19 @@ const CONFIG = {
                           if(document.getElementById('v55RoiPreprocessLoader'))return;
                           const srp=document.createElement('script');
                           srp.id='v55RoiPreprocessLoader';
-                          srp.src='v55-roi-preprocess.js?v=20260920a';
+                          srp.src='v55-roi-preprocess.js?v=20260920b';
                           srp.async=false;
                           srp.onload=()=>{
                           if(document.getElementById('v55AdaptiveOcrLoader'))return;
                           const sad=document.createElement('script');
                           sad.id='v55AdaptiveOcrLoader';
-                          sad.src='v55-adaptive-ocr.js?v=20260920c';
+                          sad.src='v55-adaptive-ocr.js?v=20260920d';
                           sad.async=false;
                           sad.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
                           const sbr=document.createElement('script');
                           sbr.id='v55OcrBenchmarkLoader';
-                          sbr.src='v55-ocr-benchmark.js?v=20260920c';
+                          sbr.src='v55-ocr-benchmark.js?v=20260920d';
                           sbr.async=false;
                           sbr.onload=()=>{
                           if(document.getElementById('v55OcrLearningLoader'))return;
