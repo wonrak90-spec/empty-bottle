@@ -1,4 +1,4 @@
-/* V55 Vendor Parser V3
+/* V55 Vendor Parser V3.1
  * Benchmark/feature-layer parser only.
  * - Does not modify V26 core files.
  * - Adds Donghwa G&P label recovery.
@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.1'};
 
   function fixDigits(s){
     return String(s||'')
@@ -22,6 +22,21 @@
     const n=Number(d);
     return Number.isFinite(n)&&n>0?String(Math.trunc(n)):'';
   }
+  function formulaFactors(s){
+    const out=[];
+    const src=fixDigits(s).replace(/,/g,'');
+    const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:(?:\s*[xX×*]\s*([0-9]{1,4}))|(?:\s+([0-9]{1,3})\s*단))?/g;
+    let m;
+    while((m=re.exec(src))!==null){
+      [m[1],m[2],m[3],m[4]].filter(Boolean).forEach(v=>out.push(String(Number(v))));
+    }
+    return out.filter(Boolean);
+  }
+  function rejectInferredFormulaPallet(out,source){
+    const p=num(out&&out.palletNo);
+    if(p&&formulaFactors(source).includes(p))delete out.palletNo;
+  }
+
   function polyStats(poly){
     const pts=Array.isArray(poly)?poly:[],xs=[],ys=[];
     for(const p of pts){
@@ -160,6 +175,8 @@
     if(pv){
       const v=num(pv);
       if(v)out.palletNo=v;
+    }else if(out.palletNo){
+      rejectInferredFormulaPallet(out,joined+'\n'+String(raw||''));
     }
 
     // Prefer the printed final count after '=' or a verified multiplicative formula.
@@ -202,11 +219,7 @@
       const v=num(plv);
       if(v)out.palletNo=v;
     }else if(out.palletNo){
-      // Only reject the generic parser's value when it is clearly the first
-      // packaging factor from a formula such as 900×12. Explicit P/L values,
-      // including larger values such as 946, remain valid.
-      const formula=(joined+' '+String(raw||'')).match(/([0-9]{2,4})\s*[xX×*]\s*([0-9]{1,4})/);
-      if(formula&&num(formula[1])===num(out.palletNo))delete out.palletNo;
+      rejectInferredFormulaPallet(out,joined+'\n'+String(raw||''));
     }
 
     if(window.V26Qty&&typeof V26Qty.vendorFormula==='function'){
@@ -236,6 +249,6 @@
     return base;
   };
 
-  P._test={cleanProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga};
-  console.info('[V55-VENDOR-PARSER-3] layout-aware Donga + Donghwa parser ready');
+  P._test={cleanProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
+  console.info('[V55-VENDOR-PARSER-3.1] formula-safe Donga + Donghwa parser ready');
 })();
