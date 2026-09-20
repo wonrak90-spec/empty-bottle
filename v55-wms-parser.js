@@ -1,4 +1,4 @@
-/* V55 WMS Parser V1
+/* V55 WMS Parser V2
  * Benchmark/feature-layer extension only.
  * Recovers WMS inbound number without modifying V26 core.
  */
@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-1'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2'};
 
   function fixDigits(s){
     return String(s||'')
@@ -46,6 +46,10 @@
     const y=Number(d.slice(0,4)),m=Number(d.slice(4,6)),day=Number(d.slice(6,8));
     return y>=2020&&y<=2099&&m>=1&&m<=12&&day>=1&&day<=31;
   }
+  function validInbound(s){
+    const d=fixDigits(s).replace(/\D/g,'');
+    return d.length===8&&!isDate8(d);
+  }
   function recoverInbound(raw,items,out){
     const rr=rows(items);
 
@@ -53,9 +57,9 @@
     for(const row of rr){
       if(!/입\s*고\s*번\s*호/.test(row.text))continue;
       const after=fixDigits(row.text.replace(/^.*?입\s*고\s*번\s*호\s*[:：-]?\s*/,'')).replace(/\D/g,'');
-      if(after.length>=7&&after.length<=10&&!isDate8(after))return after;
+      if(after.length===8&&!isDate8(after))return after;
       const joined=row.items.map(x=>fixDigits(x.text).replace(/\D/g,'')).filter(Boolean).join('');
-      const m=joined.match(/([0-9]{7,10})/);
+      const m=joined.match(/([0-9]{8})/);
       if(m&&!isDate8(m[1]))return m[1];
     }
 
@@ -71,7 +75,7 @@
     const candidates=[];
     const add=(s,weight)=>{
       const d=fixDigits(s).replace(/\D/g,'');
-      if(d.length<7||d.length>10||isDate8(d)||skip.has(d))return;
+      if(d.length!==8||isDate8(d)||skip.has(d))return;
       if(!candidates.some(x=>x.d===d))candidates.push({d,weight});
     };
     String(raw||'').split(/\s+/).forEach(x=>add(x,1));
@@ -91,13 +95,13 @@
     }else if(typeof window.parseLabelText==='function'){
       out=window.parseLabelText(text||'')||{};
     }
-    if(!out.inboundNo){
+    if(!validInbound(out.inboundNo)){
       const v=recoverInbound(text,items,out);
-      if(v)out.inboundNo=v;
+      if(validInbound(v))out.inboundNo=v;
     }
     return out;
   };
 
-  P._test={rows,isDate8,recoverInbound};
-  console.info('[V55-WMS-PARSER-1] inbound-number recovery ready');
+  P._test={rows,isDate8,validInbound,recoverInbound};
+  console.info('[V55-WMS-PARSER-2] invalid-inbound recovery ready');
 })();
