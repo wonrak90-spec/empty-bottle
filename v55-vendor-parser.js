@@ -126,9 +126,16 @@
 
     let p=bestProduct(rows);
     if(!p&&out.product)p=cleanProduct(out.product);
+
+    // If the generic parser captured only "30ml"/"100ml", recover the Korean
+    // product-name row first, then join the neighbouring volume token.
+    if(!p||!/[가-힣]{2,}/.test(p)){
+      const nameRow=rows.find(r=>/판콜\s*에?이?\s*병|유리병\s*[（(]?각병/i.test(r));
+      if(nameRow)p=cleanProduct(nameRow);
+    }
     if(p){
       // Common Donghwa layout: product and volume are separate OCR boxes/rows.
-      if(/판콜에이?병?$/i.test(p)&&!/30\s*ml/i.test(p)){
+      if(/판콜.*병$/i.test(p)&&!/30\s*ml/i.test(p)){
         const vm=(joined+' '+String(raw||'')).match(/\b30\s*m(?:l|1|i)\b/i);
         if(vm)p=(p+' 30ml').trim();
       }
