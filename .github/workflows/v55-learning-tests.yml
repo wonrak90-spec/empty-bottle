@@ -107,6 +107,7 @@ jobs:
           node --check v55-ocr-learning-diagnostics.js
           node --check v55-ocr-benchmark.js
           node --check v55-adaptive-ocr.js
+          node --check v55-live-assist.js
           node --check v55-vendor-parser.js
           node --check v55-wms-parser.js
           node --check v55-roi-preprocess.js
