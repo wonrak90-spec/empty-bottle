@@ -209,7 +209,10 @@
             pred=predicted(type,r.text,r.items);
             basePred=pred;
           }
-        }catch(e){err=String(e&&e.message?e.message:e);pred={};basePred={};r={latency:0,text:'',items:[]};}
+        }catch(e){
+          err=String(e&&e.message?e.message:e);
+          throw new Error('OCR 엔진 실행 실패 · '+j.file+' · '+err);
+        }
         const fs=[],bfs=[];
         for(const k of Object.keys(expected)){
           if(['label_type','template'].includes(k))continue;
