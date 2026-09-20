@@ -79,4 +79,10 @@ const d4=P.parse('동아에코팩(주)\n품명 까스활명수75ml\n포장사양
 assert.strictEqual(d4.palletNo,'21');
 assert.strictEqual(d4.qty,'10800');
 
+// Explicit large P-number is valid. It must not be rejected merely because
+// packaging formulas can also contain large factors.
+const d5=P.parse('판콜에이병 30ml\nP-번호 946\n40×41×13단=21,320 본',[]);
+assert.strictEqual(d5.palletNo,'946');
+assert.strictEqual(d5.qty,'21320');
+
 console.log('PASS V55 vendor parser V3: layout-aware Donghwa + Donga recovery');
