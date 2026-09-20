@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.1'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.2'};
 
   function fixDigits(s){
     return String(s||'')
@@ -103,6 +103,15 @@
 
     // Common recognition slips around the volume suffix only.
     x=x.replace(/(\d{1,4})\s*m(?:1|i|I|l)?\b/gi,(m,n)=>n+'ml');
+
+    // OCR sometimes leaves the product-key tail in front of a correctly read
+    // Donghwa product value ("명 판콜...", "높명 판콜...").  Once the
+    // canonical product token itself is present, discard only the leading
+    // label/noise and normalize spacing.  Do not invent a product when the
+    // canonical token is absent.
+    const pancol=x.match(/판콜\s*에?이?\s*병/i);
+    if(pancol&&pancol.index>0)x=x.slice(pancol.index);
+    x=x.replace(/판콜\s*에?이?\s*병/gi,'판콜에이병');
     return x.trim();
   }
   function bestProduct(rows){
@@ -250,5 +259,5 @@
   };
 
   P._test={cleanProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
-  console.info('[V55-VENDOR-PARSER-3.1] formula-safe Donga + Donghwa parser ready');
+  console.info('[V55-VENDOR-PARSER-3.2] product-noise normalization + formula-safe parser ready');
 })();
