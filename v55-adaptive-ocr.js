@@ -99,6 +99,8 @@
       if(typeof window.parseVendorLabel==='function')return window.parseVendorLabel(r.text||'')||{};
       return {};
     }
+    if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')
+      return V55WmsParser.parse(r.text||'',r.items||[])||{};
     if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function')
       return V26WmsCardScan.parseWms(r.text||'',r.items||[])||{};
     if(typeof window.parseLabelText==='function')return window.parseLabelText(r.text||'')||{};
