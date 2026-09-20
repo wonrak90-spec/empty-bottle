@@ -1,4 +1,4 @@
-const CACHE = '공병입고-v55-learning-store-v1m';
+const CACHE = '공병입고-v55-learning-store-v1n';
 const SHELL = ['./', './index.html', './app.js', './config.js', './v22.css', './v22.js', './v23.css', './v23.js', './v24.css', './v24.js', './v25.css', './v25.js', './v26-web.js', './v26-qty.js', './v26-korean-ocr.js', './v26-wms-cardscan.js', './v26-vendor-templates.js', './v26-vendor-cardscan.js', './v26-production-wms.js', './v26-stability.js', './v26-ocr-benchmark.js', './v55-vendor-parser.js', './v55-wms-parser.js', './v55-roi-preprocess.js', './v55-adaptive-ocr.js', './v55-ocr-benchmark.js', './v55-ocr-learning.js', './v55-ocr-learning-admin.js', './v55-ocr-learning-diagnostics.js', './manifest.json', './icon-192.png', './icon-512.png'];
 self.addEventListener('install', e => { e.waitUntil((async()=>{const c=await caches.open(CACHE);await Promise.all(SHELL.map(async url=>{try{const res=await fetch(url,{cache:'reload'});if(res.ok)await c.put(url,res);}catch(err){}}));})()); self.skipWaiting(); });
 self.addEventListener('activate', e => { e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k))))); self.clients.claim(); });
