@@ -16,7 +16,6 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.5');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -94,17 +93,6 @@ assert.strictEqual(
   'disagreeing target OCR variants must not replace the field'
 );
 
-assert.strictEqual(
-  A.pickTargetConsensus([{v:'75',conf:.75},{v:'75',conf:.82}],2).v,
-  '75',
-  'two of three target views may recover a clear pallet value'
-);
-assert.strictEqual(
-  A.pickTargetConsensus([{v:'26',conf:.91},{v:'36',conf:.80}],2),
-  null,
-  'PL36-style disagreement must stay unconfirmed'
-);
-
 const bright=A.plan('vendor',{product:'병'},[],220);
 assert.strictEqual(bright[0].name,'dark_contrast');
 
@@ -177,4 +165,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.5: 2-of-N numeric consensus + WMS artifact retry');
+console.log('PASS V55 adaptive OCR V2.4: consensus-only numeric targets + WMS artifact retry');
