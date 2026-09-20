@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20260921-ocr-runtime3';
+  const RELEASE='20260921-ocr-runtime4';
 
   const styles=[
     'v22.css',
