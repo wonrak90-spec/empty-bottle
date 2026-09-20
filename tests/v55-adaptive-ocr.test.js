@@ -83,8 +83,28 @@ assert.strictEqual(
     {critical:3,sanity:3,meanConfidence:.80,total:3},
     {critical:3,sanity:3,meanConfidence:.89,total:3}
   ),
-  true,
-  'material confidence gain may replace baseline'
+  false,
+  'confidence alone must not replace populated Critical values'
 );
 
-console.log('PASS V55 adaptive OCR scoring, retry gate, strict replacement, brightness and deskew plan');
+const safeMerged=A.mergeCandidate(
+  'vendor',
+  {product:'까스활명수75ml',qty:'10800'},
+  {product:'까스알명75ml',qty:'1800',palletNo:'20'},
+  ''
+);
+assert.strictEqual(safeMerged.product,'까스활명수75ml');
+assert.strictEqual(safeMerged.qty,'10800');
+assert.strictEqual(safeMerged.palletNo,'20');
+
+const targetMerged=A.mergeCandidate(
+  'vendor',
+  {product:'까스활명수75ml',qty:'10800',palletNo:'900'},
+  {palletNo:'43'},
+  'palletNo'
+);
+assert.strictEqual(targetMerged.product,'까스활명수75ml');
+assert.strictEqual(targetMerged.qty,'10800');
+assert.strictEqual(targetMerged.palletNo,'43');
+
+console.log('PASS V55 adaptive OCR safe merge, retry gate, target recovery and deskew plan');
