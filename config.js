@@ -35,7 +35,7 @@ const CONFIG = {
               if(document.getElementById('v26KoreanOcrLoader'))return;
               const sk=document.createElement('script');
               sk.id='v26KoreanOcrLoader';
-              sk.src='v26-korean-ocr.js?v=20260918c';
+              sk.src='v26-korean-ocr.js?v=20260920v46rc1';
               sk.async=false;
               sk.onload=()=>{
                 if(document.getElementById('v26WmsCardScanLoader'))return;
@@ -77,25 +77,25 @@ const CONFIG = {
                           if(document.getElementById('v55VendorParserLoader'))return;
                           const svp=document.createElement('script');
                           svp.id='v55VendorParserLoader';
-                          svp.src='v55-vendor-parser.js?v=20260920c';
+                          svp.src='v55-vendor-parser.js?v=20260920v46rc1';
                           svp.async=false;
                           svp.onload=()=>{
                           if(document.getElementById('v55WmsParserLoader'))return;
                           const swp=document.createElement('script');
                           swp.id='v55WmsParserLoader';
-                          swp.src='v55-wms-parser.js?v=20260920a';
+                          swp.src='v55-wms-parser.js?v=20260920v46rc1';
                           swp.async=false;
                           swp.onload=()=>{
                           if(document.getElementById('v55RoiPreprocessLoader'))return;
                           const srp=document.createElement('script');
                           srp.id='v55RoiPreprocessLoader';
-                          srp.src='v55-roi-preprocess.js?v=20260920c';
+                          srp.src='v55-roi-preprocess.js?v=20260920v46rc1';
                           srp.async=false;
                           srp.onload=()=>{
                           if(document.getElementById('v55AdaptiveOcrLoader'))return;
                           const sad=document.createElement('script');
                           sad.id='v55AdaptiveOcrLoader';
-                          sad.src='v55-adaptive-ocr.js?v=20260920e';
+                          sad.src='v55-adaptive-ocr.js?v=20260920v46rc1';
                           sad.async=false;
                           sad.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
@@ -107,19 +107,19 @@ const CONFIG = {
                           if(document.getElementById('v55OcrLearningLoader'))return;
                           const sl=document.createElement('script');
                           sl.id='v55OcrLearningLoader';
-                          sl.src='v55-ocr-learning.js?v=20260918b';
+                          sl.src='v55-ocr-learning.js?v=20260920v46rc1';
                           sl.async=false;
                           sl.onload=()=>{
                             if(document.getElementById('v55OcrLearningAdminLoader'))return;
                             const sa=document.createElement('script');
                             sa.id='v55OcrLearningAdminLoader';
-                            sa.src='v55-ocr-learning-admin.js?v=20260918d';
+                            sa.src='v55-ocr-learning-admin.js?v=20260920v46rc1';
                             sa.async=false;
                             sa.onload=()=>{
                               if(document.getElementById('v55OcrLearningDiagnosticsLoader'))return;
                               const sd=document.createElement('script');
                               sd.id='v55OcrLearningDiagnosticsLoader';
-                              sd.src='v55-ocr-learning-diagnostics.js?v=20260918c';
+                              sd.src='v55-ocr-learning-diagnostics.js?v=20260920v46rc1';
                               sd.async=false;
                               document.body.appendChild(sd);
                             };
