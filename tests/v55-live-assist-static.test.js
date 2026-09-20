@@ -11,7 +11,7 @@ const sw=fs.readFileSync('sw.js','utf8');
 assert.ok(!ko.includes('V55AdaptiveOCR.recognize(dataUrl,type,baseline)'),
   'V26 core must not embed V55 assist logic');
 
-assert.ok(assist.includes("VERSION:'V55-LIVE-ASSIST-RC1.1'"),
+assert.ok(assist.includes("VERSION:'V55-LIVE-ASSIST-RC1.2'"),
   'V4.6 worker-assist overlay version missing');
 assert.ok(assist.includes("V55VendorParser&&typeof V55VendorParser.parse==='function'"),
   'worker assist must prefer V55 vendor parser');
@@ -25,10 +25,10 @@ assert.ok(assist.includes("V22.captureLive=async function"),
   'explicit live capture must use V4.6 assist');
 assert.ok(assist.includes("V22.liveTick=async function"),
   'live stability loop must be overlaid');
-assert.ok(assist.includes("const st=V22.live&&V22.live[mode]"),
-  'live stability loop must read the real camera session from V22.live');
-assert.ok(!assist.includes("KO&&KO.live&&KO.live[mode]"),
-  'live assist must not read camera state from V26KoreanOCR.live');
+assert.ok(assist.includes("if(mode==='vendor')return (KO&&KO.live&&KO.live.vendor)||(V22.live&&V22.live.vendor)||null;"),
+  'vendor live assist must read the vendor camera session from V26KoreanOCR.live.vendor');
+assert.ok(assist.includes("return (V22.live&&V22.live[mode])||(KO&&KO.live&&KO.live[mode])||null;"),
+  'WMS/multi live assist must prefer V22.live while allowing compatibility fallback');
 assert.ok(assist.includes("await V22.captureLive(mode)"),
   'stable live recognition must funnel into adaptive capture before applying values');
 assert.ok(assist.includes('작업자 확인'),
