@@ -13,7 +13,7 @@
   const params=new URLSearchParams(location.search);
   if(params.get('v46test')!=='1') return;
 
-  const RC1='188d382d7c1ff54e2439625cca7d939f0e0af111';
+  const RC1='06098e98e58f92285e1f104bb5aeabc90ef16e84';
   const BASE='https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@'+RC1+'/';
   const FILES=[
     'v55-vendor-parser.js',
@@ -57,7 +57,7 @@
     badge('V4.6 TEST 로딩 중…','wait');
     try{
       for(const file of FILES) await loadOne(file);
-      badge('V4.6 TEST · 관리자 전용 · 작업자 확인 필수','ok');
+      badge('V4.6 TEST RC1.1 · 관리자 전용 · 작업자 확인 필수','ok');
       document.documentElement.dataset.v46test='1';
       console.info('[V4.6 TEST] active',RC1);
     }catch(e){
