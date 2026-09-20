@@ -300,7 +300,7 @@
             const score=A.scoreParsed(type,merged,rr.items);
             attempts.push({method:'field_roi_'+target,score:score.value,critical:score.critical,latency:rr.latency||0,recovered:v||''});
             if(v){
-              const changed=String(best.parsed&&best.parsed[target]??'')!==String(merged[target]??'');
+              const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
               if(changed||A.isStrictImprovement(best.score,score))best={result:rr,parsed:merged,score,method:'field_roi_'+target};
             }
           }
