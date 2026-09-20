@@ -11,7 +11,7 @@
   window.__V55_LIVE_ASSIST_RC1__=true;
 
   const A=window.V55LiveAssist={
-    VERSION:'V55-LIVE-ASSIST-RC1.1',
+    VERSION:'V55-LIVE-ASSIST-RC1.2',
     OCR_RELEASE:'V4.6',
     REQUIRE_WORKER_CONFIRM:true
   };
@@ -185,8 +185,14 @@
 
     // Live frames are used only to judge stability. They never directly commit
     // OCR values. Once stable, run one explicit adaptive capture.
+    function liveState(mode){
+      const KO=window.V26KoreanOCR;
+      if(mode==='vendor')return (KO&&KO.live&&KO.live.vendor)||(V22.live&&V22.live.vendor)||null;
+      return (V22.live&&V22.live[mode])||(KO&&KO.live&&KO.live[mode])||null;
+    }
+
     V22.liveTick=async function(mode){
-      const st=V22.live&&V22.live[mode],video=$('v22LiveVideo_'+mode);
+      const st=liveState(mode),video=$('v22LiveVideo_'+mode);
       if(!st||!st.running||!video||!video.videoWidth)return;
       if(st.busy){setTimeout(()=>V22.liveTick(mode),300);return;}
       st.busy=true;st.attempts=(st.attempts||0)+1;
@@ -213,9 +219,10 @@
       }catch(e){
         if(st.attempts>=2){setStatus(sid,'실시간 확인 실패 · 사진 OCR을 사용하세요.','warn');V22.stopLive(mode,false);return;}
       }finally{
-        if(V22.live&&V22.live[mode])V22.live[mode].busy=false;
+        const cur=liveState(mode);if(cur)cur.busy=false;
       }
-      if(V22.live&&V22.live[mode]&&V22.live[mode].running)setTimeout(()=>V22.liveTick(mode),550);
+      const cur=liveState(mode);
+      if(cur&&cur.running)setTimeout(()=>V22.liveTick(mode),550);
     };
 
     const updateUi=()=>{
