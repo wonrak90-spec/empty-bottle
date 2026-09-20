@@ -1,0 +1,45 @@
+/* V22 현장 작업성 / 출력 / 보고 확장 */
+:root{--v22-shadow:0 8px 24px rgba(31,75,95,.08)}
+.v22-quick{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:14px}
+.v22-quick .btn{margin:0;padding:16px 10px;box-shadow:var(--v22-shadow)}
+.v22-live{margin-top:10px;border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#111;position:relative}
+.v22-live video{display:block;width:100%;max-height:54vh;object-fit:cover;background:#111}
+.v22-guide{position:absolute;left:8%;right:8%;top:18%;bottom:18%;border:2px solid rgba(255,255,255,.85);border-radius:12px;pointer-events:none;box-shadow:0 0 0 999px rgba(0,0,0,.18)}
+.v22-live-actions{display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;padding:8px;background:#fff}
+.v22-live-hint{position:absolute;left:10%;right:10%;top:8px;z-index:3;background:rgba(0,0,0,.66);color:#fff;padding:6px 8px;border-radius:7px;font-size:.72rem;text-align:center;pointer-events:none}
+.v22-report-badge{display:inline-flex;padding:5px 9px;border-radius:999px;background:#edf4f7;color:var(--primary);font-size:.72rem;font-weight:700}
+.v22-live-actions .btn{margin:0;padding:11px 7px}
+.v22-action-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}
+.v22-action-row .btn{width:auto;flex:1 1 140px;margin:0;padding:11px 10px}
+.v22-selectbar{display:flex;gap:6px;flex-wrap:wrap;margin:10px 0}
+.v22-selectbar .btn{width:auto;margin:0;padding:9px 11px;font-size:.8rem}
+.v22-result{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:11px 8px;border-bottom:1px solid var(--line)}
+.v22-result:last-child{border-bottom:none}
+.v22-result input[type=checkbox]{width:20px;height:20px;accent-color:var(--primary)}
+.v22-result .main{font-size:.86rem;cursor:pointer}
+.v22-result .meta{color:var(--muted);font-size:.72rem;margin-top:3px}
+.v22-result .go{border:0;background:transparent;font-size:1.15rem;color:var(--primary);cursor:pointer;padding:8px}
+.v22-shared{background:#edf4f7;border:1px solid #c9dbe3;border-radius:8px;padding:10px 12px;margin:8px 0;color:var(--primary);font-size:.8rem}
+.v22-worker{display:inline-flex;align-items:center;padding:3px 7px;border-radius:999px;background:#eef0ec;color:#555;font-size:.68rem;margin-left:5px}
+.v22-report-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.v22-report-grid .span2{grid-column:1/-1}
+.v22-report-card textarea{min-height:72px}
+.v22-sticky{position:sticky;bottom:8px;z-index:15;background:rgba(246,245,241,.96);padding:8px;border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.14);backdrop-filter:blur(8px)}
+.v22-loading{position:fixed;inset:0;background:rgba(255,255,255,.72);z-index:200;display:flex;align-items:center;justify-content:center;font-weight:700;color:var(--primary);backdrop-filter:blur(2px)}
+@media(max-width:620px){
+  header{padding-top:10px}
+  nav.tabs{overflow-x:auto;gap:2px;scrollbar-width:none}
+  nav.tabs::-webkit-scrollbar{display:none}
+  nav.tabs button{flex:0 0 auto;min-width:76px;padding:10px 8px}
+  main{padding:10px 10px 0}
+  .card{padding:13px;margin-bottom:10px;border-radius:12px}
+  .btn{min-height:48px}
+  .field input,.field textarea{font-size:16px}
+  .v22-report-grid{grid-template-columns:1fr}
+  .v22-report-grid .span2{grid-column:auto}
+  .v22-live-actions{grid-template-columns:1fr 1fr}
+  .v22-live-actions .btn:first-child{grid-column:1/-1}
+}
+@media(min-width:900px){main{max-width:920px}.v22-quick{grid-template-columns:repeat(4,1fr)}}
+
+.btn.danger{background:#fff;border:1px solid #b42318;color:#b42318}.btn.danger:hover{background:#fff1f0}

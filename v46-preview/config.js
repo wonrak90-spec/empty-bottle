@@ -1,0 +1,173 @@
+// Apps Script Web App 연결 설정 — V26 Korean Local OCR
+// 개인별 사번 + PIN → 서버 Session 인증. 정적 API 토큰은 사용하지 않습니다.
+const CONFIG = {
+  API_URL: 'https://script.google.com/macros/s/AKfycbw6cRBWwrtwBiTlY6SShBRs5tFPaGwYio2xn7d3ebrBX2Eru4bNogFTiL8MM2IJ1SmUaw/exec',
+  API_TOKEN: ''
+};
+
+(function loadExtensions(){
+  const css22=document.createElement('link');css22.rel='stylesheet';css22.href='v22.css?v=20260917d';document.head.appendChild(css22);
+  const css23=document.createElement('link');css23.rel='stylesheet';css23.href='v23.css?v=20260917d';document.head.appendChild(css23);
+  const css24=document.createElement('link');css24.rel='stylesheet';css24.href='v24.css?v=20260917d';document.head.appendChild(css24);
+  const css25=document.createElement('link');css25.rel='stylesheet';css25.href='v25.css?v=20260918a';document.head.appendChild(css25);
+  const boot=()=>{
+    if(document.getElementById('v22Loader'))return;
+    const s22=document.createElement('script');s22.id='v22Loader';s22.src='v22.js?v=20260918f';s22.async=false;
+    s22.onload=()=>{
+      if(document.getElementById('v24Loader'))return;
+      const s24=document.createElement('script');s24.id='v24Loader';s24.src='v24.js?v=20260918e';s24.async=false;
+      s24.onload=()=>{
+        if(document.getElementById('v25Loader'))return;
+        const s25=document.createElement('script');s25.id='v25Loader';s25.src='v25.js?v=20260918a';s25.async=false;
+        s25.onload=()=>{
+          if(document.getElementById('v26WebLoader'))return;
+          const s26=document.createElement('script');
+          s26.id='v26WebLoader';
+          s26.src='v26-web.js?v=20260918c';
+          s26.async=false;
+          s26.onload=()=>{
+            if(document.getElementById('v26QtyLoader'))return;
+            const sq=document.createElement('script');
+            sq.id='v26QtyLoader';
+            sq.src='v26-qty.js?v=20260918b';
+            sq.async=false;
+            sq.onload=()=>{
+              if(document.getElementById('v26KoreanOcrLoader'))return;
+              const sk=document.createElement('script');
+              sk.id='v26KoreanOcrLoader';
+              sk.src='v26-korean-ocr.js?v=20260920v46rc1';
+              sk.async=false;
+              sk.onload=()=>{
+                if(document.getElementById('v26WmsCardScanLoader'))return;
+                const sc=document.createElement('script');
+                sc.id='v26WmsCardScanLoader';
+                sc.src='v26-wms-cardscan.js?v=20260918e';
+                sc.async=false;
+                sc.onload=()=>{
+                  if(document.getElementById('v26VendorTemplatesLoader'))return;
+                  const st=document.createElement('script');
+                  st.id='v26VendorTemplatesLoader';
+                  st.src='v26-vendor-templates.js?v=20260918c';
+                  st.async=false;
+                  st.onload=()=>{
+                    if(document.getElementById('v26VendorCardScanLoader'))return;
+                    const sv=document.createElement('script');
+                    sv.id='v26VendorCardScanLoader';
+                    sv.src='v26-vendor-cardscan.js?v=20260918b';
+                    sv.async=false;
+                    sv.onload=()=>{
+                    if(document.getElementById('v26ProductionWmsLoader'))return;
+                    const sp=document.createElement('script');
+                    sp.id='v26ProductionWmsLoader';
+                    sp.src='v26-production-wms.js?v=20260918a';
+                    sp.async=false;
+                    sp.onload=()=>{
+                      if(document.getElementById('v26StabilityLoader'))return;
+                      const ss=document.createElement('script');
+                      ss.id='v26StabilityLoader';
+                      ss.src='v26-stability.js?v=20260918b';
+                      ss.async=false;
+                      ss.onload=()=>{
+                        if(document.getElementById('v26OcrBenchmarkLoader'))return;
+                        const sb=document.createElement('script');
+                        sb.id='v26OcrBenchmarkLoader';
+                        sb.src='v26-ocr-benchmark.js?v=20260919b';
+                        sb.async=false;
+                        sb.onload=()=>{
+                          if(document.getElementById('v55VendorParserLoader'))return;
+                          const svp=document.createElement('script');
+                          svp.id='v55VendorParserLoader';
+                          svp.src='v55-vendor-parser.js?v=20260920v46rc1';
+                          svp.async=false;
+                          svp.onload=()=>{
+                          if(document.getElementById('v55WmsParserLoader'))return;
+                          const swp=document.createElement('script');
+                          swp.id='v55WmsParserLoader';
+                          swp.src='v55-wms-parser.js?v=20260920v46rc1';
+                          swp.async=false;
+                          swp.onload=()=>{
+                          if(document.getElementById('v55RoiPreprocessLoader'))return;
+                          const srp=document.createElement('script');
+                          srp.id='v55RoiPreprocessLoader';
+                          srp.src='v55-roi-preprocess.js?v=20260920v46rc1';
+                          srp.async=false;
+                          srp.onload=()=>{
+                          if(document.getElementById('v55AdaptiveOcrLoader'))return;
+                          const sad=document.createElement('script');
+                          sad.id='v55AdaptiveOcrLoader';
+                          sad.src='v55-adaptive-ocr.js?v=20260920v46rc1';
+                          sad.async=false;
+                          sad.onload=()=>{
+                          if(document.getElementById('v55LiveAssistLoader'))return;
+                          const sla=document.createElement('script');
+                          sla.id='v55LiveAssistLoader';
+                          sla.src='v55-live-assist.js?v=20260920v46rc1';
+                          sla.async=false;
+                          sla.onload=()=>{
+                          if(document.getElementById('v55OcrBenchmarkLoader'))return;
+                          const sbr=document.createElement('script');
+                          sbr.id='v55OcrBenchmarkLoader';
+                          sbr.src='v55-ocr-benchmark.js?v=20260920e';
+                          sbr.async=false;
+                          sbr.onload=()=>{
+                          if(document.getElementById('v55OcrLearningLoader'))return;
+                          const sl=document.createElement('script');
+                          sl.id='v55OcrLearningLoader';
+                          sl.src='v55-ocr-learning.js?v=20260920v46rc1';
+                          sl.async=false;
+                          sl.onload=()=>{
+                            if(document.getElementById('v55OcrLearningAdminLoader'))return;
+                            const sa=document.createElement('script');
+                            sa.id='v55OcrLearningAdminLoader';
+                            sa.src='v55-ocr-learning-admin.js?v=20260920v46rc1';
+                            sa.async=false;
+                            sa.onload=()=>{
+                              if(document.getElementById('v55OcrLearningDiagnosticsLoader'))return;
+                              const sd=document.createElement('script');
+                              sd.id='v55OcrLearningDiagnosticsLoader';
+                              sd.src='v55-ocr-learning-diagnostics.js?v=20260920v46rc1';
+                              sd.async=false;
+                              document.body.appendChild(sd);
+                            };
+                            document.body.appendChild(sa);
+                          };
+                          document.body.appendChild(sl);
+                          };
+                          document.body.appendChild(sbr);
+                          };
+                          document.body.appendChild(sla);
+                          };
+                          document.body.appendChild(sad);
+                          };
+                          document.body.appendChild(srp);
+                          };
+                          document.body.appendChild(swp);
+                          };
+                          document.body.appendChild(svp);
+                        };
+                        document.body.appendChild(sb);
+                      };
+                      document.body.appendChild(ss);
+                    };
+                    document.body.appendChild(sp);
+                  };
+                  document.body.appendChild(sv);
+                  };
+                  document.body.appendChild(st);
+                };
+                document.body.appendChild(sc);
+              };
+              document.body.appendChild(sk);
+            };
+            document.body.appendChild(sq);
+          };
+          document.body.appendChild(s26);
+        };
+        document.body.appendChild(s25);
+      };
+      document.body.appendChild(s24);
+    };
+    document.body.appendChild(s22);
+  };
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
