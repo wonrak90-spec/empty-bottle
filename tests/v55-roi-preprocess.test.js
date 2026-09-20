@@ -32,6 +32,9 @@ const H=R._test.homographyDstToSrc(src,200,100);
 assert.ok(H&&H.length===8,'homography solve failed');
 assert.ok(H.every(Number.isFinite),'homography contains invalid values');
 
+const otsu=R._test.otsuThreshold(Uint8Array.from([0,0,10,20,220,240,250,255]));
+assert.ok(otsu>=20&&otsu<=240,'Otsu threshold out of expected range: '+otsu);
+
 const sol=R._test.solveLinear([[1,0],[0,1]],[3,4]);
 assert.deepStrictEqual(Array.from(sol),[3,4]);
 
