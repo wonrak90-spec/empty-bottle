@@ -8,6 +8,7 @@ on:
       - 'v55-ocr-learning-diagnostics.js'
       - 'v55-ocr-benchmark.js'
       - 'v55-adaptive-ocr.js'
+      - 'v55-vendor-parser.js'
       - 'OCR_LEARNING_*.gs'
       - 'OCR_LEARNING_*.md'
       - 'OCR_LEARNING_*.py'
@@ -73,6 +74,9 @@ jobs:
       - name: Run adaptive OCR decision tests
         run: node tests/v55-adaptive-ocr.test.js
 
+      - name: Run V55 vendor parser tests
+        run: node tests/v55-vendor-parser.test.js
+
       - name: Run OCR robustness release-gate tests
         run: python tests/v55-robustness-eval.test.py
 
@@ -92,6 +96,7 @@ jobs:
           node --check v55-ocr-learning-diagnostics.js
           node --check v55-ocr-benchmark.js
           node --check v55-adaptive-ocr.js
+          node --check v55-vendor-parser.js
           cp OCR_LEARNING_STORE_V1.gs /tmp/ocr-learning-store.js
           cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
           node --check /tmp/ocr-learning-store.js
