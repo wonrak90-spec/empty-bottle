@@ -25,6 +25,17 @@ const q=R._test.quadFromBoxes(boxes);
 assert.ok(q&&q.length===4,'quad recovery failed');
 assert.ok(R._test.perspectiveStrength(q)>=1,'perspective strength invalid');
 
+const vendorTarget=R._test.fieldRectFromItems([
+  {text:'P/L No.',score:.9,poly:[[10,100],[90,100],[90,120],[10,120]]},
+  {text:'43',score:.9,poly:[[130,100],[160,100],[160,120],[130,120]]}
+],1000,800,'vendor','palletNo');
+assert.ok(vendorTarget&&vendorTarget.rect.h<60,'vendor target crop must stay tight to its row');
+
+const wmsTarget=R._test.fieldRectFromItems([
+  {text:'입고번호',score:.9,poly:[[10,20],[90,20],[90,40],[10,40]]}
+],1000,800,'wms','inboundNo');
+assert.ok(wmsTarget&&wmsTarget.rect.w>=500,'WMS target crop must extend right when value box is missing');
+
 const src=[
   {x:10,y:20},{x:210,y:30},{x:200,y:130},{x:20,y:120}
 ];
