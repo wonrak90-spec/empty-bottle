@@ -98,6 +98,12 @@ const CONFIG = {
                           sad.src='v55-adaptive-ocr.js?v=20260920v46rc1';
                           sad.async=false;
                           sad.onload=()=>{
+                          if(document.getElementById('v55LiveAssistLoader'))return;
+                          const sla=document.createElement('script');
+                          sla.id='v55LiveAssistLoader';
+                          sla.src='v55-live-assist.js?v=20260920v46rc1';
+                          sla.async=false;
+                          sla.onload=()=>{
                           if(document.getElementById('v55OcrBenchmarkLoader'))return;
                           const sbr=document.createElement('script');
                           sbr.id='v55OcrBenchmarkLoader';
@@ -128,6 +134,8 @@ const CONFIG = {
                           document.body.appendChild(sl);
                           };
                           document.body.appendChild(sbr);
+                          };
+                          document.body.appendChild(sla);
                           };
                           document.body.appendChild(sad);
                           };
