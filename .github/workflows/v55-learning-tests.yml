@@ -1,0 +1,543 @@
+name: V55 Learning Store Tests
+
+on:
+  pull_request:
+    paths:
+      - 'v55-ocr-learning.js'
+      - 'v55-ocr-learning-admin.js'
+      - 'v55-ocr-learning-diagnostics.js'
+      - 'v55-ocr-benchmark.js'
+      - 'v55-adaptive-ocr.js'
+      - 'v55-vendor-parser.js'
+      - 'v55-wms-parser.js'
+      - 'v55-roi-preprocess.js'
+      - 'OCR_LEARNING_*.gs'
+      - 'OCR_LEARNING_*.md'
+      - 'OCR_LEARNING_*.py'
+      - 'config.js'
+      - 'sw.js'
+      - 'tests/v55-learning.test.js'
+      - 'tests/v55-learning-backend.test.js'
+      - '.github/workflows/v55-learning-tests.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  regression:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Use Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Guard frozen V54 core
+        shell: bash
+        run: |
+          git fetch origin main
+          changed="$(git diff --name-only origin/main...HEAD)"
+          echo "$changed"
+          bad=""
+          image_bad=""
+          while IFS= read -r file; do
+            [ -z "$file" ] && continue
+            case "$file" in
+              OCR_LEARNING_*.gs|OCR_LEARNING_*.md|OCR_LEARNING_*.py|v55-*.js|config.js|sw.js|tests/*|.github/workflows/v55-learning-tests.yml) ;;
+              *) bad="${bad}${file}"$'\n' ;;
+            esac
+            case "$file" in
+              *.png|*.jpg|*.jpeg|*.webp|*.gif|*.bmp|*.tif|*.tiff) image_bad="${image_bad}${file}"$'\n' ;;
+            esac
+          done <<< "$changed"
+          if [ -n "$bad" ]; then
+            echo "Frozen V54 core file changed:"
+            printf "%s" "$bad"
+            exit 1
+          fi
+          if [ -n "$image_bad" ]; then
+            echo "Image files must not be committed for OCR Learning:"
+            printf "%s" "$image_bad"
+            exit 1
+          fi
+
+      - name: Run V55 regression tests
+        run: node tests/v55-learning.test.js
+
+      - name: Run V4.6 worker-assist wiring tests
+        run: node tests/v55-live-assist-static.test.js
+
+      - name: Run V55 backend and metrics tests
+        run: node tests/v55-learning-backend.test.js
+
+      - name: Run adaptive OCR decision tests
+        run: node tests/v55-adaptive-ocr.test.js
+
+      - name: Run V55 vendor parser tests
+        run: node tests/v55-vendor-parser.test.js
+
+      - name: Run V55 WMS parser tests
+        run: node tests/v55-wms-parser.test.js
+
+      - name: Run V55 ROI preprocessing tests
+        run: node tests/v55-roi-preprocess.test.js
+
+      - name: Run OCR robustness release-gate tests
+        run: python tests/v55-robustness-eval.test.py
+
+      - name: Run Ground Truth linker tests
+        run: python tests/v55-ground-truth-link.test.py
+
+      - name: Run private dataset packager tests
+        run: python tests/v55-dataset-pack.test.py
+
+      - name: Run benchmark package contract tests
+        run: python tests/v55-benchmark-format.test.py
+
+      - name: Static check Apps Script modules
+        run: |
+          node --check v55-ocr-learning.js
+          node --check v55-ocr-learning-admin.js
+          node --check v55-ocr-learning-diagnostics.js
+          node --check v55-ocr-benchmark.js
+          node --check v55-adaptive-ocr.js
+          node --check v55-live-assist.js
+          node --check v55-vendor-parser.js
+          node --check v55-wms-parser.js
+          node --check v55-roi-preprocess.js
+          cp OCR_LEARNING_STORE_V1.gs /tmp/ocr-learning-store.js
+          cp OCR_LEARNING_ROUTER_V1.gs /tmp/ocr-learning-router.js
+          node --check /tmp/ocr-learning-store.js
+          node --check /tmp/ocr-learning-router.js
+          python -m py_compile OCR_LEARNING_ROBUSTNESS_PREP_V1.py OCR_LEARNING_ROBUSTNESS_AUGMENT_V1.py OCR_LEARNING_ROBUSTNESS_EVAL_V1.py OCR_LEARNING_GROUND_TRUTH_LINK_V1.py OCR_LEARNING_DATASET_PACK_V1.py
+          if grep -Eq 'DriveApp|data:image|base64' OCR_LEARNING_STORE_V1.gs OCR_LEARNING_ROUTER_V1.gs; then
+            echo "Learning backend must reference existing photo URLs only."
+            exit 1
+          fi
+
+
+      - name: Build V4.6 Assist RC1 smoke package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist_v46_rc1
+          mkdir -p dist_v46_rc1
+
+          cp index.html config.js app.js manifest.json sw.js icon-192.png icon-512.png dist_v46_rc1/
+          cp v22.css v22.js v23.css v23.js v24.css v24.js v25.css v25.js dist_v46_rc1/
+          cp v26-web.js v26-qty.js v26-korean-ocr.js v26-wms-cardscan.js v26-vendor-templates.js v26-vendor-cardscan.js v26-production-wms.js v26-stability.js v26-ocr-benchmark.js dist_v46_rc1/
+          cp v55-vendor-parser.js v55-wms-parser.js v55-roi-preprocess.js v55-adaptive-ocr.js v55-live-assist.js v55-ocr-benchmark.js v55-ocr-learning.js v55-ocr-learning-admin.js v55-ocr-learning-diagnostics.js dist_v46_rc1/
+
+          cat > dist_v46_rc1/START_V46_ASSIST_RC1.ps1 <<'EOF'
+          $ErrorActionPreference = "Stop"
+          $Root = Split-Path -Parent $MyInvocation.MyCommand.Path
+          $Port = 8766
+          $Address = [System.Net.IPAddress]::Parse("127.0.0.1")
+          $Listener = [System.Net.Sockets.TcpListener]::new($Address, $Port)
+
+          function Get-MimeType([string]$Path) {
+              $Ext = [System.IO.Path]::GetExtension($Path).ToLowerInvariant()
+              if ($Ext -eq ".html" -or $Ext -eq ".htm") { return "text/html; charset=utf-8" }
+              if ($Ext -eq ".js") { return "application/javascript; charset=utf-8" }
+              if ($Ext -eq ".json") { return "application/json; charset=utf-8" }
+              if ($Ext -eq ".css") { return "text/css; charset=utf-8" }
+              if ($Ext -eq ".png") { return "image/png" }
+              if ($Ext -eq ".jpg" -or $Ext -eq ".jpeg") { return "image/jpeg" }
+              return "application/octet-stream"
+          }
+
+          function Write-Response($Stream, [int]$Status, [string]$StatusText, [byte[]]$Body, [string]$ContentType) {
+              $Header = "HTTP/1.1 $Status $StatusText`r`nContent-Type: $ContentType`r`nContent-Length: $($Body.Length)`r`nCache-Control: no-store`r`nConnection: close`r`n`r`n"
+              $HeaderBytes = [System.Text.Encoding]::ASCII.GetBytes($Header)
+              $Stream.Write($HeaderBytes, 0, $HeaderBytes.Length)
+              if ($Body.Length -gt 0) { $Stream.Write($Body, 0, $Body.Length) }
+          }
+
+          try {
+              $Listener.Start()
+              $Url = "http://127.0.0.1:$Port/index.html"
+              Write-Host ""
+              Write-Host "Empty Bottle V4.6 Assist RC1 smoke server started." -ForegroundColor Green
+              Write-Host "URL: $Url"
+              Write-Host "Production API is used. Use TEST data only."
+              Write-Host "Keep this window open. Stop: Ctrl + C"
+              Write-Host ""
+              Start-Process $Url
+
+              while ($true) {
+                  $Client = $Listener.AcceptTcpClient()
+                  try {
+                      $Stream = $Client.GetStream()
+                      $Reader = [System.IO.StreamReader]::new($Stream, [System.Text.Encoding]::ASCII, $false, 4096, $true)
+                      $RequestLine = $Reader.ReadLine()
+                      if (-not $RequestLine) { $Client.Close(); continue }
+                      while ($true) {
+                          $Line = $Reader.ReadLine()
+                          if ($null -eq $Line -or $Line -eq "") { break }
+                      }
+
+                      $Parts = $RequestLine.Split(" ")
+                      $Method = $Parts[0]
+                      $RawPath = if ($Parts.Length -gt 1) { $Parts[1] } else { "/" }
+                      if ($Method -ne "GET") {
+                          $Body = [System.Text.Encoding]::UTF8.GetBytes("Method Not Allowed")
+                          Write-Response $Stream 405 "Method Not Allowed" $Body "text/plain; charset=utf-8"
+                          continue
+                      }
+
+                      $RawOnly = ($RawPath -split "\?")[0]
+                      $Decoded = [System.Uri]::UnescapeDataString($RawOnly).TrimStart("/")
+                      if ([string]::IsNullOrWhiteSpace($Decoded)) { $Decoded = "index.html" }
+
+                      $FullPath = [System.IO.Path]::GetFullPath((Join-Path $Root $Decoded))
+                      $RootFull = [System.IO.Path]::GetFullPath($Root)
+                      if (-not $FullPath.StartsWith($RootFull, [System.StringComparison]::OrdinalIgnoreCase)) {
+                          $Body = [System.Text.Encoding]::UTF8.GetBytes("Forbidden")
+                          Write-Response $Stream 403 "Forbidden" $Body "text/plain; charset=utf-8"
+                          continue
+                      }
+                      if (-not (Test-Path -LiteralPath $FullPath -PathType Leaf)) {
+                          $Body = [System.Text.Encoding]::UTF8.GetBytes("Not Found")
+                          Write-Response $Stream 404 "Not Found" $Body "text/plain; charset=utf-8"
+                          continue
+                      }
+                      $Body = [System.IO.File]::ReadAllBytes($FullPath)
+                      Write-Response $Stream 200 "OK" $Body (Get-MimeType $FullPath)
+                  }
+                  finally { try { $Client.Close() } catch {} }
+              }
+          }
+          finally { try { $Listener.Stop() } catch {} }
+          EOF
+
+          cat > dist_v46_rc1/START_V46_ASSIST_RC1.bat <<'EOF'
+          @echo off
+          chcp 65001 >nul
+          cd /d "%~dp0"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0START_V46_ASSIST_RC1.ps1"
+          if errorlevel 1 pause
+          EOF
+
+          cat > dist_v46_rc1/SMOKE_TEST_RC1.txt <<'EOF'
+          공병 입고 확인 - V4.6 Assist RC1 Smoke Test
+
+          목적
+          - main/운영 GitHub Pages를 변경하지 않고 V4.6 보조모드 실제 화면/저장 흐름을 검증합니다.
+          - 이 패키지는 운영 Apps Script API를 사용하므로 반드시 테스트용 입고건으로 확인하세요.
+
+          실행
+          1. ZIP 완전 압축 해제
+          2. START_V46_ASSIST_RC1.bat 실행
+          3. 브라우저에서 로그인
+          4. WMS 라벨 사진 OCR 1건
+          5. 업체 라벨 사진 OCR 1건
+          6. 자동입력값 확인 후 일부 필드 1개를 일부러 수정
+          7. 저장 후 기존 조회/출력에서 정상 저장 확인
+          8. 관리자 계정이면 OCR 학습 메뉴에서 대기/수정 로그 확인
+
+          통과 기준
+          - 상태 문구에 V4.6 보조 OCR 표시
+          - OCR 자동입력 후 작업자 확인 문구 표시
+          - 기존 단건 저장/조회/출력 정상
+          - 수정 필드가 OCR Learning 수정로그에 남음
+          - Learning backend 미배포/장애 시 원 입고 저장은 성공하고 로그는 로컬 대기열에 남음
+          - 중요 숫자가 불확실할 때 억지 자동확정되지 않음
+
+          주의
+          - 자동확정 모드가 아닙니다.
+          - 모든 OCR 자동입력값을 작업자가 최종 확인합니다.
+          - Holdout 35장은 학습 데이터로 사용하지 않습니다.
+          EOF
+
+          printf '%s\n'             "PACKAGE=EMPTY_BOTTLE_V46_ASSIST_RC1"             "SOURCE_COMMIT=$GITHUB_SHA"             "MODE=WORKER_ASSIST"             "V26_CORE=FROZEN"             "MAIN_MODIFIED=NO"             "WORKER_CONFIRM=REQUIRED"             > dist_v46_rc1/VERSION_RC1.txt
+
+      - name: Upload V4.6 Assist RC1 smoke package
+        uses: actions/upload-artifact@v4
+        with:
+          name: EMPTY_BOTTLE_V46_ASSIST_RC1
+          path: dist_v46_rc1/
+          compression-level: 6
+          retention-days: 7
+          if-no-files-found: error
+
+      - name: Build standalone V4.3 full package
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist_v43
+          mkdir -p dist_v43
+          rsync -a --exclude='.git' --exclude='dist_v43' ./ dist_v43/
+          # Bundle OCR runtime locally so the benchmark does not depend on
+          # jsDelivr/Baidu at run time (important on the factory network).
+          mkdir -p dist_v43/vendor/ort dist_v43/vendor/models
+          npm install --no-save @paddleocr/paddleocr-js@0.4.2 onnxruntime-web@1.22.0 fflate@0.8.2 esbuild@0.25.9
+
+          PADDLE_ENTRY="node_modules/@paddleocr/paddleocr-js/dist/index.mjs"
+          FFLATE_ENTRY="node_modules/fflate/esm/browser.js"
+          test -f "$PADDLE_ENTRY"
+          test -f "$FFLATE_ENTRY"
+          npx esbuild "$PADDLE_ENTRY" --bundle --format=esm --platform=browser --external:fs --external:path --outfile=dist_v43/vendor/paddleocr.bundle.js
+          npx esbuild "$FFLATE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/fflate.bundle.js
+
+          cp node_modules/onnxruntime-web/dist/*.wasm dist_v43/vendor/ort/
+          cp node_modules/onnxruntime-web/dist/*.mjs dist_v43/vendor/ort/
+
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_onnx_infer.tar" \
+            -o dist_v43/vendor/models/PP-OCRv5_mobile_det_onnx_infer.tar
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/korean_PP-OCRv5_mobile_rec_onnx_infer.tar" \
+            -o dist_v43/vendor/models/korean_PP-OCRv5_mobile_rec_onnx_infer.tar
+
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path("dist_v43/v26-korean-ocr.js")
+          s=p.read_text(encoding="utf-8")
+          s=s.replace("const SDK_URL='https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm';",
+                      "const SDK_URL=new URL('./vendor/paddleocr.bundle.js', window.location.href).href;")
+          s=s.replace("const WASM_URL='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';",
+                      "const WASM_URL={mjs:new URL('./vendor/ort/ort-wasm-simd-threaded.jsep.mjs', window.location.href).href,wasm:new URL('./vendor/ort/ort-wasm-simd-threaded.jsep.wasm', window.location.href).href};")
+          s=s.replace("const MODEL_BASE='https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/';",
+                      "const MODEL_BASE=new URL('./vendor/models/', window.location.href).href;")
+          # Avoid endless "engine loading": expose progress and cap init time.
+          s=s.replace("const mod=await import(SDK_URL);",
+                      "if(statusEl) setStatus(statusEl,'OCR SDK 로딩 중...','warn'); const mod=await import(SDK_URL); if(statusEl) setStatus(statusEl,'OCR SDK 완료 · ONNX/모델 초기화 중...','warn');")
+          s=s.replace("const engine=await mod.PaddleOCR.create({",
+                      "const createPromise=mod.PaddleOCR.create({")
+          s=s.replace("        });\n        KO.engine=engine;",
+                      "        });\n        const engine=await Promise.race([createPromise,new Promise((_,rej)=>setTimeout(()=>rej(new Error('OCR 엔진 초기화 90초 초과')),90000))]);\n        KO.engine=engine;")
+          p.write_text(s,encoding="utf-8")
+
+          p=Path("dist_v43/v55-ocr-benchmark.js")
+          s=p.read_text(encoding="utf-8")
+          s=s.replace("const FFLATE_URL='https://cdn.jsdelivr.net/npm/fflate@0.8.2/+esm';",
+                      "const FFLATE_URL=new URL('./vendor/fflate.bundle.js', window.location.href).href;")
+          p.write_text(s,encoding="utf-8")
+          PY
+
+
+          cat > dist_v43/v55-benchmark-base-parser.js <<'EOF'
+          (function(){
+            'use strict';
+            function fixDigits(s){return String(s||'').replace(/[OoDQ]/g,'0').replace(/[lIi|]/g,'1').replace(/[Ss]/g,'5').replace(/[Bb]/g,'8').replace(/[Zz]/g,'2').replace(/[gq]/g,'9').replace(/[Tt]/g,'7');}
+            function validDate(y,m,d){y=Number(y);m=Number(m);d=Number(d);if(!(y>=2000&&y<=2099&&m>=1&&m<=12&&d>=1&&d<=31))return '';const dt=new Date(y,m-1,d);if(dt.getFullYear()!==y||dt.getMonth()!==m-1||dt.getDate()!==d)return '';return y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');}
+            function normalizeDate(v){const s=String(v||'').trim();if(!s)return '';let m=s.match(/([0-9]{4})\D{1,3}([0-9]{1,2})\D{1,3}([0-9]{1,2})/);if(m)return validDate(m[1],m[2],m[3]);m=s.match(/(?:^|\D)([0-9]{2})\D{1,3}([0-9]{1,2})\D{1,3}([0-9]{1,2})(?!\d)/);if(m)return validDate('20'+m[1],m[2],m[3]);const d8=fixDigits(s).replace(/[^0-9]/g,'');if(d8.length===8)return validDate(d8.slice(0,4),d8.slice(4,6),d8.slice(6,8));return '';}
+            const WMS_LABELS=[
+              {key:'inboundNo',pat:'입\\s*고\\s*번\\s*호'},{key:'itemCode',pat:'품\\s*목\\s*코\\s*드|자\\s*재\\s*코\\s*드'},{key:'product',pat:'품\\s*명|자\\s*재\\s*명'},
+              {key:'qty',pat:'수\\s*량|수'},{key:'manufacturer',pat:'제\\s*조\\s*원|제\\s*조\\s*사'},{key:'supplier',pat:'공\\s*급\\s*업\\s*체|거\\s*래\\s*처|납\\s*품\\s*처'},
+              {key:'inboundDate',pat:'입\\s*고\\s*일\\s*자|입\\s*고\\s*일'},{key:'expiryDate',pat:'사\\s*용\\s*기\\s*한|유\\s*효\\s*기\\s*한|유\\s*통\\s*기\\s*한'},
+              {key:'containerNo',pat:'용\\s*기\\s*번\\s*호'},{key:'warehouse',pat:'공\\s*병\\s*창\\s*고'}
+            ];
+            const VENDOR_LABELS=[
+              {key:'qty',pat:'1\\s*P\\s*T\\s*수\\s*량|포\\s*장\\s*사\\s*양|수\\s*량|수'},{key:'product',pat:'제\\s*품\\s*명|품\\s*명'},{key:'spec',pat:'규\\s*격'},
+              {key:'prodDate',pat:'생\\s*산\\s*일\\s*자|제\\s*조\\s*일\\s*자|생\\s*산\\s*일|제\\s*조\\s*일'},{key:'time',pat:'시\\s*간'},
+              {key:'palletNo',pat:'P\\s*[/.-]?\\s*(?:N\\s*O\\.?|번\\s*호)|P\\s*A\\s*L\\s*L\\s*E\\s*T\\s*(?:N\\s*O\\.?|번\\s*호)?|파\\s*레\\s*트\\s*(?:N\\s*O\\.?|번\\s*호)?|팔\\s*레\\s*트\\s*(?:N\\s*O\\.?|번\\s*호)?'},
+              {key:'lotNo',pat:'라\\s*인\\s*[/·]\\s*L\\s*o\\s*t\\s*N\\s*o\\.?|L\\s*o\\s*t\\s*N\\s*o\\.?|P\\s*/\\s*L\\s*N\\s*o\\.?|로\\s*트\\s*번\\s*호|제\\s*조\\s*번\\s*호'},
+              {key:'line',pat:'생\\s*산\\s*라\\s*인|라\\s*인'},{key:'maker',pat:'제\\s*조\\s*회\\s*사|제\\s*조\\s*원'},{key:'producer',pat:'생\\s*산\\s*자|생\\s*산\\s*Q\\s*/?\\s*C'},
+              {key:'packer',pat:'포\\s*장\\s*자'},{key:'inspector',pat:'검\\s*사\\s*자'},{key:'deliverTo',pat:'납\\s*품\\s*처'},{key:'color',pat:'색\\s*상'},{key:'note',pat:'비\\s*고'},{key:'judge',pat:'판\\s*정'}
+            ];
+            function labelKeyOf(text,pats){for(const p of pats)if(new RegExp('^(?:'+p.pat+')$','i').test(text))return p.key;return null;}
+            function segmentByLabels(raw,labels){
+              const t=String(raw||'').replace(/[：﹕]/g,':').replace(/[|｜]/g,' ').replace(/\s+/g,' ').trim();if(!t)return {};
+              const pats=labels.slice().sort((a,b)=>b.pat.length-a.pat.length),union=pats.map(l=>'(?:'+l.pat+')').join('|'),re=new RegExp('('+union+')\\s*[:\\-]?\\s*','gi');
+              const hits=[],KO=/[가-힣]/;let m;
+              while((m=re.exec(t))!==null){const key=labelKeyOf(m[1],pats),prev=m.index>0?t[m.index-1]:' ',after=t[m.index+m[1].length],buried=KO.test(prev)||(after!==undefined&&KO.test(after)&&!/\s/.test(after));if(key&&!buried)hits.push({key,start:m.index,end:m.index+m[0].length});if(re.lastIndex===m.index)re.lastIndex++;}
+              const out={};for(let i=0;i<hits.length;i++){const h=hits[i],stop=i+1<hits.length?hits[i+1].start:t.length,val=t.slice(h.end,stop).trim();if(val&&!out[h.key])out[h.key]=val;}return out;
+            }
+            function firstMatch(text,re){const m=String(text||'').match(re);return m?(m[1]!==undefined?m[1]:m[0]).trim():'';}
+            function cleanText(v){return String(v||'').replace(/\s*[0-9]{2,4}-[0-9]{3,4}-[0-9]{4}.*$/,'').replace(/\s*(공\s*병\s*창\s*고|TEL|Tel|전화).*$/i,'').replace(/[:\-]\s*$/,'').trim();}
+            function parseLabelText(raw){
+              const g=segmentByLabels(raw,WMS_LABELS),out={};out.inboundNo=firstMatch(g.inboundNo,/([0-9]{5,})/);out.product=cleanText(g.product);out.itemCode=firstMatch(g.itemCode,/([A-Za-z0-9\-]{3,})/);
+              const q=firstMatch(g.qty,/([0-9][0-9,]*(?:\.[0-9]+)?)/);if(q){const n=Number(fixDigits(q).replace(/,/g,''));if(n>0)out.displayQty=String(n);}
+              const u=firstMatch(g.qty,/(?:[0-9,.]+)\s*(EA|개|본|BOX|박스)/i);if(u)out.unit=u.toUpperCase()==='EA'?'EA':u;
+              out.manufacturer=cleanText(g.manufacturer);out.supplier=cleanText(g.supplier);out.inboundDate=normalizeDate(g.inboundDate);out.expiryDate=normalizeDate(g.expiryDate);
+              if(g.containerNo){const c=g.containerNo.match(/([0-9]{2,8})\s*[\/～~\-]\s*([0-9]{2,8})/);if(c){out.containerFrom=c[1];out.containerTo=c[2];}else{const c1=g.containerNo.match(/([0-9]{2,8})/);if(c1)out.containerFrom=c1[1];}}
+              const code=String(raw||'').match(/(?<!\d)([0-9]{6,12}-[0-9]{3,8})(?!\d)/);if(code){out.codeRaw=code[1];if(!out.inboundNo)out.inboundNo=code[1].split('-')[0];if(!out.containerFrom)out.containerFrom=code[1].split('-')[1];}
+              return out;
+            }
+            function parseVendorLabel(raw){
+              const g=segmentByLabels(raw,VENDOR_LABELS),out={};out.product=cleanText(g.product);const spec=cleanText(g.spec);if(spec&&out.product&&out.product.indexOf(spec)===-1)out.product=(out.product+' '+spec).trim();
+              let qtyRaw=g.qty||g.packSpec||'',qty='';const eq=qtyRaw.match(/[=:]\s*([0-9][0-9,]{2,})/);if(eq)qty=eq[1];if(!qty){const all=qtyRaw.match(/[0-9][0-9,]{2,}/g)||[];if(all.length)qty=all.sort((a,b)=>Number(b.replace(/,/g,''))-Number(a.replace(/,/g,'')))[0];}
+              if(qty){const n=Number(fixDigits(qty).replace(/,/g,''));if(n>0)out.qty=String(n);}
+              const dtText=[g.prodDate,g.time].filter(Boolean).join(' ');if(dtText){out.prodDate=normalizeDate(dtText);const tm=dtText.match(/([0-9]{1,2})\s*[:시]\s*([0-9]{1,2})/);if(tm){const hh=Number(tm[1]),mi=Number(tm[2]);if(hh>=0&&hh<=23&&mi>=0&&mi<=59)out.prodTime=String(hh).padStart(2,'0')+':'+String(mi).padStart(2,'0');}}
+              if(g.lotNo){const pair=g.lotNo.match(/^([A-Za-z0-9]{1,4})\s*[\/]\s*([A-Za-z0-9\-]{1,10})/);if(pair){out.line=pair[1];out.lotNo=pair[2];}else out.lotNo=firstMatch(g.lotNo,/([A-Za-z0-9\-]{2,})/);}
+              if(!out.line)out.line=cleanText(g.line);if(g.palletNo)out.palletNo=firstMatch(g.palletNo,/([A-Za-z0-9][A-Za-z0-9_.\/-]{0,20})/);out.maker=cleanText(g.maker)||cleanText(g.producer);out.deliverTo=cleanText(g.deliverTo);return out;
+            }
+            window.fixDigits=fixDigits;window.normalizeDate=normalizeDate;window.parseLabelText=parseLabelText;window.parseVendorLabel=parseVendorLabel;
+          })();
+          EOF
+
+          cat > dist_v43/v55-benchmark-export.js <<'EOF'
+          (function(){
+            'use strict';
+            function download(name,blob){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1500);}
+            function q(v){return '"'+String(v??'').replace(/"/g,'""')+'"';}
+            function install(){
+              const B=window.V55OcrBenchmark;if(!B)return false;
+              B.downloadCsv=function(){
+                if(!B.results.length)return;
+                const rows=[['file','source_group','template','conditions','adaptive_method','extra_passes','field','critical','baseline_ok','ok','expected','actual','latency_ms','error']];
+                for(const r of B.results){
+                  if(!r.fields.length)rows.push([r.file,r.sourceGroup,r.template,(r.conditions||[r.condition]).join('|'),r.adaptiveMethod||'baseline',r.extraPasses||0,'','',false,false,'','',r.latency,r.error]);
+                  for(const f of r.fields){const bf=(r.baselineFields||[]).find(x=>x.key===f.key);rows.push([r.file,r.sourceGroup,r.template,(r.conditions||[r.condition]).join('|'),r.adaptiveMethod||'baseline',r.extraPasses||0,f.key,f.critical,bf?bf.ok:false,f.ok,f.expected,f.actual,r.latency,r.error]);}
+                }
+                const csv='\ufeff'+rows.map(x=>x.map(q).join(',')).join('\r\n');
+                download('OCR_V55_Baseline_vs_Adaptive.csv',new Blob([csv],{type:'text/csv;charset=utf-8'}));
+              };
+              B.downloadJson=function(){
+                if(!B.results.length||!B.summary)return;
+                const s=B.summary;
+                const obj={summary:{images:s.images,baselineCritical:s.baselineCriticalAccuracy,adaptiveCritical:s.criticalAccuracy,overall:s.accuracy,groupCritical:s.groupWeightedCriticalAccuracy,retried:s.retried,improved:s.improved,cond:s.condition,templ:s.template,field:s.field},
+                  results:B.results.map(r=>({file:r.file,sourceGroup:r.sourceGroup,template:r.template,conditions:r.conditions||[r.condition],type:r.labelType,method:r.adaptiveMethod||'baseline',extraPasses:r.extraPasses||0,attempts:r.attempts||[],error:r.error||'',totalLatency:r.latency||0,baselineFields:r.baselineFields||[],fields:r.fields||[]}))};
+                download('OCR_V55_Baseline_vs_Adaptive.json',new Blob([JSON.stringify(obj,null,2)],{type:'application/json;charset=utf-8'}));
+              };
+              const add=()=>{
+                const row=document.querySelector('#v26BenchCsv')?.parentElement;if(!row||document.getElementById('v55BenchJson'))return;
+                const b=document.createElement('button');b.id='v55BenchJson';b.className='btn outline';b.textContent='결과 JSON';b.onclick=()=>B.downloadJson();row.appendChild(b);
+              };
+              new MutationObserver(add).observe(document.body,{childList:true,subtree:true});setTimeout(add,300);
+              return true;
+            }
+            if(!install())setTimeout(install,200);
+          })();
+          EOF
+
+          cat > dist_v43/OCR_V55_V4_3_Benchmark.html <<'EOF'
+          <!doctype html>
+          <html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+          <title>OCR V55 V4.3 Benchmark</title>
+          <style>
+          body{font-family:Arial,"Noto Sans KR",sans-serif;background:#f5f7fb;margin:0;color:#111827}.wrap{max-width:900px;margin:44px auto;padding:22px}
+          .card{background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:24px;box-shadow:0 8px 28px rgba(0,0,0,.06)}
+          h1{margin:0 0 8px}.muted{color:#6b7280;line-height:1.6}.btn{border:1px solid #cbd5e1;background:#fff;border-radius:10px;padding:10px 16px;font-weight:700;cursor:pointer}
+          .btn.primary{background:#111827;color:white;border-color:#111827}.btn.outline{background:white}.hidden{display:none!important}.status{padding:10px;border-radius:8px;background:#f3f4f6}.status.ok{background:#ecfdf5}.status.warn{background:#fffbeb}.status.bad{background:#fef2f2}
+          #v24AccountBar{margin-top:18px}.v24-account-actions{display:flex;gap:8px}
+          </style></head><body>
+          <div class="wrap"><div class="card">
+            <h1>OCR V55 V4.3 Benchmark</h1>
+            <p class="muted">전체 실행 패키지입니다. 기존 V4.2 폴더에 덮어쓰지 마세요.<br>Holdout 35장 ZIP은 이 패키지에 포함되지 않으며, Benchmark 창에서 기존 Holdout ZIP을 선택합니다.</p>
+            <div id="versionInfo" class="status">엔진 로딩 중...</div>
+            <div id="v24AccountBar"><div class="v24-account-actions"></div></div>
+            <p class="muted" style="margin-top:16px">처음 실행 시 PP-OCRv5 모델을 인터넷에서 내려받습니다. Tesseract는 사용하지 않습니다.</p>
+          </div></div>
+          <script>window.V24={session:{user:{role:'admin'}}};window.V22={startLive:async()=>{},liveTick:async()=>{},stopLive:()=>{},captureLive:()=>{}};</script>
+          <script src="v55-benchmark-base-parser.js"></script>
+          <script src="v26-qty.js"></script>
+          <script src="v26-korean-ocr.js"></script>
+          <script src="v26-vendor-templates.js"></script>
+          <script src="v26-wms-cardscan.js"></script>
+          <script src="v55-vendor-parser.js"></script>
+          <script src="v55-wms-parser.js"></script>
+          <script src="v55-roi-preprocess.js"></script>
+          <script src="v55-adaptive-ocr.js"></script>
+          <script src="v55-ocr-benchmark.js"></script>
+          <script src="v55-benchmark-export.js"></script>
+          <script>
+          window.setStatus=function(id,text,kind){const e=typeof id==='string'?document.getElementById(id):id;if(e){e.textContent=text;e.className='status '+(kind||'');}};
+          window.shrinkForUpload=async function(x){return x;};window.compareLabels=function(){};window.showOcrRaw=function(){};
+          window.loadItemInfo=async function(){};window.applyParsed=function(){};window.lastOcrText={wms:'',single:'',vendor:'',multi:''};window.lastPhotoDataUrl={wms:'',single:'',vendor:'',multi:''};
+
+          async function verifyEngine(){
+            const e=document.getElementById('versionInfo');
+            try{
+              const vals=[
+                window.V55AdaptiveOCR&&V55AdaptiveOCR.VERSION,window.V55VendorParser&&V55VendorParser.VERSION,
+                window.V55WmsParser&&V55WmsParser.VERSION,window.V55RoiPreprocess&&V55RoiPreprocess.VERSION
+              ].filter(Boolean);
+              if(vals.length!==4)throw new Error('V4.3 모듈 일부가 로드되지 않았습니다: '+vals.join(' / '));
+              if(!window.V26KoreanOCR||typeof V26KoreanOCR.recognize!=='function')throw new Error('V26KoreanOCR 모듈이 없습니다.');
+
+              e.textContent='V4.3 모듈 로딩 완료 · PP-OCRv5 엔진/한국어 모델 초기화 중...';
+              e.className='status warn';
+
+              const c=document.createElement('canvas');c.width=480;c.height=140;
+              const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+              x.fillStyle='#000';x.font='bold 44px Arial';x.fillText('OCR ENGINE CHECK 26003373',18,82);
+              try{await V26KoreanOCR.recognize(c.toDataURL('image/png'),false,'');}catch(err){
+                if(!V26KoreanOCR.ready)throw err;
+              }
+              if(!V26KoreanOCR.ready)throw new Error(V26KoreanOCR.lastError||'OCR 엔진 초기화 실패');
+
+              e.textContent='엔진 준비 완료 · '+vals.join(' · ')+' · PP-OCRv5 한국어 모델 OK';
+              e.className='status ok';
+            }catch(err){
+              const msg=String(err&&err.message?err.message:err);
+              e.textContent='엔진 로딩 실패 · '+msg;
+              e.className='status bad';
+              const b=document.createElement('button');b.className='btn outline';b.style.marginTop='10px';b.textContent='엔진 다시 로드';
+              b.onclick=()=>{b.remove();verifyEngine();};e.parentElement.insertBefore(b,e.nextSibling);
+            }
+          }
+          setTimeout(verifyEngine,400);
+          </script>
+          </body></html>
+          EOF
+
+          cat > dist_v43/START_V4_3_FULL.ps1 <<'EOF'
+          $ErrorActionPreference='Stop'
+          $root=Split-Path -Parent $MyInvocation.MyCommand.Path
+          $port=8765
+          $url="http://127.0.0.1:$port/OCR_V55_V4_3_Benchmark.html"
+          Add-Type -AssemblyName System.Web
+          $listener=New-Object System.Net.HttpListener
+          $listener.Prefixes.Add("http://127.0.0.1:$port/")
+          try{$listener.Start()}catch{Write-Host "포트 $port 사용 중. 열려 있는 기존 Benchmark 서버를 종료하고 다시 실행하세요.";Read-Host "Enter";exit 1}
+          Start-Process $url
+          Write-Host "OCR V55 V4.3 Benchmark server"
+          Write-Host $url
+          Write-Host "이 창을 닫으면 서버가 종료됩니다."
+          $mime=@{'.html'='text/html; charset=utf-8';'.js'='application/javascript; charset=utf-8';'.mjs'='application/javascript; charset=utf-8';'.css'='text/css; charset=utf-8';'.json'='application/json; charset=utf-8';'.wasm'='application/wasm';'.tar'='application/x-tar';'.png'='image/png';'.jpg'='image/jpeg';'.jpeg'='image/jpeg';'.svg'='image/svg+xml';'.ico'='image/x-icon';'.txt'='text/plain; charset=utf-8'}
+          while($listener.IsListening){
+            try{
+              $ctx=$listener.GetContext();$path=[System.Web.HttpUtility]::UrlDecode($ctx.Request.Url.AbsolutePath.TrimStart('/'))
+              if([string]::IsNullOrWhiteSpace($path)){$path='OCR_V55_V4_3_Benchmark.html'}
+              $full=[IO.Path]::GetFullPath((Join-Path $root $path));$base=[IO.Path]::GetFullPath($root)
+              if(-not $full.StartsWith($base)-or -not(Test-Path $full)-or (Get-Item $full).PSIsContainer){$ctx.Response.StatusCode=404;$ctx.Response.Close();continue}
+              $bytes=[IO.File]::ReadAllBytes($full);$ext=[IO.Path]::GetExtension($full).ToLower();$ctx.Response.ContentType=if($mime.ContainsKey($ext)){$mime[$ext]}else{'application/octet-stream'}
+              $ctx.Response.ContentLength64=$bytes.Length;$ctx.Response.OutputStream.Write($bytes,0,$bytes.Length);$ctx.Response.OutputStream.Close()
+            }catch{if($listener.IsListening){Write-Host $_}}
+          }
+          EOF
+
+          cat > dist_v43/START_V4_3_FULL.bat <<'EOF'
+          @echo off
+          chcp 65001 >nul
+          cd /d "%~dp0"
+          powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%~dp0START_V4_3_FULL.ps1"
+          if errorlevel 1 pause
+          EOF
+
+          cat > dist_v43/README_V4_3_FULL.txt <<'EOF'
+          OCR V55 V4.3 FULL BENCHMARK PACKAGE
+
+          1. 압축을 새 폴더에 풉니다.
+          2. START_V4_3_FULL.bat 를 실행합니다.
+          3. 브라우저에서 "OCR 품질" 버튼을 누릅니다.
+          4. 기존 Holdout 35장 ZIP을 선택합니다.
+          5. Adaptive OCR 비교 체크를 유지한 채 평가합니다.
+          6. 결과 CSV와 JSON을 저장해 전달합니다.
+
+          주의:
+          - 기존 V4.2 폴더에 덮어쓸 필요가 없습니다.
+          - Holdout 사진은 포함되어 있지 않습니다.
+          - Production V54/main은 수정하지 않습니다.
+          - Tesseract를 사용하지 않습니다.
+          EOF
+
+          printf '%s\n' "OCR V55 V4.3" "SOURCE_COMMIT=$GITHUB_SHA" "HOLDOUT_INCLUDED=NO" > dist_v43/VERSION_V4_3.txt
+
+      - name: Upload V4.3 full package
+        uses: actions/upload-artifact@v4
+        with:
+          name: OCR_V55_V4_3_FULL
+          path: dist_v43/
+          compression-level: 6
+          retention-days: 7
+          if-no-files-found: error
