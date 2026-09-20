@@ -125,6 +125,45 @@ jobs:
           rm -rf dist_v43
           mkdir -p dist_v43
           rsync -a --exclude='.git' --exclude='dist_v43' ./ dist_v43/
+          # Bundle OCR runtime locally so the benchmark does not depend on
+          # jsDelivr/Baidu at run time (important on the factory network).
+          mkdir -p dist_v43/vendor/ort dist_v43/vendor/models
+          npm install --no-save @paddleocr/paddleocr-js@0.4.2 onnxruntime-web@1.22.0 fflate@0.8.2 esbuild@0.25.9
+
+          PADDLE_ENTRY="$(node -p "require.resolve('@paddleocr/paddleocr-js')")"
+          FFLATE_ENTRY="$(node -p "require.resolve('fflate')")"
+          npx esbuild "$PADDLE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/paddleocr.bundle.js
+          npx esbuild "$FFLATE_ENTRY" --bundle --format=esm --platform=browser --outfile=dist_v43/vendor/fflate.bundle.js
+
+          cp node_modules/onnxruntime-web/dist/*.wasm dist_v43/vendor/ort/
+
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/PP-OCRv5_mobile_det_onnx_infer.tar" \
+            -o dist_v43/vendor/models/PP-OCRv5_mobile_det_onnx_infer.tar
+          curl -fL --retry 3 --retry-delay 2 \
+            "https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/korean_PP-OCRv5_mobile_rec_onnx_infer.tar" \
+            -o dist_v43/vendor/models/korean_PP-OCRv5_mobile_rec_onnx_infer.tar
+
+          python - <<'PY'
+          from pathlib import Path
+
+          p=Path("dist_v43/v26-korean-ocr.js")
+          s=p.read_text(encoding="utf-8")
+          s=s.replace("const SDK_URL='https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm';",
+                      "const SDK_URL='./vendor/paddleocr.bundle.js';")
+          s=s.replace("const WASM_URL='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';",
+                      "const WASM_URL='./vendor/ort/';")
+          s=s.replace("const MODEL_BASE='https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/';",
+                      "const MODEL_BASE='./vendor/models/';")
+          p.write_text(s,encoding="utf-8")
+
+          p=Path("dist_v43/v55-ocr-benchmark.js")
+          s=p.read_text(encoding="utf-8")
+          s=s.replace("const FFLATE_URL='https://cdn.jsdelivr.net/npm/fflate@0.8.2/+esm';",
+                      "const FFLATE_URL='./vendor/fflate.bundle.js';")
+          p.write_text(s,encoding="utf-8")
+          PY
+
 
           cat > dist_v43/v55-benchmark-base-parser.js <<'EOF'
           (function(){
@@ -243,10 +282,42 @@ jobs:
           <script src="v55-ocr-benchmark.js"></script>
           <script src="v55-benchmark-export.js"></script>
           <script>
-          setTimeout(()=>{const e=document.getElementById('versionInfo');const vals=[
-            window.V55AdaptiveOCR&&V55AdaptiveOCR.VERSION,window.V55VendorParser&&V55VendorParser.VERSION,
-            window.V55WmsParser&&V55WmsParser.VERSION,window.V55RoiPreprocess&&V55RoiPreprocess.VERSION
-          ].filter(Boolean);e.textContent=vals.length===4?'V4.3 로딩 완료 · '+vals.join(' · '):'일부 모듈 로딩 실패 · 브라우저 콘솔 확인';e.className='status '+(vals.length===4?'ok':'bad');},600);
+          window.setStatus=function(id,text,kind){const e=typeof id==='string'?document.getElementById(id):id;if(e){e.textContent=text;e.className='status '+(kind||'');}};
+          window.shrinkForUpload=async function(x){return x;};window.compareLabels=function(){};window.showOcrRaw=function(){};
+          window.loadItemInfo=async function(){};window.applyParsed=function(){};window.lastOcrText={wms:'',single:'',vendor:'',multi:''};window.lastPhotoDataUrl={wms:'',single:'',vendor:'',multi:''};
+
+          async function verifyEngine(){
+            const e=document.getElementById('versionInfo');
+            try{
+              const vals=[
+                window.V55AdaptiveOCR&&V55AdaptiveOCR.VERSION,window.V55VendorParser&&V55VendorParser.VERSION,
+                window.V55WmsParser&&V55WmsParser.VERSION,window.V55RoiPreprocess&&V55RoiPreprocess.VERSION
+              ].filter(Boolean);
+              if(vals.length!==4)throw new Error('V4.3 모듈 일부가 로드되지 않았습니다: '+vals.join(' / '));
+              if(!window.V26KoreanOCR||typeof V26KoreanOCR.recognize!=='function')throw new Error('V26KoreanOCR 모듈이 없습니다.');
+
+              e.textContent='V4.3 모듈 로딩 완료 · PP-OCRv5 엔진/한국어 모델 초기화 중...';
+              e.className='status warn';
+
+              const c=document.createElement('canvas');c.width=480;c.height=140;
+              const x=c.getContext('2d');x.fillStyle='#fff';x.fillRect(0,0,c.width,c.height);
+              x.fillStyle='#000';x.font='bold 44px Arial';x.fillText('OCR ENGINE CHECK 26003373',18,82);
+              try{await V26KoreanOCR.recognize(c.toDataURL('image/png'),false,'');}catch(err){
+                if(!V26KoreanOCR.ready)throw err;
+              }
+              if(!V26KoreanOCR.ready)throw new Error(V26KoreanOCR.lastError||'OCR 엔진 초기화 실패');
+
+              e.textContent='엔진 준비 완료 · '+vals.join(' · ')+' · PP-OCRv5 한국어 모델 OK';
+              e.className='status ok';
+            }catch(err){
+              const msg=String(err&&err.message?err.message:err);
+              e.textContent='엔진 로딩 실패 · '+msg;
+              e.className='status bad';
+              const b=document.createElement('button');b.className='btn outline';b.style.marginTop='10px';b.textContent='엔진 다시 로드';
+              b.onclick=()=>{b.remove();verifyEngine();};e.parentElement.insertBefore(b,e.nextSibling);
+            }
+          }
+          setTimeout(verifyEngine,400);
           </script>
           </body></html>
           EOF
