@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.1'};
 
   function fixDigits(s){
     return String(s||'')
@@ -46,9 +46,14 @@
     const y=Number(d.slice(0,4)),m=Number(d.slice(4,6)),day=Number(d.slice(6,8));
     return y>=2020&&y<=2099&&m>=1&&m<=12&&day>=1&&day<=31;
   }
-  function validInbound(s){
+  function isQtyScaledArtifact(s,out){
     const d=fixDigits(s).replace(/\D/g,'');
-    return d.length===8&&!isDate8(d);
+    const q=fixDigits(out&&out.displayQty).replace(/\D/g,'');
+    return !!(d&&q&&d.length===8&&d===q+'000');
+  }
+  function validInbound(s,out){
+    const d=fixDigits(s).replace(/\D/g,'');
+    return d.length===8&&!isDate8(d)&&!isQtyScaledArtifact(d,out||{});
   }
   function recoverInbound(raw,items,out){
     const rr=rows(items);
@@ -66,6 +71,7 @@
     const skip=new Set([
       String(out&&out.itemCode||'').replace(/\D/g,''),
       String(out&&out.displayQty||'').replace(/\D/g,''),
+      (String(out&&out.displayQty||'').replace(/\D/g,'')+'000'),
       String(out&&out.containerFrom||'').replace(/\D/g,''),
       String(out&&out.containerTo||'').replace(/\D/g,''),
       String(out&&out.inboundDate||'').replace(/\D/g,''),
@@ -75,7 +81,7 @@
     const candidates=[];
     const add=(s,weight)=>{
       const d=fixDigits(s).replace(/\D/g,'');
-      if(d.length!==8||isDate8(d)||skip.has(d))return;
+      if(d.length!==8||isDate8(d)||skip.has(d)||isQtyScaledArtifact(d,out||{}))return;
       if(!candidates.some(x=>x.d===d))candidates.push({d,weight});
     };
     String(raw||'').split(/\s+/).forEach(x=>add(x,1));
@@ -95,13 +101,14 @@
     }else if(typeof window.parseLabelText==='function'){
       out=window.parseLabelText(text||'')||{};
     }
-    if(!validInbound(out.inboundNo)){
+    if(!validInbound(out.inboundNo,out)){
       const v=recoverInbound(text,items,out);
-      if(validInbound(v))out.inboundNo=v;
+      if(validInbound(v,out))out.inboundNo=v;
+      else if(!validInbound(out.inboundNo,out))delete out.inboundNo;
     }
     return out;
   };
 
-  P._test={rows,isDate8,validInbound,recoverInbound};
-  console.info('[V55-WMS-PARSER-2] invalid-inbound recovery ready');
+  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound};
+  console.info('[V55-WMS-PARSER-2.1] quantity-artifact-safe inbound recovery ready');
 })();
