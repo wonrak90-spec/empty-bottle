@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.2',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.3',
     MAX_EXTRA_PASSES:4
   };
 
@@ -54,7 +54,7 @@
       }else if(k==='containerFrom'||k==='containerTo'||k==='palletNo'){
         const d=digits(v); if(d.length>=1&&d.length<=8)sanity++;
       }else if(k==='product'){
-        if(String(v).replace(/\s/g,'').length>=2)sanity++;
+        if(productSane(v))sanity++;
       }
     }
     const total=allFields(parsed).length;
@@ -68,7 +68,7 @@
 
   A.needsRetry=function(type,parsed){
     const s=A.scoreParsed(type,parsed,[]);
-    if(type==='vendor')return s.critical<3;
+    if(type==='vendor')return s.critical<3||s.sanity<3;
     if(s.critical<5)return true;
     if(!wmsInboundSane(parsed))return true;
     return false;
@@ -82,6 +82,23 @@
     return false;
   };
 
+  function productSane(v){
+    const s=String(v??'').replace(/\s+/g,' ').trim();
+    const compact=s.replace(/\s/g,'');
+    if(compact.length<2)return false;
+    if(/^\d{1,4}m(?:l|1|i)$/i.test(compact))return false;
+    if(/^(?:당진|검사|생산|포장|수량|일자|시간|라인|제조|품명|제품명)$/i.test(compact))return false;
+    if(/^(?:품명|품령|제품명)\d{1,4}m(?:l|1|i)$/i.test(compact))return false;
+    const hangul=(s.match(/[가-힣]/g)||[]).length;
+    if(hangul<2&&!/[A-Za-z]{3,}/.test(s))return false;
+    const digitRuns=s.match(/\d+/g)||[];
+    const operators=s.match(/[=×*$]/g)||[];
+    if(operators.length>=2&&digitRuns.length>=3)return false;
+    if(/(?:년|월|일|시)/.test(s)&&digitRuns.length>=2)return false;
+    return true;
+  }
+  A.productSane=productSane;
+
   function fieldSane(k,v){
     if(!present(v))return false;
     const d=digits(v);
@@ -89,7 +106,7 @@
     if(k==='itemCode')return d.length>=4&&d.length<=14;
     if(k==='displayQty'||k==='qty')return Number(d)>0;
     if(k==='containerFrom'||k==='containerTo'||k==='palletNo')return d.length>=1&&d.length<=8;
-    if(k==='product')return String(v).replace(/\s/g,'').length>=2;
+    if(k==='product')return productSane(v);
     return true;
   }
 
@@ -447,5 +464,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.2] formula-confusion guard + dual-ROI consensus + split WMS recovery');
+  console.info('[V55-ADAPTIVE-OCR-2.4.3] product-sanity retry + formula-confusion guard + dual-ROI consensus + split WMS recovery');
 })();
