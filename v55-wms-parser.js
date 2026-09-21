@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.2'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.3'};
 
   function fixDigits(s){
     return String(s||'')
@@ -68,13 +68,33 @@
     }
 
     // First choice: digits on the same row as the inbound-number label.
-    for(const row of rr){
+    let inboundRow=-1;
+    for(let i=0;i<rr.length;i++){
+      const row=rr[i];
       if(!/입\s*고\s*번\s*호/.test(row.text))continue;
+      inboundRow=i;
       const after=fixDigits(row.text.replace(/^.*?입\s*고\s*번\s*호\s*[:：-]?\s*/,'')).replace(/\D/g,'');
-      if(after.length===8&&!isDate8(after))return after;
+      if(validInbound(after,out||{}))return after;
       const joined=row.items.map(x=>fixDigits(x.text).replace(/\D/g,'')).filter(Boolean).join('');
       const m=joined.match(/([0-9]{8})/);
-      if(m&&!isDate8(m[1]))return m[1];
+      if(m&&validInbound(m[1],out||{}))return m[1];
+    }
+
+    // OCR geometry may split the label and its value into adjacent rows.
+    // Only inspect the immediate neighbour before falling back to generic
+    // candidates; this is safer than selecting an arbitrary 8-digit token.
+    if(inboundRow>=0){
+      for(const j of [inboundRow+1,inboundRow-1]){
+        if(j<0||j>=rr.length)continue;
+        const row=rr[j];
+        const joined=row.items.map(x=>fixDigits(x.text).replace(/\D/g,'')).filter(Boolean).join('');
+        const direct=fixDigits(row.text).replace(/\D/g,'');
+        for(const d of [joined,direct]){
+          if(validInbound(d,out||{}))return d;
+          const m=d.match(/([0-9]{8})/);
+          if(m&&validInbound(m[1],out||{}))return m[1];
+        }
+      }
     }
 
     const skip=new Set([
@@ -119,5 +139,5 @@
   };
 
   P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound};
-  console.info('[V55-WMS-PARSER-2.2] split-digit + quantity-artifact-safe inbound recovery ready');
+  console.info('[V55-WMS-PARSER-2.3] label-adjacent split-digit + quantity-artifact-safe inbound recovery ready');
 })();
