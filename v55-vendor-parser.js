@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.2'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.3'};
 
   function fixDigits(s){
     return String(s||'')
@@ -114,26 +114,49 @@
     x=x.replace(/판콜\s*에?이?\s*병/gi,'판콜에이병');
     return x.trim();
   }
+  function productScore(x,fromLabel){
+    x=cleanProduct(x);
+    if(!x||!/[가-힣]{2,}/.test(x))return -999;
+    let score=fromLabel?30:0;
+    if(/\d{1,4}\s*ml\b/i.test(x))score+=24;
+    if(/[가-힣]{3,}/.test(x))score+=12;
+    if(/(?:병|유리병|활명수|판콜)/.test(x))score+=8;
+    if(/(?:생산|제조|포장|수량|본|단|충격|파손|주의|검사|납품|회사|일자|시간|라인)/.test(x))score-=45;
+    if(/^[0-9\s,.:/\-]+$/.test(x))score-=80;
+    // Prefer a complete product+volume string over a shorter partial fragment.
+    score+=Math.min(12,Math.max(0,x.replace(/\s/g,'').length-4));
+    return score;
+  }
+  function joinProductRows(rows,i){
+    const base=cleanProduct(rows[i]||'');
+    const parts=[base].filter(Boolean);
+    for(let j=i+1;j<Math.min(rows.length,i+3);j++){
+      const n=cleanProduct(rows[j]||'');
+      if(!n)continue;
+      if(/(?:생산|제조|포장|수량|P\s*[/\-]?\s*L|P\s*[-/]?\s*(?:번호|No)|일자|시간|라인)/i.test(n))break;
+      // Join a nearby volume-only row, or a nearby Korean product fragment.
+      if(/^\d{1,4}\s*m(?:l|1|i)?\b/i.test(n)||(/[가-힣]{2,}/.test(n)&&parts.join(' ').length<28)){
+        parts.push(n);
+        if(/\d{1,4}\s*ml\b/i.test(cleanProduct(parts.join(' '))))break;
+      }else break;
+    }
+    return cleanProduct(parts.join(' '));
+  }
   function bestProduct(rows){
+    const cands=[];
     for(let i=0;i<rows.length;i++){
       const r=rows[i];
-      if(/(?:제\s*품\s*[명영]|품\s*[명영])/.test(r)){
-        let x=cleanProduct(r);
-        if(x&&/[가-힣]/.test(x)){
-          if(!/\d{1,4}\s*ml/i.test(x)&&i+1<rows.length){
-            const vm=cleanProduct(rows[i+1]).match(/(\d{1,4}\s*m(?:l|1|i)?)/i);
-            if(vm)x=(x+' '+vm[1]).trim();
-          }
-          return cleanProduct(x);
-        }
+      const hasLabel=/(?:제\s*품\s*[명영]|품\s*[명영])/.test(r);
+      if(hasLabel){
+        const joined=joinProductRows(rows,i);
+        if(joined)cands.push({v:joined,score:productScore(joined,true),i});
       }
+      const x=cleanProduct(r);
+      if(x&&/[가-힣]{2,}/.test(x)&&/\d{1,4}\s*ml/i.test(x))
+        cands.push({v:x,score:productScore(x,false),i});
     }
-    // Fallback for labels where the key itself was missed but value survived.
-    const cands=rows.map(cleanProduct).filter(x=>
-      /[가-힣]{2,}/.test(x)&&/\d{1,4}\s*ml/i.test(x)&&
-      !/(?:생산|제조|포장|수량|본|단|충격|파손|주의|검사|납품|회사)/.test(x)
-    ).sort((a,b)=>a.length-b.length);
-    return cands[0]||'';
+    cands.sort((a,b)=>b.score-a.score||a.i-b.i||b.v.length-a.v.length);
+    return cands.length&&cands[0].score>0?cleanProduct(cands[0].v):'';
   }
   function detectDonghwa(raw,rows,base){
     const s=(flat(raw)+' '+rows.join(' ')+' '+flat(base&&base.product)).toLowerCase();
@@ -258,6 +281,6 @@
     return base;
   };
 
-  P._test={cleanProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
-  console.info('[V55-VENDOR-PARSER-3.2] product-noise normalization + formula-safe parser ready');
+  P._test={cleanProduct,productScore,joinProductRows,bestProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
+  console.info('[V55-VENDOR-PARSER-3.3] product candidate scoring + split-row recovery + formula-safe parser ready');
 })();
