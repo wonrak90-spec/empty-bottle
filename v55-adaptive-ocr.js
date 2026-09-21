@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.1',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.2',
     MAX_EXTRA_PASSES:4
   };
 
@@ -19,6 +19,12 @@
 
   function present(v){return v!=null&&String(v).trim()!=='';}
   function digits(v){return String(v??'').replace(/[^0-9]/g,'');}
+  function fixNumericConfusions(v){
+    return String(v??'')
+      .replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1')
+      .replace(/[Ss]/g,'5').replace(/[Bb]/g,'8')
+      .replace(/[Zz]/g,'2').replace(/[gq]/g,'9').replace(/[Tt]/g,'7');
+  }
   function allFields(parsed){return Object.keys(parsed||{}).filter(k=>present(parsed[k]));}
   function isQtyScaledInbound(parsed,v){
     const d=digits(v),q=digits(parsed&&parsed.displayQty);
@@ -259,7 +265,7 @@
 
   function formulaFactors(text){
     const out=[];
-    const s=String(text||'').replace(/,/g,'');
+    const s=fixNumericConfusions(text).replace(/,/g,'');
     // Also catch OCR where one multiplication mark disappears:
     // 40×41 13단 -> factors 40, 41, 13.
     const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:(?:\s*[xX×*]\s*([0-9]{1,4}))|(?:\s+([0-9]{1,3})\s*단))?/g;
@@ -441,5 +447,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.1] dual-ROI consensus + split WMS number recovery');
+  console.info('[V55-ADAPTIVE-OCR-2.4.2] formula-confusion guard + dual-ROI consensus + split WMS recovery');
 })();
