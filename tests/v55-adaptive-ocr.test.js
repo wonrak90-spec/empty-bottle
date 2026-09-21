@@ -16,7 +16,7 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.2');
+assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.3');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -36,6 +36,24 @@ assert.strictEqual(A.needsRetry('wms',wmsWeak),true);
 const vendorGood={product:'까스활명수75mL병',qty:'10800',palletNo:'9'};
 assert.strictEqual(A.needsRetry('vendor',vendorGood),false);
 assert.strictEqual(A.needsRetry('vendor',{product:'까스활명수75mL병',qty:'10800'}),true);
+
+assert.strictEqual(A.productSane('30ml'),false,'volume-only OCR must not count as a sane product');
+assert.strictEqual(A.productSane('당진'),false,'location noise must not count as a sane product');
+assert.strictEqual(A.productSane('품령 30ml'),false,'label noise + volume must not count as a sane product');
+assert.strictEqual(A.productSane('판콜에이병 30ml'),true);
+assert.strictEqual(A.productSane('판콜에이병 0=$1 13 =21,320 30ml 48 L'),false,
+  'formula/pallet contamination must force product retry');
+assert.strictEqual(A.needsRetry('vendor',{product:'30ml',qty:'21320',palletNo:'75'}),true,
+  'present-but-invalid product fragments must trigger adaptive retry');
+
+const productReplaced=A.mergeCandidate(
+  'vendor',
+  {product:'30ml',qty:'21320',palletNo:'75'},
+  {product:'판콜에이병 30ml',qty:'21320',palletNo:'75'},
+  ''
+);
+assert.strictEqual(productReplaced.product,'판콜에이병 30ml',
+  'a sane retry product must replace an invalid volume-only baseline product');
 
 const skew=A.estimateSkew([
   {poly:[[0,0],[100,17],[100,40],[0,23]]},
@@ -179,4 +197,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.4.2: formula-confusion guard + safe dual consensus + split WMS recovery');
+console.log('PASS V55 adaptive OCR V2.4.3: product-sanity retry + formula guard + safe dual consensus + split WMS recovery');
