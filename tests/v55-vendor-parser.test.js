@@ -27,7 +27,7 @@ vm.runInContext(code,ctx,{filename:'v55-vendor-parser.js'});
 
 const P=ctx.V55VendorParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-VENDOR-PARSER-3.3');
+assert.strictEqual(P.VERSION,'V55-VENDOR-PARSER-3.4');
 
 const donghwa=[
   '품명 판콜에이병 30ml',
@@ -121,4 +121,23 @@ const d8=P.parse(noisyProduct,[]);
 assert.strictEqual(d8.product,'까스활명수75ml');
 assert.ok(P._test.productScore('품명 까스활명수75ml',true)>P._test.productScore('검사 75ml',false));
 
-console.log('PASS V55 vendor parser V3.3: scored product recovery + formula-safe recovery');
+
+
+// OCR-confused explicit pallet labels: only the label tokens are tolerated.
+// This must still prefer the explicit value over packaging formula factors.
+const dongaConfused=P.parse([
+  '동아에코팩(주)',
+  '품명 까스활명수75ml',
+  'P/1 N0. 27',
+  '포장사양 900×12=10,800 본'
+].join('\n'),[]);
+assert.strictEqual(dongaConfused.palletNo,'27');
+
+const donghwaConfused=P.parse([
+  '품명 판콜에이병 30ml',
+  'P-N0. 44',
+  '40×41×13단=21,320 본'
+].join('\n'),[]);
+assert.strictEqual(donghwaConfused.palletNo,'44');
+
+console.log('PASS V55 vendor parser V3.4: scored product + OCR-tolerant pallet recovery');
