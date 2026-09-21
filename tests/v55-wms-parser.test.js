@@ -22,6 +22,7 @@ vm.runInContext(code,ctx,{filename:'v55-wms-parser.js'});
 
 const P=ctx.V55WmsParser;
 assert.ok(P);
+assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.3');
 
 const items=[
   {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
@@ -64,4 +65,19 @@ assert.strictEqual(P._test.isQtyScaledArtifact('21320000',{displayQty:'21320'}),
 assert.strictEqual(P._test.isDate8('20260917'),true);
 assert.strictEqual(P._test.isDate8('26003373'),false);
 
-console.log('PASS V55 WMS parser V2.2: split-digit recovery + quantity artifact rejection');
+
+
+// Geometry split: label and value can land on adjacent OCR rows.
+// OCR-confused O in the number must normalize to zero, while date noise is ignored.
+const adjacentItems=[
+  {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
+  {text:'26O0',poly:[[120,52],[165,52],[165,72],[120,72]]},
+  {text:'3373',poly:[[170,52],[215,52],[215,72],[170,72]]},
+  {text:'20260917',poly:[[120,92],[220,92],[220,112],[120,112]]},
+  {text:'2000990',poly:[[120,132],[200,132],[200,152],[120,152]]}
+];
+const r5=P.parse('damaged',adjacentItems);
+assert.strictEqual(r5.inboundNo,'26003373',
+  'adjacent split OCR row should recover the inbound number before generic 8-digit candidates');
+
+console.log('PASS V55 WMS parser V2.3: label-adjacent split-digit recovery + quantity artifact rejection');
