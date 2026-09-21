@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.3'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.4'};
 
   function fixDigits(s){
     return String(s||'')
@@ -69,6 +69,8 @@
     for(const x of [...a,...b])if(x&&out.indexOf(x)<0)out.push(x);
     return out;
   }
+  function palletLabelDongaRe(){return /P\s*[/\-]\s*[L1I|]\s*N\s*[oO0QD]\.?/i;}
+  function palletLabelDonghwaRe(){return /P\s*[-/]?\s*(?:번\s*호|N\s*[oO0QD]\.?)?/i;}
   function labelValueByRow(items,labelRe,valueRe){
     const rows=itemRowObjects(items);
     for(const row of rows){
@@ -199,9 +201,9 @@
     }
 
     // P-번호 is the pallet identifier on Donghwa labels.
-    let pv=labelValueByRow(items,/P\s*[-/]?\s*(?:번\s*호|No\.?)?/i,/([0-9OQDIl|]{1,4})/i);
+    let pv=labelValueByRow(items,palletLabelDonghwaRe(),/([0-9OQDIl|]{1,4})/i);
     if(!pv){
-      const pm=(joined+'\n'+String(raw||'')).match(/P\s*[-/]?\s*(?:번\s*호|No\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
+      const pm=(joined+'\n'+String(raw||'')).match(/P\s*[-/]?\s*(?:번\s*호|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
       if(pm)pv=pm[1];
     }
     if(pv){
@@ -242,9 +244,9 @@
     if(p)out.product=p;
     else if(out.product)out.product=cleanProduct(out.product);
 
-    let plv=labelValueByRow(items,/P\s*[/\-]\s*L\s*N\s*o\.?/i,/([0-9OQDIl|]{1,4})/i);
+    let plv=labelValueByRow(items,palletLabelDongaRe(),/([0-9OQDIl|]{1,4})/i);
     if(!plv){
-      const pl=(joined+'\n'+String(raw||'')).match(/P\s*[/\-]\s*L\s*N\s*o\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
+      const pl=(joined+'\n'+String(raw||'')).match(/P\s*[/\-]\s*[L1I|]\s*N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
       if(pl)plv=pl[1];
     }
     if(plv){
@@ -281,6 +283,6 @@
     return base;
   };
 
-  P._test={cleanProduct,productScore,joinProductRows,bestProduct,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
-  console.info('[V55-VENDOR-PARSER-3.3] product candidate scoring + split-row recovery + formula-safe parser ready');
+  P._test={cleanProduct,productScore,joinProductRows,bestProduct,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
+  console.info('[V55-VENDOR-PARSER-3.4] product scoring + OCR-tolerant explicit pallet labels + formula-safe parser ready');
 })();
