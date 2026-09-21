@@ -27,6 +27,7 @@ vm.runInContext(code,ctx,{filename:'v55-vendor-parser.js'});
 
 const P=ctx.V55VendorParser;
 assert.ok(P);
+assert.strictEqual(P.VERSION,'V55-VENDOR-PARSER-3.3');
 
 const donghwa=[
   '품명 판콜에이병 30ml',
@@ -93,4 +94,31 @@ const d6=P.parse('판콜에이병 30ml\n40×41×13단=21,320 본',[]);
 assert.strictEqual(d6.palletNo,undefined);
 assert.deepStrictEqual(Array.from(P._test.formulaFactors('40×41 13단=21,320 본')),['40','41','13']);
 
-console.log('PASS V55 vendor parser V3.2: product-noise normalization + formula-safe recovery');
+
+
+// Product recovery: label key, Korean product name, and volume may be split
+// across adjacent OCR rows. The complete candidate must beat a shorter fragment.
+const splitProduct=[
+  '품명',
+  '판콜 에이 병',
+  '30m1',
+  'P-번호 43',
+  '40×41×13단=21,320 본'
+].join('\n');
+const d7=P.parse(splitProduct,[]);
+assert.strictEqual(d7.product,'판콜에이병 30ml');
+assert.strictEqual(d7.palletNo,'43');
+
+// A short volume/noise row must not outrank the labelled complete product.
+const noisyProduct=[
+  '동아에코팩(주)',
+  '품명 까스활명수75m1',
+  '검사 75ml',
+  'P/L No. 21',
+  '포장사양 900×12=10,800 본'
+].join('\n');
+const d8=P.parse(noisyProduct,[]);
+assert.strictEqual(d8.product,'까스활명수75ml');
+assert.ok(P._test.productScore('품명 까스활명수75ml',true)>P._test.productScore('검사 75ml',false));
+
+console.log('PASS V55 vendor parser V3.3: scored product recovery + formula-safe recovery');
