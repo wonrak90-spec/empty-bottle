@@ -7,7 +7,7 @@
   if(window.__V55_ROI_PREPROCESS__)return;
   window.__V55_ROI_PREPROCESS__=true;
 
-  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3'};
+  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3.1'};
 
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
@@ -161,9 +161,13 @@
     const isWms=type==='wms';
     const rect={
       x:Math.max(0,x1-rw*(isWms?.15:.10)),
-      y:Math.max(0,y1-rh*(isWms?.70:.45)),
+      // WMS inbound-number ROI used to extend too far vertically and could
+      // include the quantity row (e.g. 21,320.000 -> 21320000). Keep the
+      // horizontal reach for a missing value box, but tighten the vertical
+      // window around the inbound-number label row.
+      y:Math.max(0,y1-rh*(isWms?.25:.45)),
       w:isWms?Math.max(rw*3.20,iw*.55):Math.max(rw*1.85,iw*.30),
-      h:rh*(isWms?2.30:1.90)
+      h:rh*(isWms?2.00:1.90)
     };
     rect.w=Math.min(iw-rect.x,rect.w);
     rect.h=Math.min(ih-rect.y,rect.h);
