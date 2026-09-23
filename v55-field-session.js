@@ -150,7 +150,8 @@
     VERSION:'V55-FIELD-SESSION-1',
     get state(){return JSON.parse(JSON.stringify(state));},
     remainingLabels,palletGap,labelBalance,canClose,onSingleSaved,markManual,
-    reset(){state=empty();save();}
+    reset(){state=empty();save();},
+    _test:{empty,remainingLabels,palletGap,labelBalance,canClose}
   };
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject,{once:true});else inject();
