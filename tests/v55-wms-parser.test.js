@@ -82,4 +82,4 @@ const r5=P.parse('damaged',adjacentItems);
 assert.strictEqual(r5.inboundNo,'26003373',
   'adjacent split OCR row should recover the inbound number before generic 8-digit candidates');
 
-console.log('PASS V55 WMS parser V2.3: label-adjacent split-digit recovery + quantity artifact rejection');
+console.log('PASS V55 WMS parser V2.4: damaged inbound repair + container-range recovery');
