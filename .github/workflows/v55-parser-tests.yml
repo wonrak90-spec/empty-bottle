@@ -1,9 +1,9 @@
-name: V55 Parser 3.5 / WMS 2.4 Tests
+name: V55 Vendor 3.6 / WMS 2.4 Tests
 
 on:
   push:
     branches:
-      - feature/v55-parser-3_5-wms-2_4-20260924
+      - feature/v55-vendor-parser-3_6-20260924
   pull_request:
     branches:
       - main
