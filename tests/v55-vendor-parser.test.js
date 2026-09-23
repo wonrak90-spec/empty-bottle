@@ -27,7 +27,7 @@ vm.runInContext(code,ctx,{filename:'v55-vendor-parser.js'});
 
 const P=ctx.V55VendorParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-VENDOR-PARSER-3.5');
+assert.strictEqual(P.VERSION,'V55-VENDOR-PARSER-3.6');
 
 const donghwa=[
   '품명 판콜에이병 30ml',
@@ -222,4 +222,81 @@ assert.strictEqual(donghwaTrailing.product,'판콜에이병 30ml');
 assert.strictEqual(donghwaTrailing.palletNo,'50',
   'number label split from a trailing pallet value on the next row must be recovered');
 
-console.log('PASS V55 vendor parser V3.5: known-product normalization + tolerant pallet recovery');
+
+/* V3.6 regressions from the 84.8% development-validation run.
+ * Keep these as parser-development cases; they are no longer final holdout data.
+ */
+const dongaProductBetweenLabelAndPallet=P.parse([
+  '동아에코팩(주)',
+  '생산라인 품명',
+  'P/L No. 까스활명수75m1 26 당진 3F',
+  '포장사양 900×12단:10,800 색상 3.5'
+].join('\n'),[]);
+assert.strictEqual(dongaProductBetweenLabelAndPallet.product,'까스활명수75ml');
+assert.strictEqual(dongaProductBetweenLabelAndPallet.palletNo,'26',
+  'the 1 in 75m1 must never become pallet 1 when pallet 26 follows the product');
+
+const dongaPalletBeforeLocation=P.parse([
+  '동아에코팩(주)',
+  '생산라인 까스활명수75m1 43 당진 3F 색상 3.5',
+  '포장사양 P/L No. 900×12단:10,800'
+].join('\n'),[]);
+assert.strictEqual(dongaPalletBeforeLocation.palletNo,'43',
+  'pallet before Donga location must beat the 900 packaging factor');
+
+const dongaColorSplit=P.parse([
+  '까스활명수75ml',
+  '당진 3F',
+  '20 색상',
+  'No.',
+  '900×12단:10.800',
+  '동아에코팩(주)'
+].join('\n'),[]);
+assert.strictEqual(dongaColorSplit.palletNo,'20');
+assert.strictEqual(dongaColorSplit.qty,'10800',
+  'dotted thousands notation 10.800 must recover the Donga formula quantity');
+
+const donghwaShortLabel=P.parse([
+  '판클에이병',
+  '30ml',
+  'P-번 75',
+  '40 41·13 단=21,320본',
+  '동화지앤피주식회사'
+].join('\n'),[]);
+assert.strictEqual(donghwaShortLabel.product,'판콜에이병 30ml');
+assert.strictEqual(donghwaShortLabel.palletNo,'75',
+  'P-번 is a valid OCR-shortened Donghwa pallet label');
+
+const donghwaStandalone62=P.parse([
+  '콜에이병',
+  '30ml',
+  '28일6시15분',
+  '62',
+  '13 단=21,320본',
+  'TEL:031) 499-8574'
+].join('\n'),[]);
+assert.strictEqual(donghwaStandalone62.product,'판콜에이병 30ml');
+assert.strictEqual(donghwaStandalone62.palletNo,'62',
+  'a unique standalone non-formula number on a recognised Donghwa label may be the pallet');
+
+const donghwaTimeTail43=P.parse([
+  '판콜에이병',
+  '품명 30ml',
+  '생산일자26년06월27일09시45분 43 *13 단=21,320',
+  '번 량 40*41',
+  '김영택'
+].join('\n'),[]);
+assert.strictEqual(donghwaTimeTail43.palletNo,'43',
+  'pallet trailing a production timestamp before a formula continuation must recover');
+
+const donghwaTimeTail48=P.parse([
+  '판콜에이병',
+  '품명 30mi',
+  '26년06월27일/4시분 48',
+  '0=$1 13 =21,320',
+  '유리 제품으로 충격시 파손 위험'
+].join('\n'),[]);
+assert.strictEqual(donghwaTimeTail48.palletNo,'48',
+  'pallet at the end of a Donghwa date/time row must recover safely');
+
+console.log('PASS V55 vendor parser V3.6: pallet context recovery + volume-noise guard + dotted qty');
