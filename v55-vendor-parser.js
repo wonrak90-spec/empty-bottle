@@ -69,7 +69,7 @@
     for(const x of [...a,...b])if(x&&out.indexOf(x)<0)out.push(x);
     return out;
   }
-  function palletLabelDongaRe(){return /P\s*[/\-]?\s*(?:[L1I|]\s*){1,2}N\s*[oO0QD]\.?/i;}
+  function palletLabelDongaRe(){return /P\s*(?:[/\-]\s*)?(?:[I1|]\s*)?[L1I|]\s*N\s*[oO0QD]\.?/i;}
   function palletLabelDonghwaRe(){return /P\s*[-/]?\s*(?:번\s*호|변(?:\s*호)?|N\s*[oO0QD]\.?)/i;}
   function labelValueByRow(items,labelRe,valueRe){
     const rows=itemRowObjects(items);
@@ -151,7 +151,7 @@
   }
   function recoverDongaPallet(rows,source){
     const src=String(source||'');
-    const explicit=src.match(/P\s*[/\-]?\s*(?:[L1I|]\s*){1,2}N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
+    const explicit=src.match(/P\s*(?:[/\-]\s*)?(?:[I1|]\s*)?[L1I|]\s*N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
     if(explicit){
       const p=safePalletValue(explicit[1],src);
       if(p)return p;
