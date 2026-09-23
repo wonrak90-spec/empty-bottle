@@ -176,7 +176,12 @@
     const src=String(source||''),factors=sourceFactorSet(src);
     const valid=v=>{const p=num(v);return p&&!factors.has(String(Number(p)))?p:'';};
     const explicit=src.match(/P\s*[-/]?\s*(?:번\s*호|변(?:\s*호)?|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
-    if(explicit){const p=valid(explicit[1]);if(p)return p;}
+    if(explicit){
+      const tail=src.slice((explicit.index||0)+explicit[0].length);
+      const formulaLike=/^\s*[=xX×*]/.test(tail);
+      const p=formulaLike?'':valid(explicit[1]);
+      if(p)return p;
+    }
     const bare=src.match(/(?:^|\n|\s)번\s*호\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/im);
     if(bare){const p=valid(bare[1]);if(p)return p;}
 
