@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.5'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.6'};
 
   function fixDigits(s){
     return String(s||'')
@@ -156,13 +156,48 @@
     const p=num(v);
     return p&&!sourceFactorSet(source).has(String(Number(p)))?p:'';
   }
+  function stripDongaPalletNoise(s){
+    return fixDigits(String(s||''))
+      .replace(/P\s*(?:[/\-]\s*)?(?:[I1|]\s*)?[L1I|]\s*N\s*[oO0QD]\.?/ig,' ')
+      .replace(/\b\d{1,4}\s*m(?:l|1|i|I|!|\|)?\b/ig,' ')
+      .replace(/당진\s*\d+\s*F\b/ig,' ')
+      .replace(/색(?:상|신)\s*\d+(?:\.\d+)?/ig,' ')
+      .replace(/\b\d{1,4}\s*[xX×*]\s*\d{1,4}(?:\s*단)?(?:\s*[:=]\s*[\d,.]+)?/g,' ');
+  }
   function recoverDongaPallet(rows,source){
     const src=String(source||'');
+
+    // Strongest case: explicit P/L-style label followed by a clean number.
     const explicit=src.match(/P\s*(?:[/\-]\s*)?(?:[I1|]\s*)?[L1I|]\s*N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
     if(explicit){
       const p=safePalletValue(explicit[1],src);
       if(p)return p;
     }
+
+    // OCR may put product/volume between P/L No. and the actual pallet value:
+    // "P/L No. 까스활명수75m1 26 당진 3F".
+    for(const row of rows){
+      if(!palletLabelDongaRe().test(row))continue;
+      const cleaned=stripDongaPalletNoise(row);
+      const nums=cleaned.match(/(?:^|\D)([0-9]{1,4})(?=\D|$)/g)||[];
+      for(const token of nums){
+        const m=token.match(/([0-9]{1,4})/);
+        const p=m&&safePalletValue(m[1],src);
+        if(p)return p;
+      }
+    }
+
+    // Sometimes P/L label falls to the next OCR row while the pallet value
+    // remains on the product/location row: "...75m1 43 당진 3F".
+    for(const row of rows){
+      const m=fixDigits(row).match(/\b\d{1,4}\s*m(?:l|1|i|I|!|\|)?\s+([0-9]{1,4})\s+당진\s*\d+\s*F\b/i);
+      if(m){
+        const p=safePalletValue(m[1],src);
+        if(p)return p;
+      }
+    }
+
+    // Donga layouts also place pallet immediately before the color field.
     for(const row of rows){
       const m=fixDigits(row).match(/(?:^|\D)([0-9]{1,4})\s*색(?:상|신)(?=\s|$|[:.])/i);
       if(m){
@@ -175,7 +210,9 @@
   function recoverDonghwaPallet(rows,source){
     const src=String(source||''),factors=sourceFactorSet(src);
     const valid=v=>{const p=num(v);return p&&!factors.has(String(Number(p)))?p:'';};
-    const explicit=src.match(/P\s*[-/]?\s*(?:번\s*호|변(?:\s*호)?|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
+
+    // Tolerate P-번호 / P-번 / P-변 / P-No.
+    const explicit=src.match(/P\s*[-/]?\s*(?:번(?:\s*호)?|변(?:\s*호)?|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
     if(explicit){
       const tail=src.slice((explicit.index||0)+explicit[0].length);
       const formulaLike=/^\s*[=xX×*]/.test(tail);
@@ -185,9 +222,30 @@
     const bare=src.match(/(?:^|\n|\s)번\s*호\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/im);
     if(bare){const p=valid(bare[1]);if(p)return p;}
 
+    // A single numeric OCR row is a safe fallback on a recognised Donghwa
+    // product when it is not one of the packaging-formula factors.
+    const standalone=[];
+    for(const row of rows){
+      const m=String(row).match(/^\s*([0-9OQDIl|]{1,4})\s*$/i);
+      if(m){
+        const p=valid(m[1]);
+        if(p)standalone.push(p);
+      }
+    }
+    if(standalone.length===1)return standalone[0];
+
+    // Pallet often trails the production timestamp:
+    // "...09시45분 43 *13단..." or ".../4시분 48".
+    for(const row of rows){
+      let m=fixDigits(row).match(/(?:시|분)\s*([0-9]{1,4})\s*(?=[xX×*])/i);
+      if(m){const p=valid(m[1]);if(p)return p;}
+      m=fixDigits(row).match(/(?:년.*?월.*?일.*?)?(?:시|분)\D{0,4}([0-9]{1,4})\s*$/i);
+      if(m){const p=valid(m[1]);if(p)return p;}
+    }
+
     for(let i=0;i<rows.length;i++){
       const row=rows[i];
-      if(!/(?:P\s*[-/]?\s*(?:번\s*호|변|N\s*[oO0QD])|번\s*호)/i.test(row))continue;
+      if(!/(?:P\s*[-/]?\s*(?:번(?:\s*호)?|변|N\s*[oO0QD])|번\s*호)/i.test(row))continue;
       const before=rows[i-1]||'',after=rows[i+1]||'';
       let m=before.match(/^\s*([0-9OQDIl|]{1,4})\s*$/i);
       if(m){const p=valid(m[1]);if(p)return p;}
@@ -334,10 +392,31 @@
     if(plv)out.palletNo=plv;
     else if(out.palletNo)rejectInferredFormulaPallet(out,palletSource);
 
+    let dongaQty='';
     if(window.V26Qty&&typeof V26Qty.vendorFormula==='function'){
       const f=V26Qty.vendorFormula(joined);
-      if(f&&f.ok&&f.calculated>0)out.qty=String(f.calculated);
+      if(f&&f.ok&&f.calculated>0)dongaQty=String(f.calculated);
     }
+    if(!dongaQty){
+      const src=fixDigits(joined+'\n'+String(raw||''));
+      const stated=src.match(/\b([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})\s*(?:단)?\s*[:=]\s*([0-9]{1,3}(?:[,.][0-9]{3})+|[0-9]{4,6})/i);
+      if(stated){
+        const calc=Number(stated[1])*Number(stated[2]);
+        const printed=Number(String(stated[3]).replace(/[^0-9]/g,''));
+        if(calc>=1000&&calc<=999999&&(!printed||printed===calc))dongaQty=String(calc);
+      }
+    }
+    if(!dongaQty){
+      const fs=formulaFactors(joined);
+      if(fs.length===2){
+        const calc=Number(fs[0])*Number(fs[1]);
+        if(calc>=1000&&calc<=999999)dongaQty=String(calc);
+      }
+    }
+    if(dongaQty)out.qty=dongaQty;
+
+    // A generic parser can mistake the "1" in 75m1/30m1 for pallet 1.
+    if(out.palletNo==='1'&&/\b(?:75|30|100)\s*m1\b/i.test(fixDigits(joined+'\n'+String(raw||''))))delete out.palletNo;
 
     P.lastTemplate='동아에코팩';
     return out;
@@ -361,6 +440,6 @@
     return base;
   };
 
-  P._test={cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet};
-  console.info('[V55-VENDOR-PARSER-3.5] known-product normalization + tolerant pallet recovery + formula-safe parser ready');
+  P._test={cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
+  console.info('[V55-VENDOR-PARSER-3.6] pallet context recovery + volume-noise guard + Donga dotted-qty recovery ready');
 })();
