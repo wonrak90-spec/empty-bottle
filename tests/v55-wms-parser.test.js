@@ -7,13 +7,15 @@ const ctx={console,window:null};
 ctx.window=ctx;
 ctx.V26WmsCardScan={
   parseWms(text){
+    const s=String(text||'');
     return {
-      inboundNo:/damaged/.test(String(text||''))?'0003373':(/qtyArtifact/.test(String(text||''))?'21320000':''),
+      inboundNo:/damaged/.test(s)?'0003373':(/qtyArtifact/.test(s)?'21320000':''),
       itemCode:'2000990',
       product:'판콜액 병',
       displayQty:'21320',
-      containerFrom:'0004',
-      containerTo:'0028'
+      inboundDate:/damaged/.test(s)?'2026-07-21':'',
+      containerFrom:/missingContainer/.test(s)?'':'0004',
+      containerTo:/missingContainer/.test(s)?'':'0028'
     };
   }
 };
@@ -22,7 +24,7 @@ vm.runInContext(code,ctx,{filename:'v55-wms-parser.js'});
 
 const P=ctx.V55WmsParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.3');
+assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.4');
 
 const items=[
   {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
