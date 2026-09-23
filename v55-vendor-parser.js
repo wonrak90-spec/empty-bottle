@@ -234,7 +234,7 @@
     let score=0;
     if(/동화\s*지앤피/.test(s))score+=4;
     if(/p\s*[-/]?\s*(?:번\s*호|no)/i.test(s))score+=3;
-    if(/\d+\s*[x×*]\s*\d+(?:\s*[x×*]|\D{0,6})\s*\d+\s*단/.test(s))score+=3;
+    if(/\d{1,4}\s*[x×*]\s*\d{1,4}\s*(?:[x×*]\s*\d{1,3}|\s+\d{1,3})\s*단/.test(s))score+=3;
     if(/유리\s*제품.*충격.*파손/.test(s))score+=2;
     if(/판콜/.test(s))score+=2;
     if(/유리병\s*[（(]?각병/.test(s))score+=2;
