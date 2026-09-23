@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.3'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.4'};
 
   function fixDigits(s){
     return String(s||'')
@@ -51,6 +51,32 @@
     const q=fixDigits(out&&out.displayQty).replace(/\D/g,'');
     return !!(d&&q&&d.length===8&&d===q+'000');
   }
+  function inboundYearPrefix(out,raw){
+    const d=String(out&&out.inboundDate||'').replace(/\D/g,'');
+    if(/^20\d{6}$/.test(d))return d.slice(2,4);
+    const m=fixDigits(String(raw||'')).match(/입\s*고\s*일(?:\s*자)?\s*[:：-]?\s*(20\d{6})/);
+    return m?m[1].slice(2,4):'';
+  }
+  function normalizeDamagedInbound(s,out,raw){
+    const d=fixDigits(s).replace(/\D/g,'');
+    if(d.length===8)return d;
+    const yy=inboundYearPrefix(out||{},raw||'');
+    if(!yy)return '';
+    if(d.length===6)return yy+d;
+    if(d.length===7)return yy+d.slice(-6);
+    return '';
+  }
+  function recoverContainerRange(raw,items,out){
+    const src=[String(raw||''),...rows(items).map(r=>r.text||'')].join('\n');
+    const labelled=fixDigits(src).match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:：-]?\s*([0-9]{3,5})\s*[/~～]\s*([0-9]{3,5})/i);
+    const generic=fixDigits(src).match(/(?:^|\D)([0-9]{3,5})\s*[/~～]\s*([0-9]{3,5})(?:\D|$)/);
+    const m=labelled||generic;
+    if(!m)return out||{};
+    const next={...(out||{})};
+    if(!next.containerFrom)next.containerFrom=m[1];
+    if(!next.containerTo)next.containerTo=m[2];
+    return next;
+  }
   function validInbound(s,out){
     const d=fixDigits(s).replace(/\D/g,'');
     return d.length===8&&!isDate8(d)&&!isQtyScaledArtifact(d,out||{});
@@ -61,23 +87,29 @@
     // Raw-text fallback for OCR that inserts spaces inside the 8-digit
     // inbound number (for example "2600 3373").  Keep it tied to the
     // inbound-number label so unrelated quantity/date rows cannot be joined.
-    const rawMatch=fixDigits(String(raw||'')).match(/입\s*고\s*번\s*호\s*[:：-]?\s*((?:[0-9][\s\-]*){8,10})/);
+    const rawMatch=fixDigits(String(raw||'')).match(/입\s*고\s*번(?:\s*호)?\s*[:：-]?\s*((?:[0-9][\s\-]*){6,10})/);
     if(rawMatch){
       const d=String(rawMatch[1]||'').replace(/\D/g,'');
       if(validInbound(d,out||{}))return d;
+      const repaired=normalizeDamagedInbound(d,out||{},raw||'');
+      if(validInbound(repaired,out||{}))return repaired;
     }
 
     // First choice: digits on the same row as the inbound-number label.
     let inboundRow=-1;
     for(let i=0;i<rr.length;i++){
       const row=rr[i];
-      if(!/입\s*고\s*번\s*호/.test(row.text))continue;
+      if(!/입\s*고\s*번(?:\s*호)?/.test(row.text))continue;
       inboundRow=i;
-      const after=fixDigits(row.text.replace(/^.*?입\s*고\s*번\s*호\s*[:：-]?\s*/,'')).replace(/\D/g,'');
+      const after=fixDigits(row.text.replace(/^.*?입\s*고\s*번(?:\s*호)?\s*[:：-]?\s*/,'')).replace(/\D/g,'');
       if(validInbound(after,out||{}))return after;
+      const repaired=normalizeDamagedInbound(after,out||{},raw||'');
+      if(validInbound(repaired,out||{}))return repaired;
       const joined=row.items.map(x=>fixDigits(x.text).replace(/\D/g,'')).filter(Boolean).join('');
       const m=joined.match(/([0-9]{8})/);
       if(m&&validInbound(m[1],out||{}))return m[1];
+      const repairedJoined=normalizeDamagedInbound(joined,out||{},raw||'');
+      if(validInbound(repairedJoined,out||{}))return repairedJoined;
     }
 
     // OCR geometry may split the label and its value into adjacent rows.
@@ -131,13 +163,18 @@
       out=window.parseLabelText(text||'')||{};
     }
     if(!validInbound(out.inboundNo,out)){
-      const v=recoverInbound(text,items,out);
-      if(validInbound(v,out))out.inboundNo=v;
-      else if(!validInbound(out.inboundNo,out))delete out.inboundNo;
+      const damaged=normalizeDamagedInbound(out.inboundNo,out,text||'');
+      if(validInbound(damaged,out))out.inboundNo=damaged;
+      else{
+        const v=recoverInbound(text,items,out);
+        if(validInbound(v,out))out.inboundNo=v;
+        else if(!validInbound(out.inboundNo,out))delete out.inboundNo;
+      }
     }
+    if(!out.containerFrom||!out.containerTo)out=recoverContainerRange(text,items,out);
     return out;
   };
 
-  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound};
-  console.info('[V55-WMS-PARSER-2.3] label-adjacent split-digit + quantity-artifact-safe inbound recovery ready');
+  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange};
+  console.info('[V55-WMS-PARSER-2.4] damaged inbound year-prefix repair + tolerant container-range recovery ready');
 })();
