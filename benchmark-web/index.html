@@ -40,7 +40,7 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px
     <div class="row">
       <input id="zipFile" type="file" accept=".zip,application/zip">
       <label><input id="adaptive" type="checkbox" checked> Adaptive OCR 비교</label>
-      <button id="runBtn" class="primary" onclick="runBenchmark()">35장 평가 시작</button>
+      <button id="runBtn" class="primary" onclick="runBenchmark()" disabled>35장 평가 시작</button>
     </div>
     <div id="runStatus" class="status" style="margin-top:12px">OCR_Robustness_Holdout_V1_Private.zip을 선택하세요.</div>
     <div class="progress" style="margin-top:10px"><div id="progressBar"></div></div>
@@ -76,6 +76,9 @@ window.setStatus=function(id,text,kind){
 };
 </script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-korean-ocr.js"></script>
+<script src="./v55-benchmark-base-parser.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-qty.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-vendor-templates.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-vendor-parser.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-wms-parser.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-roi-preprocess.js"></script>
@@ -297,19 +300,50 @@ window.downloadCsv=function(){
   downloadBlob("OCR_V55_Web_Benchmark_"+new Date().toISOString().slice(0,10)+".csv","text/csv;charset=utf-8","\ufeff"+rows.map(function(x){return x.map(q).join(",");}).join("\r\n"));
 };
 
+function runtimeSelfTest(){
+  if(typeof window.parseLabelText!=="function"||typeof window.parseVendorLabel!=="function")throw new Error("Benchmark Base Parser 미로드");
+  if(!window.V26Qty||!window.V26VendorTemplates)throw new Error("V26 Qty/Vendor Template 미로드");
+
+  var wraw="입고번호 26003373\n품명 판콜액 병\n품목코드 2000990\n수량 21,320.000 EA\n용기번호 0004/0028";
+  var w=V55WmsParser.parse(wraw,[]);
+  var wok=String(w.inboundNo||"")==="26003373"&&String(w.itemCode||"")==="2000990"&&
+    String(w.product||"").replace(/\s/g,"")==="판콜액병"&&String(w.displayQty||"")==="21320"&&
+    String(w.containerFrom||"")==="0004"&&String(w.containerTo||"")==="0028";
+  if(!wok)throw new Error("WMS Parser 자체검증 실패 · "+JSON.stringify(w));
+
+  var vraw="품명 까스활명수75ml\n생산라인 당진 3F\nP/L No. 43\n포장사양 900×12단 : 10,800";
+  var v=V55VendorParser.parse(vraw,[]);
+  var vok=String(v.product||"").replace(/\s/g,"").toLowerCase()==="까스활명수75ml"&&
+    String(v.qty||"")==="10800"&&String(v.palletNo||"")==="43";
+  if(!vok)throw new Error("Vendor Parser 자체검증 실패 · "+JSON.stringify(v));
+  return true;
+}
 function checkModules(){
   var req=[
     ["V26KoreanOCR",window.V26KoreanOCR],
+    ["V26Qty",window.V26Qty],
+    ["V26VendorTemplates",window.V26VendorTemplates],
     ["V55VendorParser",window.V55VendorParser],
     ["V55WmsParser",window.V55WmsParser],
     ["V55RoiPreprocess",window.V55RoiPreprocess],
     ["V55AdaptiveOCR",window.V55AdaptiveOCR]
   ];
   var bad=req.filter(function(x){return !x[1];});
-  if(bad.length)setStatus("moduleStatus","모듈 로드 실패: "+bad.map(function(x){return x[0];}).join(", "),"bad");
-  else{
+  var run=document.getElementById("runBtn");
+  if(bad.length){
+    if(run)run.disabled=true;
+    setStatus("moduleStatus","모듈 로드 실패: "+bad.map(function(x){return x[0];}).join(", "),"bad");
+    return;
+  }
+  try{
+    runtimeSelfTest();
+    if(run)run.disabled=false;
     var versions=req.map(function(x){return x[0]+" "+(x[1].VERSION||"OK");}).join(" · ");
-    setStatus("moduleStatus","모듈 로드 완료","ok");document.getElementById("engineDetail").textContent=versions;
+    setStatus("moduleStatus","모듈 + Parser 자체검증 통과","ok");
+    document.getElementById("engineDetail").textContent=versions;
+  }catch(e){
+    if(run)run.disabled=true;
+    setStatus("moduleStatus","실행환경 자체검증 실패: "+String(e&&e.message?e.message:e),"bad");
   }
 }
 if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",checkModules,{once:true});else checkModules();
