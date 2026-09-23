@@ -128,8 +128,15 @@
     return prev[b.length];
   }
   function nearHangulToken(source,target,maxDist){
-    const toks=String(source||'').match(/[가-힣]{3,}/g)||[];
-    return toks.some(t=>Math.abs(t.length-target.length)<=maxDist&&editDistance(t,target)<=maxDist);
+    const h=String(source||'').replace(/[^가-힣]/g,'');
+    const min=Math.max(2,target.length-maxDist),max=target.length+maxDist;
+    for(let len=min;len<=max;len++){
+      for(let i=0;i+len<=h.length;i++){
+        const part=h.slice(i,i+len);
+        if(editDistance(part,target)<=maxDist)return true;
+      }
+    }
+    return false;
   }
   function hasVolume(source,n){
     const re=new RegExp(String(n)+'\\s*m(?:l|1|i|I|!|\\|)?(?=\\s|$|[^A-Za-z0-9])','i');
