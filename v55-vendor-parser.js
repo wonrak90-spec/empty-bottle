@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.4'};
+  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.5'};
 
   function fixDigits(s){
     return String(s||'')
@@ -69,8 +69,8 @@
     for(const x of [...a,...b])if(x&&out.indexOf(x)<0)out.push(x);
     return out;
   }
-  function palletLabelDongaRe(){return /P\s*[/\-]\s*[L1I|]\s*N\s*[oO0QD]\.?/i;}
-  function palletLabelDonghwaRe(){return /P\s*[-/]?\s*(?:번\s*호|N\s*[oO0QD]\.?)?/i;}
+  function palletLabelDongaRe(){return /P\s*[/\-]?\s*(?:[L1I|]\s*){1,2}N\s*[oO0QD]\.?/i;}
+  function palletLabelDonghwaRe(){return /P\s*[-/]?\s*(?:번\s*호|변(?:\s*호)?|N\s*[oO0QD]\.?)/i;}
   function labelValueByRow(items,labelRe,valueRe){
     const rows=itemRowObjects(items);
     for(const row of rows){
@@ -104,7 +104,7 @@
       .trim();
 
     // Common recognition slips around the volume suffix only.
-    x=x.replace(/(\d{1,4})\s*m(?:1|i|I|l)?\b/gi,(m,n)=>n+'ml');
+    x=x.replace(/(\d{1,4})\s*m(?:1|i|I|l|!|\|)?(?=\s|$|[^A-Za-z0-9])/gi,(m,n)=>n+'ml');
 
     // OCR sometimes leaves the product-key tail in front of a correctly read
     // Donghwa product value ("명 판콜...", "높명 판콜...").  Once the
@@ -116,6 +116,75 @@
     x=x.replace(/판콜\s*에?이?\s*병/gi,'판콜에이병');
     return x.trim();
   }
+
+  function editDistance(a,b){
+    a=String(a||'');b=String(b||'');
+    const prev=Array.from({length:b.length+1},(_,i)=>i),cur=new Array(b.length+1);
+    for(let i=1;i<=a.length;i++){
+      cur[0]=i;
+      for(let j=1;j<=b.length;j++)cur[j]=Math.min(cur[j-1]+1,prev[j]+1,prev[j-1]+(a[i-1]===b[j-1]?0:1));
+      for(let j=0;j<=b.length;j++)prev[j]=cur[j];
+    }
+    return prev[b.length];
+  }
+  function nearHangulToken(source,target,maxDist){
+    const toks=String(source||'').match(/[가-힣]{3,}/g)||[];
+    return toks.some(t=>Math.abs(t.length-target.length)<=maxDist&&editDistance(t,target)<=maxDist);
+  }
+  function hasVolume(source,n){
+    const re=new RegExp(String(n)+'\\s*m(?:l|1|i|I|!|\\|)?(?=\\s|$|[^A-Za-z0-9])','i');
+    return re.test(String(source||''));
+  }
+  function canonicalKnownProduct(rows){
+    const src=(Array.isArray(rows)?rows:[rows]).join('\n');
+    if(hasVolume(src,75)&&nearHangulToken(src,'까스활명수',2))return '까스활명수75ml';
+    if(hasVolume(src,30)&&nearHangulToken(src,'판콜에이병',2))return '판콜에이병 30ml';
+    const compact=src.replace(/\s/g,'');
+    if(hasVolume(src,100)&&/유리병[（(]?각병[)）]?/.test(compact))return '유리병(각병) 100ml';
+    return '';
+  }
+
+  function sourceFactorSet(source){return new Set(formulaFactors(source).map(String));}
+  function safePalletValue(v,source){
+    const p=num(v);
+    return p&&!sourceFactorSet(source).has(String(Number(p)))?p:'';
+  }
+  function recoverDongaPallet(rows,source){
+    const src=String(source||'');
+    const explicit=src.match(/P\s*[/\-]?\s*(?:[L1I|]\s*){1,2}N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
+    if(explicit){
+      const p=safePalletValue(explicit[1],src);
+      if(p)return p;
+    }
+    for(const row of rows){
+      const m=fixDigits(row).match(/(?:^|\D)([0-9]{1,4})\s*색(?:상|신)\b/i);
+      if(m){
+        const p=safePalletValue(m[1],src);
+        if(p)return p;
+      }
+    }
+    return '';
+  }
+  function recoverDonghwaPallet(rows,source){
+    const src=String(source||''),factors=sourceFactorSet(src);
+    const valid=v=>{const p=num(v);return p&&!factors.has(String(Number(p)))?p:'';};
+    const explicit=src.match(/P\s*[-/]?\s*(?:번\s*호|변(?:\s*호)?|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/i);
+    if(explicit){const p=valid(explicit[1]);if(p)return p;}
+    const bare=src.match(/(?:^|\n|\s)번\s*호\s*[:\-]?\s*([0-9OQDIl|]{1,4})\b/im);
+    if(bare){const p=valid(bare[1]);if(p)return p;}
+
+    for(let i=0;i<rows.length;i++){
+      const row=rows[i];
+      if(!/(?:P\s*[-/]?\s*(?:번\s*호|변|N\s*[oO0QD])|번\s*호)/i.test(row))continue;
+      const before=rows[i-1]||'',after=rows[i+1]||'';
+      let m=before.match(/^\s*([0-9OQDIl|]{1,4})\s*$/i);
+      if(m){const p=valid(m[1]);if(p)return p;}
+      m=after.match(/=\s*[0-9][0-9,\.]{3,}\s*(?:본|EA|개)?\s+([0-9OQDIl|]{1,4})\s*$/i);
+      if(m){const p=valid(m[1]);if(p)return p;}
+    }
+    return '';
+  }
+
   function productScore(x,fromLabel){
     x=cleanProduct(x);
     if(!x||!/[가-힣]{2,}/.test(x))return -999;
@@ -169,6 +238,9 @@
     if(/유리\s*제품.*충격.*파손/.test(s))score+=2;
     if(/판콜/.test(s))score+=2;
     if(/유리병\s*[（(]?각병/.test(s))score+=2;
+    const known=canonicalKnownProduct(rows);
+    if(known==='판콜에이병 30ml'||known==='유리병(각병) 100ml')score+=4;
+    if(/499\D{0,4}8574/.test(s))score+=4;
     return score>=3;
   }
   function detectDonga(raw,rows){
@@ -178,7 +250,7 @@
   function parseDonghwa(raw,items,base){
     const rows=rowsOf(raw,items),joined=rows.join('\n'),out={...(base||{})};
 
-    let p=bestProduct(rows);
+    let p=canonicalKnownProduct(rows)||bestProduct(rows);
     if(!p&&out.product)p=cleanProduct(out.product);
 
     // If the generic parser captured only "30ml"/"100ml", recover the Korean
@@ -201,17 +273,14 @@
     }
 
     // P-번호 is the pallet identifier on Donghwa labels.
-    let pv=labelValueByRow(items,palletLabelDonghwaRe(),/([0-9OQDIl|]{1,4})/i);
+    const palletSource=joined+'\n'+String(raw||'');
+    let pv=recoverDonghwaPallet(rows,palletSource);
     if(!pv){
-      const pm=(joined+'\n'+String(raw||'')).match(/P\s*[-/]?\s*(?:번\s*호|N\s*[oO0QD]\.?)\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
-      if(pm)pv=pm[1];
+      const rowPv=labelValueByRow(items,palletLabelDonghwaRe(),/([0-9OQDIl|]{1,4})\b/i);
+      pv=safePalletValue(rowPv,palletSource);
     }
-    if(pv){
-      const v=num(pv);
-      if(v)out.palletNo=v;
-    }else if(out.palletNo){
-      rejectInferredFormulaPallet(out,joined+'\n'+String(raw||''));
-    }
+    if(pv)out.palletNo=pv;
+    else if(out.palletNo)rejectInferredFormulaPallet(out,palletSource);
 
     // Prefer the printed final count after '=' or a verified multiplicative formula.
     let qty='';
@@ -240,21 +309,18 @@
   function parseDonga(raw,items,base){
     const rows=rowsOf(raw,items),joined=rows.join('\n'),out={...(base||{})};
 
-    const p=bestProduct(rows);
+    const p=canonicalKnownProduct(rows)||bestProduct(rows);
     if(p)out.product=p;
     else if(out.product)out.product=cleanProduct(out.product);
 
-    let plv=labelValueByRow(items,palletLabelDongaRe(),/([0-9OQDIl|]{1,4})/i);
+    const palletSource=joined+'\n'+String(raw||'');
+    let plv=recoverDongaPallet(rows,palletSource);
     if(!plv){
-      const pl=(joined+'\n'+String(raw||'')).match(/P\s*[/\-]\s*[L1I|]\s*N\s*[oO0QD]\.?\s*[:\-]?\s*([0-9OQDIl|]{1,4})/i);
-      if(pl)plv=pl[1];
+      const rowPl=labelValueByRow(items,palletLabelDongaRe(),/([0-9OQDIl|]{1,4})\b/i);
+      plv=safePalletValue(rowPl,palletSource);
     }
-    if(plv){
-      const v=num(plv);
-      if(v)out.palletNo=v;
-    }else if(out.palletNo){
-      rejectInferredFormulaPallet(out,joined+'\n'+String(raw||''));
-    }
+    if(plv)out.palletNo=plv;
+    else if(out.palletNo)rejectInferredFormulaPallet(out,palletSource);
 
     if(window.V26Qty&&typeof V26Qty.vendorFormula==='function'){
       const f=V26Qty.vendorFormula(joined);
@@ -283,6 +349,6 @@
     return base;
   };
 
-  P._test={cleanProduct,productScore,joinProductRows,bestProduct,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet};
-  console.info('[V55-VENDOR-PARSER-3.4] product scoring + OCR-tolerant explicit pallet labels + formula-safe parser ready');
+  P._test={cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet};
+  console.info('[V55-VENDOR-PARSER-3.5] known-product normalization + tolerant pallet recovery + formula-safe parser ready');
 })();
