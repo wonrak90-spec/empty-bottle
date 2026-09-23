@@ -1,0 +1,24 @@
+name: V55 Field Session Tests
+
+on:
+  push:
+    branches:
+      - feature/v55-field-validation-scenario-20260924
+
+jobs:
+  field-session:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Field session balance tests
+        run: node tests/v55-field-session.test.js
+      - name: Vendor parser regression
+        run: node tests/v55-vendor-parser.test.js
+      - name: WMS parser regression
+        run: node tests/v55-wms-parser.test.js
+      - name: Adaptive OCR regression
+        run: node tests/v55-adaptive-ocr.test.js
