@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>공병 OCR V55 Benchmark Web</title>
+<style>
+:root{font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","Malgun Gothic",sans-serif;color:#17212b;background:#f4f6f8}
+*{box-sizing:border-box}body{margin:0}.wrap{max-width:1180px;margin:0 auto;padding:24px}.card{background:#fff;border:1px solid #dbe2e8;border-radius:14px;padding:18px;margin-bottom:14px;box-shadow:0 2px 10px rgba(0,0,0,.04)}
+h1{font-size:24px;margin:0 0 6px}h2{font-size:17px;margin:0 0 12px}.sub{color:#66727d;font-size:13px}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.kpi{border:1px solid #dce3e8;border-radius:10px;padding:12px}.kpi small{display:block;color:#6b7680}.kpi b{font-size:23px}
+input[type=file]{max-width:100%;padding:9px;border:1px solid #ccd5dc;border-radius:8px;background:#fff}
+button{border:0;border-radius:8px;padding:10px 14px;font-weight:700;cursor:pointer}.primary{background:#165dff;color:#fff}.secondary{background:#e9eef5;color:#25313b}.danger{background:#ffe6e6;color:#9b1c1c}
+button:disabled{opacity:.55;cursor:not-allowed}.status{padding:10px 12px;border-radius:8px;background:#edf2f6;font-size:13px}.status.ok{background:#e9f8ef;color:#176b38}.status.warn{background:#fff5d9;color:#725400}.status.bad{background:#ffe8e8;color:#9b1c1c}
+.progress{height:9px;background:#e8edf2;border-radius:99px;overflow:hidden}.progress>div{height:100%;width:0;background:#165dff;transition:width .2s}
+table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px solid #e3e8ec;padding:8px;text-align:left;vertical-align:top}th{background:#f7f9fb;position:sticky;top:0}
+.scroll{max-height:520px;overflow:auto;border:1px solid #e0e6eb;border-radius:10px}.muted{color:#75808a}.good{color:#15713d;font-weight:700}.bad{color:#b42318;font-weight:700}.mono{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px}
+@media(max-width:800px){.grid{grid-template-columns:repeat(2,minmax(0,1fr))}.wrap{padding:12px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h1>공병 OCR V55 · 35장 Holdout Benchmark</h1>
+    <div class="sub">운영 main과 분리된 실측 페이지 · Holdout ZIP은 브라우저 메모리에서만 처리되며 업로드하지 않습니다.</div>
+    <div class="sub mono" style="margin-top:6px">V55 source: 74630859c8594882b44cebc8ebb134d81c7f0fe7 · Adaptive 2.4.3 / Vendor 3.4 / WMS 2.3 / ROI 3.1</div>
+  </div>
+
+  <div class="card">
+    <h2>1. OCR 엔진 상태</h2>
+    <div id="moduleStatus" class="status warn">모듈 확인 중...</div>
+    <div class="row" style="margin-top:10px">
+      <button id="engineBtn" class="secondary" onclick="prepareEngine()">엔진 준비 확인</button>
+      <span id="engineDetail" class="muted"></span>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>2. Private Holdout ZIP 선택</h2>
+    <div class="row">
+      <input id="zipFile" type="file" accept=".zip,application/zip">
+      <label><input id="adaptive" type="checkbox" checked> Adaptive OCR 비교</label>
+      <button id="runBtn" class="primary" onclick="runBenchmark()">35장 평가 시작</button>
+    </div>
+    <div id="runStatus" class="status" style="margin-top:12px">OCR_Robustness_Holdout_V1_Private.zip을 선택하세요.</div>
+    <div class="progress" style="margin-top:10px"><div id="progressBar"></div></div>
+  </div>
+
+  <div class="card">
+    <h2>3. 결과</h2>
+    <div class="grid">
+      <div class="kpi"><small>기존 Adaptive Critical</small><b>70.5%</b></div>
+      <div class="kpi"><small>신규 Adaptive Critical</small><b id="kCritical">-</b></div>
+      <div class="kpi"><small>기존 Group Critical</small><b>69.2%</b></div>
+      <div class="kpi"><small>신규 Group Critical</small><b id="kGroup">-</b></div>
+    </div>
+    <div id="fieldSummary" style="margin-top:14px"></div>
+    <div class="row" style="margin-top:12px">
+      <button id="jsonBtn" class="secondary" disabled onclick="downloadJson()">결과 JSON</button>
+      <button id="csvBtn" class="secondary" disabled onclick="downloadCsv()">결과 CSV</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>상세 결과</h2>
+    <div class="scroll"><table><thead><tr><th>파일</th><th>Template</th><th>Method</th><th>Critical</th><th>오류 필드</th><th>시간</th></tr></thead><tbody id="detailBody"></tbody></table></div>
+  </div>
+</div>
+
+<script>
+window.setStatus=function(id,text,kind){
+  var el=typeof id==="string"?document.getElementById(id):id;
+  if(!el)return;
+  el.textContent=text||"";
+  el.className="status"+(kind?" "+kind:"");
+};
+</script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-korean-ocr.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-vendor-parser.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-wms-parser.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-roi-preprocess.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-adaptive-ocr.js"></script>
+<script>
+(function(){
+"use strict";
+var RESULTS=[], SUMMARY=null;
+var SOURCE_COMMIT="74630859c8594882b44cebc8ebb134d81c7f0fe7";
+var FFLATE_URL="https://cdn.jsdelivr.net/npm/fflate@0.8.2/+esm";
+window.__benchResults=RESULTS;
+
+function esc(s){return String(s==null?"":s).replace(/[&<>"']/g,function(c){return {"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c];});}
+function sleep(ms){return new Promise(function(r){setTimeout(r,ms);});}
+function normSpace(s){return String(s==null?"":s).replace(/\s+/g," ").trim();}
+function normDigits(s){var d=String(s==null?"":s).replace(/[^0-9]/g,"");return d?String(Number(d)):"";}
+function normCompany(s){return String(s==null?"":s).toLowerCase().replace(/주식회사|\(주\)|㈜|[\s.()\-_]/g,"");}
+function normProduct(s){return String(s==null?"":s).toLowerCase().replace(/m[ℓℒ]|㎖/g,"ml").replace(/[()（）\s._-]/g,"").replace(/리터/g,"l");}
+function normGeneric(s){return normSpace(s).toLowerCase().replace(/[：:]/g,"");}
+function normDate(s){return String(s==null?"":s).replace(/[.\/년월일\s]/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"");}
+function compareField(k,a,b){
+  if(a==null||String(a).trim()==="")return null;
+  var x="",y="";
+  if(["inboundNo","itemCode","displayQty","qty","containerFrom","containerTo","palletNo","lotNo"].indexOf(k)>=0){x=normDigits(a);y=normDigits(b);}
+  else if(["maker","manufacturer","supplier","deliverTo"].indexOf(k)>=0){x=normCompany(a);y=normCompany(b);}
+  else if(k==="product"){x=normProduct(a);y=normProduct(b);}
+  else if(k==="line"){x=normGeneric(a).replace(/\s/g,"");y=normGeneric(b).replace(/\s/g,"");}
+  else if(["prodDate","inboundDate","expiryDate"].indexOf(k)>=0){x=normDate(a);y=normDate(b);}
+  else{x=normGeneric(a);y=normGeneric(b);}
+  return {ok:!!x&&x===y,expected:String(a==null?"":a),actual:String(b==null?"":b),nx:x,ny:y};
+}
+function critical(k,type){
+  return type==="wms"
+    ? ["inboundNo","itemCode","product","displayQty","containerFrom","containerTo"].indexOf(k)>=0
+    : ["product","qty","palletNo"].indexOf(k)>=0;
+}
+function blobToDataUrl(blob){return new Promise(function(res,rej){var fr=new FileReader();fr.onload=function(){res(fr.result);};fr.onerror=rej;fr.readAsDataURL(blob);});}
+function str(bytes){return new TextDecoder("utf-8").decode(bytes);}
+function parseJsonl(bytes){return str(bytes).split(/\r?\n/).map(function(x){return x.trim();}).filter(Boolean).map(function(x){return JSON.parse(x);});}
+function findEntry(zip,suffix){
+  var keys=Object.keys(zip),s=String(suffix).replace(/\\/g,"/");
+  return keys.find(function(k){var n=k.replace(/\\/g,"/");return n===s||n.endsWith("/"+s);})||"";
+}
+function resolveImage(zip,folder,file){
+  var keys=Object.keys(zip), f=String(file||"").replace(/\\/g,"/").replace(/^\.\//,""), base=f.split("/").pop();
+  var candidates=[folder+"/"+f,"holdout/"+f,"holdout_real/"+f,f].map(function(x){return x.replace(/\\/g,"/").replace(/^\.\//,"");});
+  for(var i=0;i<candidates.length;i++){
+    var c=candidates[i];
+    var exact=keys.find(function(k){var n=k.replace(/\\/g,"/");return n===c||n.endsWith("/"+c);});
+    if(exact)return exact;
+  }
+  var byBase=keys.filter(function(k){var n=k.replace(/\\/g,"/");return n.split("/").pop()===base;});
+  return byBase.length===1?byBase[0]:"";
+}
+function predicted(type,text,items){
+  if(type==="vendor"){
+    if(window.V55VendorParser&&typeof V55VendorParser.parse==="function")return V55VendorParser.parse(text||"",items||[]);
+    return {};
+  }
+  if(window.V55WmsParser&&typeof V55WmsParser.parse==="function")return V55WmsParser.parse(text||"",items||[]);
+  return {};
+}
+function summarize(rows){
+  var field={},template={},groups={};var ok=0,total=0,critOk=0,critTotal=0,baseCritOk=0,baseCritTotal=0,retried=0,improved=0;
+  rows.forEach(function(r){
+    r.fields.forEach(function(f){
+      if(!field[f.key])field[f.key]={ok:0,total:0};
+      field[f.key].total++;total++;if(f.ok){field[f.key].ok++;ok++;}if(f.critical){critTotal++;if(f.ok)critOk++;}
+    });
+    (r.baselineFields||r.fields||[]).forEach(function(f){if(f.critical){baseCritTotal++;if(f.ok)baseCritOk++;}});
+    if(Number(r.extraPasses||0)>0)retried++;
+    var before=(r.baselineFields||[]).filter(function(f){return f.critical&&f.ok;}).length;
+    var after=(r.fields||[]).filter(function(f){return f.critical&&f.ok;}).length;
+    if(after>before)improved++;
+    var gid=r.sourceGroup||r.file||"-";
+    if(!groups[gid])groups[gid]={criticalOk:0,criticalTotal:0,images:0};
+    groups[gid].images++;
+    r.fields.forEach(function(f){if(f.critical){groups[gid].criticalTotal++;if(f.ok)groups[gid].criticalOk++;}});
+    var t=r.template||r.labelType||"-";
+    if(!template[t])template[t]={images:0,ok:0,total:0};
+    template[t].images++;r.fields.forEach(function(f){template[t].total++;if(f.ok)template[t].ok++;});
+  });
+  function pct(a,b){return b?Math.round(a/b*1000)/10:0;}
+  var gs=Object.values(groups).filter(function(g){return g.criticalTotal>0;}).map(function(g){return g.criticalOk/g.criticalTotal*100;});
+  var gw=gs.length?Math.round(gs.reduce(function(a,b){return a+b;},0)/gs.length*10)/10:0;
+  return {images:rows.length,sourceGroups:Object.keys(groups).length,accuracy:pct(ok,total),criticalAccuracy:pct(critOk,critTotal),
+    baselineCriticalAccuracy:pct(baseCritOk,baseCritTotal),groupWeightedCriticalAccuracy:gw,retried:retried,improved:improved,field:field,template:template};
+}
+function pctObj(o){return o&&o.total?Math.round(o.ok/o.total*1000)/10:0;}
+
+window.prepareEngine=async function(){
+  var btn=document.getElementById("engineBtn");btn.disabled=true;
+  setStatus("moduleStatus","OCR 엔진 초기화 중...","warn");
+  try{
+    if(!window.V26KoreanOCR||typeof V26KoreanOCR.ensureEngine!=="function")throw new Error("V26KoreanOCR.ensureEngine 로드 실패");
+    var t=performance.now();
+    await V26KoreanOCR.ensureEngine("moduleStatus");
+    var ms=Math.round(performance.now()-t);
+    setStatus("moduleStatus","OCR 엔진 준비 완료","ok");
+    document.getElementById("engineDetail").textContent=ms.toLocaleString()+" ms · "+(V26KoreanOCR.VERSION||"");
+    return true;
+  }catch(e){
+    setStatus("moduleStatus","엔진 준비 실패: "+String(e&&e.message?e.message:e),"bad");
+    return false;
+  }finally{btn.disabled=false;}
+};
+
+async function unzip(file){
+  var mod=await import(FFLATE_URL);
+  var buf=new Uint8Array(await file.arrayBuffer());
+  return mod.unzipSync(buf);
+}
+
+window.runBenchmark=async function(){
+  var file=document.getElementById("zipFile").files[0];
+  if(!file){setStatus("runStatus","먼저 Private Holdout ZIP을 선택하세요.","bad");return;}
+  var btn=document.getElementById("runBtn");btn.disabled=true;RESULTS=[];SUMMARY=null;window.__benchResults=RESULTS;
+  document.getElementById("detailBody").innerHTML="";
+  document.getElementById("progressBar").style.width="0%";
+  document.getElementById("jsonBtn").disabled=true;document.getElementById("csvBtn").disabled=true;
+  document.getElementById("kCritical").textContent="-";document.getElementById("kGroup").textContent="-";document.getElementById("fieldSummary").innerHTML="";
+  try{
+    if(!window.V26KoreanOCR||typeof V26KoreanOCR.recognize!=="function")throw new Error("OCR 엔진 모듈이 로드되지 않았습니다.");
+    if(!window.V55AdaptiveOCR)throw new Error("V55 Adaptive OCR 모듈이 로드되지 않았습니다.");
+    if(!V26KoreanOCR.ready){
+      setStatus("runStatus","OCR 엔진 준비 중...","warn");
+      await V26KoreanOCR.ensureEngine("runStatus");
+    }
+    setStatus("runStatus","ZIP 구조 확인 중...","warn");
+    var zip=await unzip(file);
+    var holdKey=findEntry(zip,"labels_holdout.jsonl");
+    var origKey=findEntry(zip,"labels_original.jsonl");
+    var originals=[],folder="holdout";
+    if(holdKey){originals=parseJsonl(zip[holdKey]).filter(function(x){return x.verified!==false;});}
+    else if(origKey){
+      originals=parseJsonl(zip[origKey]).filter(function(x){var s=x.split||x.dataset_split||"";return x.verified!==false&&(s==="holdout"||s==="final_holdout");});
+      folder="holdout_real";
+    }else throw new Error("labels_holdout.jsonl 또는 labels_original.jsonl을 찾지 못했습니다.");
+    if(!originals.length)throw new Error("Holdout 라벨이 없습니다.");
+    var jobs=originals.map(function(x){return Object.assign({},x,{folder:folder,split:x.split||x.dataset_split||"final_holdout"});});
+    var missing=[];
+    jobs.forEach(function(j){j.__path=resolveImage(zip,j.folder,j.file);if(!j.__path)missing.push(j.file);});
+    if(missing.length)throw new Error("Holdout 이미지 "+missing.length+"개를 ZIP에서 찾지 못했습니다: "+missing.slice(0,5).join(", "));
+    if(jobs.length!==35)setStatus("runStatus","주의: Holdout "+jobs.length+"장 감지 · 기존 기준은 35장입니다.","warn");
+    var useAdaptive=document.getElementById("adaptive").checked;
+    for(var i=0;i<jobs.length;i++){
+      var j=jobs[i];
+      setStatus("runStatus","OCR 평가 "+(i+1)+" / "+jobs.length+" · "+j.file,"warn");
+      document.getElementById("progressBar").style.width=Math.round(i/jobs.length*100)+"%";
+      var bytes=zip[j.__path],blob=new Blob([bytes],{type:/\.png$/i.test(j.file)?"image/png":"image/jpeg"});
+      var data=await blobToDataUrl(blob);
+      var expected=j.fields||{},type=expected.label_type||j.label_type||"";
+      var r,pred,basePred,adaptive=null;
+      if(useAdaptive){
+        adaptive=await V55AdaptiveOCR.recognize(data,type);
+        r=adaptive.result;
+        pred=adaptive.parsed||predicted(type,r.text,r.items);
+        basePred=adaptive.baseline&&adaptive.baseline.parsed||{};
+      }else{
+        r=await V26KoreanOCR.recognize(data,false,"");
+        pred=predicted(type,r.text,r.items);basePred=pred;
+      }
+      var fs=[],bfs=[];
+      Object.keys(expected).forEach(function(k){
+        if(k==="label_type"||k==="template")return;
+        var cmp=compareField(k,expected[k],pred[k]);if(cmp)fs.push(Object.assign({key:k,critical:critical(k,type)},cmp));
+        var bcmp=compareField(k,expected[k],basePred[k]);if(bcmp)bfs.push(Object.assign({key:k,critical:critical(k,type)},bcmp));
+      });
+      RESULTS.push({
+        file:j.file,sourceGroup:j.source_group||j.sourceGroup||j.file,labelType:type,template:expected.template||j.template||"",
+        split:j.split||"",latency:adaptive?adaptive.totalLatency:(r.latency||0),fields:fs,baselineFields:bfs,
+        adaptiveMethod:adaptive&&adaptive.method||"baseline",extraPasses:adaptive&&adaptive.extraPasses||0,
+        attempts:adaptive&&adaptive.attempts||[],raw:r.text||""
+      });
+      renderRow(RESULTS[RESULTS.length-1]);
+      await sleep(15);
+    }
+    SUMMARY=summarize(RESULTS);window.__benchSummary=SUMMARY;
+    document.getElementById("progressBar").style.width="100%";
+    renderSummary();
+    setStatus("runStatus","평가 완료 · "+SUMMARY.images+"장 · Adaptive Critical "+SUMMARY.criticalAccuracy+"%","ok");
+    document.getElementById("jsonBtn").disabled=false;document.getElementById("csvBtn").disabled=false;
+  }catch(e){
+    setStatus("runStatus","평가 실패: "+String(e&&e.message?e.message:e),"bad");
+  }finally{btn.disabled=false;}
+};
+
+function renderRow(r){
+  var crit=r.fields.filter(function(f){return f.critical;});
+  var ok=crit.filter(function(f){return f.ok;}).length;
+  var bad=r.fields.filter(function(f){return !f.ok;});
+  var tr=document.createElement("tr");
+  tr.innerHTML="<td>"+esc(r.file)+"</td><td>"+esc(r.template||r.labelType)+"</td><td>"+esc(r.adaptiveMethod)+"</td><td>"+ok+"/"+crit.length+"</td><td>"+(bad.length?bad.map(function(f){return "<div><b>"+esc(f.key)+"</b>: "+esc(f.actual||"∅")+" → "+esc(f.expected)+"</div>";}).join(""):"<span class='good'>✓</span>")+"</td><td>"+Number(r.latency||0).toLocaleString()+" ms</td>";
+  document.getElementById("detailBody").appendChild(tr);
+}
+function renderSummary(){
+  document.getElementById("kCritical").textContent=SUMMARY.criticalAccuracy+"%";
+  document.getElementById("kGroup").textContent=SUMMARY.groupWeightedCriticalAccuracy+"%";
+  var keys=["product","qty","palletNo","inboundNo","itemCode","displayQty","containerFrom","containerTo"];
+  document.getElementById("fieldSummary").innerHTML=keys.filter(function(k){return SUMMARY.field[k];}).map(function(k){
+    var o=SUMMARY.field[k];return "<span style='display:inline-block;margin:3px;padding:6px 8px;border:1px solid #dce3e8;border-radius:8px'>"+esc(k)+" <b>"+pctObj(o)+"%</b> ("+o.ok+"/"+o.total+")</span>";
+  }).join("")+"<div class='sub' style='margin-top:8px'>Baseline Critical "+SUMMARY.baselineCriticalAccuracy+"% · 재시도 "+SUMMARY.retried+"장 · 개선 "+SUMMARY.improved+"장 · Source group "+SUMMARY.sourceGroups+"개</div>";
+}
+function downloadBlob(name,type,text){
+  var a=document.createElement("a");a.href=URL.createObjectURL(new Blob([text],{type:type}));a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(a.href);},1000);
+}
+window.downloadJson=function(){
+  if(!SUMMARY)return;
+  var out={generatedAt:new Date().toISOString(),benchmark:"V55-WEB-HOLDOUT-1",sourceCommit:SOURCE_COMMIT,zipName:document.getElementById("zipFile").files[0]&&document.getElementById("zipFile").files[0].name,summary:SUMMARY,results:RESULTS};
+  downloadBlob("OCR_V55_Web_Benchmark_"+new Date().toISOString().slice(0,10)+".json","application/json;charset=utf-8",JSON.stringify(out,null,2));
+};
+window.downloadCsv=function(){
+  if(!RESULTS.length)return;
+  var rows=[["file","source_group","template","adaptive_method","extra_passes","field","critical","baseline_ok","ok","expected","actual","latency_ms"]];
+  RESULTS.forEach(function(r){
+    r.fields.forEach(function(f){var bf=(r.baselineFields||[]).find(function(x){return x.key===f.key;});rows.push([r.file,r.sourceGroup,r.template,r.adaptiveMethod,r.extraPasses,f.key,f.critical,bf?bf.ok:false,f.ok,f.expected,f.actual,r.latency]);});
+  });
+  function q(v){return '"'+String(v==null?"":v).replace(/"/g,'""')+'"';}
+  downloadBlob("OCR_V55_Web_Benchmark_"+new Date().toISOString().slice(0,10)+".csv","text/csv;charset=utf-8","\ufeff"+rows.map(function(x){return x.map(q).join(",");}).join("\r\n"));
+};
+
+function checkModules(){
+  var req=[
+    ["V26KoreanOCR",window.V26KoreanOCR],
+    ["V55VendorParser",window.V55VendorParser],
+    ["V55WmsParser",window.V55WmsParser],
+    ["V55RoiPreprocess",window.V55RoiPreprocess],
+    ["V55AdaptiveOCR",window.V55AdaptiveOCR]
+  ];
+  var bad=req.filter(function(x){return !x[1];});
+  if(bad.length)setStatus("moduleStatus","모듈 로드 실패: "+bad.map(function(x){return x[0];}).join(", "),"bad");
+  else{
+    var versions=req.map(function(x){return x[0]+" "+(x[1].VERSION||"OK");}).join(" · ");
+    setStatus("moduleStatus","모듈 로드 완료","ok");document.getElementById("engineDetail").textContent=versions;
+  }
+}
+if(document.readyState==="loading")document.addEventListener("DOMContentLoaded",checkModules,{once:true});else checkModules();
+})();
+</script>
+</body>
+</html>
