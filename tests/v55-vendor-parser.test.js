@@ -144,13 +144,15 @@ assert.strictEqual(donghwaConfused.palletNo,'44');
 /* V3.5 regression cases from the 35-image development validation set.
  * These are parser-generalization tests, not a final holdout score.
  */
-const dongaPil=P.parse([
+const dongaPilRaw=[
   '동아에코팩(주)',
   '품명 까스활명수75ml',
   'PILNO',
   '27',
   '포장사양 900×12단:10,800'
-].join('\n'),[]);
+].join('\n');
+console.log('DEBUG dongaPil helper=',P._test.recoverDongaPallet(['PILNO','27'],dongaPilRaw),'detect=',P.detect(dongaPilRaw,[]));
+const dongaPil=P.parse(dongaPilRaw,[]);
 assert.strictEqual(dongaPil.palletNo,'27','PILNO line break must recover pallet 27');
 
 const dongaFormulaBeforePallet=P.parse([
