@@ -9,7 +9,7 @@
   const WRITE_ACTIONS=new Set([
     'addItemAlias','uploadPhoto','saveSingle','saveMulti',
     'startProduction','addProductionPallet','finishProduction','importMaster',
-    'createUser','resetUserPin','updateUser','changeMyPin'
+    'createUser','resetUserPin','updateUser','changeMyPin','ocrLearningSave'
   ]);
 
   function fake(action,payload){
@@ -20,7 +20,7 @@
     if(action==='startProduction')return {ok:true,id,preview:true};
     if(action==='addProductionPallet')return {ok:true,preview:true};
     if(action==='finishProduction')return {ok:true,preview:true};
-    if(action==='addItemAlias')return {ok:true,preview:true};
+    if(action==='addItemAlias'||action==='ocrLearningSave')return {ok:true,preview:true};
     return {ok:false,preview:true,message:'미리보기 모드에서는 서버 변경 작업을 저장하지 않습니다.'};
   }
 
