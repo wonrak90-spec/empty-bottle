@@ -21,9 +21,9 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px
 <body>
 <div class="wrap">
   <div class="card">
-    <h1>공병 OCR V55 · 35장 Holdout Benchmark</h1>
-    <div class="sub">운영 main과 분리된 실측 페이지 · Holdout ZIP은 브라우저 메모리에서만 처리되며 업로드하지 않습니다.</div>
-    <div class="sub mono" style="margin-top:6px">V55 source: 74630859c8594882b44cebc8ebb134d81c7f0fe7 · Adaptive 2.4.3 / Vendor 3.4 / WMS 2.3 / ROI 3.1</div>
+    <h1>공병 OCR V55 · 35장 Development Validation</h1>
+    <div class="sub">운영 main과 분리된 개발 검증 페이지 · ZIP은 브라우저 메모리에서만 처리되며 업로드하지 않습니다.</div>
+    <div class="sub mono" style="margin-top:6px">OCR/Adaptive base: 74630859c8594882b44cebc8ebb134d81c7f0fe7 · Parser patch: d4112f061c546721072112fc3e67f2318bac71ba · Vendor 3.5 / WMS 2.4</div>
   </div>
 
   <div class="card">
@@ -49,9 +49,9 @@ table{width:100%;border-collapse:collapse;font-size:12px}th,td{border-bottom:1px
   <div class="card">
     <h2>3. 결과</h2>
     <div class="grid">
-      <div class="kpi"><small>기존 Adaptive Critical</small><b>70.5%</b></div>
+      <div class="kpi"><small>직전 Web Critical</small><b>69.5%</b></div>
       <div class="kpi"><small>신규 Adaptive Critical</small><b id="kCritical">-</b></div>
-      <div class="kpi"><small>기존 Group Critical</small><b>69.2%</b></div>
+      <div class="kpi"><small>직전 Web Group</small><b>69.2%</b></div>
       <div class="kpi"><small>신규 Group Critical</small><b id="kGroup">-</b></div>
     </div>
     <div id="fieldSummary" style="margin-top:14px"></div>
@@ -79,15 +79,16 @@ window.setStatus=function(id,text,kind){
 <script src="./v55-benchmark-base-parser.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-qty.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v26-vendor-templates.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-vendor-parser.js"></script>
-<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-wms-parser.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@d4112f061c546721072112fc3e67f2318bac71ba/v55-vendor-parser.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@d4112f061c546721072112fc3e67f2318bac71ba/v55-wms-parser.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-roi-preprocess.js"></script>
 <script src="https://cdn.jsdelivr.net/gh/wonrak90-spec/empty-bottle@74630859c8594882b44cebc8ebb134d81c7f0fe7/v55-adaptive-ocr.js"></script>
 <script>
 (function(){
 "use strict";
 var RESULTS=[], SUMMARY=null;
-var SOURCE_COMMIT="74630859c8594882b44cebc8ebb134d81c7f0fe7";
+var SOURCE_COMMIT="d4112f061c546721072112fc3e67f2318bac71ba";
+var BASE_COMMIT="74630859c8594882b44cebc8ebb134d81c7f0fe7";
 var FFLATE_URL="https://cdn.jsdelivr.net/npm/fflate@0.8.2/+esm";
 window.__benchResults=RESULTS;
 
@@ -287,7 +288,7 @@ function downloadBlob(name,type,text){
 }
 window.downloadJson=function(){
   if(!SUMMARY)return;
-  var out={generatedAt:new Date().toISOString(),benchmark:"V55-WEB-HOLDOUT-1",sourceCommit:SOURCE_COMMIT,zipName:document.getElementById("zipFile").files[0]&&document.getElementById("zipFile").files[0].name,summary:SUMMARY,results:RESULTS};
+  var out={generatedAt:new Date().toISOString(),benchmark:"V55-WEB-DEV-VALIDATION-2",sourceCommit:SOURCE_COMMIT,baseCommit:BASE_COMMIT,zipName:document.getElementById("zipFile").files[0]&&document.getElementById("zipFile").files[0].name,summary:SUMMARY,results:RESULTS};
   downloadBlob("OCR_V55_Web_Benchmark_"+new Date().toISOString().slice(0,10)+".json","application/json;charset=utf-8",JSON.stringify(out,null,2));
 };
 window.downloadCsv=function(){
