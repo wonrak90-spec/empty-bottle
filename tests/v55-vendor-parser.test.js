@@ -151,7 +151,7 @@ const dongaPilRaw=[
   '27',
   '포장사양 900×12단:10,800'
 ].join('\n');
-console.log('DEBUG dongaPil helper=',P._test.recoverDongaPallet(['PILNO','27'],dongaPilRaw),'detect=',P.detect(dongaPilRaw,[]));
+assert.strictEqual(P.detect(dongaPilRaw,[]),'동아에코팩');
 const dongaPil=P.parse(dongaPilRaw,[]);
 assert.strictEqual(dongaPil.palletNo,'27','PILNO line break must recover pallet 27');
 
