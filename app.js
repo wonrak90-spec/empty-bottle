@@ -1306,6 +1306,11 @@ async function saveSingleRecord() {
       };
       document.getElementById('btnPrintSingle').classList.remove('hidden');
       rememberInspector(payload.inspector);
+      try{
+        if(window.V55FieldSession&&typeof V55FieldSession.onSingleSaved==='function'){
+          V55FieldSession.onSingleSaved(payload,res);
+        }
+      }catch(_){}
       prepareNextSingleAfterSave(res.id);
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
