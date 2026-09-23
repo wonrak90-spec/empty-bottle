@@ -51,11 +51,17 @@
 
   function boot(){
     banner();
-    let tries=0;
+    let tries=0,stable=0;
     const timer=setInterval(()=>{
       tries++;
-      if(install()||tries>100)clearInterval(timer);
-    },100);
+      const current=window.apiPost;
+      if(typeof current==='function'&&current.__v55PreviewWrapped)stable++;
+      else{stable=0;install();}
+      // Dynamic runtime files can replace apiPost after DOMContentLoaded.
+      // Keep guarding until the runtime is ready and the wrapped function
+      // has remained stable for at least 2 seconds.
+      if((window.__EMPTY_BOTTLE_BOOT_READY__&&stable>=10)||tries>=100)clearInterval(timer);
+    },200);
     install();
   }
 
