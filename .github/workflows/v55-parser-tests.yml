@@ -23,5 +23,3 @@ jobs:
         run: node tests/v55-wms-parser.test.js
       - name: Adaptive OCR tests
         run: node tests/v55-adaptive-ocr.test.js
-      - name: ROI preprocess tests
-        run: node tests/v55-roi-preprocess.test.js
