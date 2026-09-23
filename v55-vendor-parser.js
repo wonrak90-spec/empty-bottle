@@ -157,7 +157,7 @@
       if(p)return p;
     }
     for(const row of rows){
-      const m=fixDigits(row).match(/(?:^|\D)([0-9]{1,4})\s*색(?:상|신)\b/i);
+      const m=fixDigits(row).match(/(?:^|\D)([0-9]{1,4})\s*색(?:상|신)(?=\s|$|[:.])/i);
       if(m){
         const p=safePalletValue(m[1],src);
         if(p)return p;
