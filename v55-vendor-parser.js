@@ -238,9 +238,15 @@
     // "...09시45분 43 *13단..." or ".../4시분 48".
     for(const row of rows){
       let m=fixDigits(row).match(/(?:시|분)\s*([0-9]{1,4})\s*(?=[xX×*])/i);
-      if(m){const p=valid(m[1]);if(p)return p;}
+      if(m){
+        const p=num(m[1]);
+        if(p)return p; // strong timestamp context outranks formula-factor ambiguity
+      }
       m=fixDigits(row).match(/(?:년.*?월.*?일.*?)?(?:시|분)\D{0,4}([0-9]{1,4})\s*$/i);
-      if(m){const p=valid(m[1]);if(p)return p;}
+      if(m){
+        const p=num(m[1]);
+        if(p)return p;
+      }
     }
 
     for(let i=0;i<rows.length;i++){
