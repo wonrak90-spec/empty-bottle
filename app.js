@@ -348,7 +348,7 @@ async function labelPhotoSelected(event, mode) {
    그래서 줄 단위가 아니라 "항목명을 기준으로 전체 글자를 잘라내는" 방식을 쓴다. */
 
 const WMS_LABELS = [
-  { key: 'inboundNo',    pat: '입\\s*고\\s*번\\s*호' },
+  { key: 'inboundNo',    pat: '입\\s*고\\s*번\\s*호|관\\s*리\\s*번\\s*호' },
   { key: 'itemCode',     pat: '품\\s*목\\s*코\\s*드|자\\s*재\\s*코\\s*드' },
   { key: 'product',      pat: '품\\s*명|자\\s*재\\s*명' },
   { key: 'qty',          pat: '수\\s*량|수' },
