@@ -697,6 +697,11 @@ function applyParsed(p, force) {
     document.getElementById('actualQty').value = p.displayQty;
     updateSingleQty();
   }
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.refresh === 'function') {
+      V55InboundProgress.refresh();
+    }
+  } catch (_) {}
 }
 
 function applyMasterToForm(d) {
