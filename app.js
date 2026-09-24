@@ -613,7 +613,11 @@ function compareLabels() {
   // 1) 수량 — 가장 확실한 대조 기준
   if (wmsQty && vQty) {
     if (wmsQty === vQty) okMsgs.push('수량 일치(' + wmsQty.toLocaleString() + ')');
-    else issues.push('수량 다름 (WMS ' + wmsQty.toLocaleString() + ' / 업체 ' + vQty.toLocaleString() + ')');
+    else {
+      const factor10 = (wmsQty * 10 === vQty) || (vQty * 10 === wmsQty);
+      issues.push('수량 다름 (WMS ' + wmsQty.toLocaleString() + ' / 업체 ' + vQty.toLocaleString() + ')' +
+        (factor10 ? ' · OCR 숫자 1자리 누락 가능' : ''));
+    }
   }
 
   // 2) 용량 (100mL 등) — 양쪽에서 읽히면 비교
