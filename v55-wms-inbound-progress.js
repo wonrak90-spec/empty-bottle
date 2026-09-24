@@ -20,6 +20,7 @@
     }catch(_){return {};}
   }
   let groups=load();
+  const syncAt={};
   function persist(){try{localStorage.setItem(KEY,JSON.stringify(groups));}catch(_){} renderCurrent();}
 
   function seqInfo(obj){
@@ -96,6 +97,42 @@
       containerFrom:val('containerFrom'),containerTo:val('containerTo')
     };
   }
+  function itemSeq(it,total){
+    let x=n(it&&it.containerNo);
+    if(!x){
+      const code=String(it&&it.code||'');
+      const m=code.match(/[-/]([0-9]{1,4})$/);
+      if(m)x=n(m[1]);
+    }
+    return x>0&&(!total||x<=total)?x:0;
+  }
+  async function syncFromServer(obj){
+    obj=obj||currentForm();
+    const seq=seqInfo(obj),key=keyOf(obj);
+    if(!seq||!key||typeof window.apiGet!=='function')return null;
+    const last=syncAt[key]||0;
+    if(Date.now()-last<10000)return groups[key]||null;
+    syncAt[key]=Date.now();
+    try{
+      const res=await window.apiGet('searchPallets',{keyword:String(obj.inboundNo||'').trim()});
+      if(!res||!res.ok||!Array.isArray(res.items))return groups[key]||null;
+      const g=getGroup(obj);if(!g)return null;
+      for(const it of res.items){
+        if(String(it&&it.inboundNo||'').trim()!==String(obj.inboundNo||'').trim())continue;
+        if(obj.itemCode&&it.itemCode&&String(it.itemCode).trim()!==String(obj.itemCode).trim())continue;
+        const s=itemSeq(it,seq.total);if(!s)continue;
+        if(!g.done.includes(s))g.done.push(s);
+        if(/확인|이종|불일치/.test(String(it.result||''))&&!g.review.includes(s))g.review.push(s);
+      }
+      g.done.sort((a,b)=>a-b);g.updatedAt=Math.max(g.updatedAt||0,Date.now());
+      persist();return g;
+    }catch(_){return groups[key]||null;}
+  }
+  function refresh(){
+    renderCurrent();
+    const obj=currentForm();
+    if(seqInfo(obj)&&keyOf(obj))syncFromServer(obj);
+  }
 
   function inject(){
     const single=$('single');if(!single||$('v55InboundProgressCard'))return;
@@ -116,9 +153,9 @@
     single.insertBefore(card,first||single.firstChild);
 
     ['inboundNo','itemCode','product','containerFrom','containerTo'].forEach(id=>{
-      const el=$(id);if(el)el.addEventListener('input',renderCurrent);
+      const el=$(id);if(el)el.addEventListener('input',refresh);
     });
-    renderCurrent();
+    refresh();
   }
 
   function renderCurrent(){
@@ -155,10 +192,10 @@
 
   window.V55InboundProgress={
     VERSION:'V55-WMS-INBOUND-PROGRESS-1',
-    seqInfo,keyOf,validateBeforeSave,onSingleSaved,isDuplicate,missingOf,
+    seqInfo,keyOf,validateBeforeSave,onSingleSaved,isDuplicate,missingOf,syncFromServer,refresh,
     get groups(){return JSON.parse(JSON.stringify(groups));},
     reset(){groups={};persist();},
-    _test:{seqInfo,keyOf,missingOf,latestGroup}
+    _test:{seqInfo,keyOf,missingOf,latestGroup,itemSeq}
   };
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject,{once:true});else inject();
