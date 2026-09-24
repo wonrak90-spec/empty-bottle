@@ -83,6 +83,11 @@
     for(let i=1;i<=g.total;i++)if(!done.has(i))out.push(i);
     return out;
   }
+  function latestGroup(){
+    const arr=Object.values(groups||{}).filter(g=>g&&g.updatedAt);
+    arr.sort((a,b)=>(b.updatedAt||0)-(a.updatedAt||0));
+    return arr[0]||null;
+  }
 
   function currentForm(){
     const val=id=>$(id)?$(id).value.trim():'';
@@ -118,11 +123,15 @@
 
   function renderCurrent(){
     if(!$('v55InboundProgressCard'))return;
-    const obj=currentForm(),seq=seqInfo(obj),key=keyOf(obj),g=key&&groups[key]||null;
-    $('v55ipTitle').textContent=obj.product||'WMS 라벨을 인식하면 자동으로 표시됩니다.';
-    $('v55ipMeta').textContent=obj.inboundNo?
-      ('관리번호(WMS 입고번호) '+obj.inboundNo+(obj.itemCode?' · 품목코드 '+obj.itemCode:'')):'';
-    $('v55ipSeq').textContent=seq?(seq.current+' / '+seq.total):'–';
+    const obj=currentForm(),seq=seqInfo(obj),key=keyOf(obj);
+    const g=(key&&groups[key])||(!key?latestGroup():null);
+    const displayProduct=obj.product||(g&&g.product)||'WMS 라벨을 인식하면 자동으로 표시됩니다.';
+    const displayNo=obj.inboundNo||(g&&g.managementNo)||'';
+    const displayItem=obj.itemCode||(g&&g.itemCode)||'';
+    $('v55ipTitle').textContent=displayProduct;
+    $('v55ipMeta').textContent=displayNo?
+      ('관리번호(WMS 입고번호) '+displayNo+(displayItem?' · 품목코드 '+displayItem:'')):'';
+    $('v55ipSeq').textContent=seq?(seq.current+' / '+seq.total):(g&&g.lastSeq&&g.total?(g.lastSeq+' / '+g.total):'–');
     if(g&&g.total){
       const done=(g.done||[]).length, remain=Math.max(0,g.total-done);
       $('v55ipDone').textContent=done+' / '+g.total;
@@ -149,7 +158,7 @@
     seqInfo,keyOf,validateBeforeSave,onSingleSaved,isDuplicate,missingOf,
     get groups(){return JSON.parse(JSON.stringify(groups));},
     reset(){groups={};persist();},
-    _test:{seqInfo,keyOf,missingOf}
+    _test:{seqInfo,keyOf,missingOf,latestGroup}
   };
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',inject,{once:true});else inject();
