@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.3',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.4',
     MAX_EXTRA_PASSES:4
   };
 
@@ -243,12 +243,21 @@
         .filter(x=>x&&Number(x)>0))];
       return lone.length===1?lone[0]:'';
     }
+    if(type==='wms'&&field==='containerRange'){
+      const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+      let m=text.match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:\-]?\s*([0-9OoQDIl|]{3,5})\s*(?:[/~～]|\s+)\s*([0-9OoQDIl|]{3,5})/i);
+      if(!m)m=text.match(/(?:^|\D)([0-9OoQDIl|]{3,5})\s*[/~～]\s*([0-9OoQDIl|]{3,5})(?:\D|$)/i);
+      if(!m)return '';
+      const a=fix(m[1]),b=fix(m[2]);
+      if(!a||!b||Number(a)<=0||Number(b)<=0||Number(a)>Number(b))return '';
+      return a.padStart(4,'0')+'/'+b.padStart(4,'0');
+    }
     if(type==='wms'&&field==='inboundNo'){
       const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
 
-      // Prefer the value immediately following the inbound-number label, but
-      // tolerate OCR inserting whitespace between digit groups: 2600 3373.
-      let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*((?:[0-9OoQDIl|][\s\-]*){8,10})/);
+      // Prefer the value immediately following the inbound/management-number label,
+      // but tolerate OCR inserting whitespace between digit groups: 2600 3373.
+      let m=text.match(/(?:입\s*고\s*번\s*호|관\s*리\s*번\s*호)\s*[:\-]?\s*((?:[0-9OoQDIl|][\s\-]*){8,10})/);
       if(m){
         const v=fix(m[1]);
         if(v.length===8&&!isDate8(v))return v;
@@ -277,7 +286,9 @@
 
   function retryTarget(type,parsed){
     if(type==='vendor')return 'palletNo';
-    return wmsInboundSane(parsed)?'':'inboundNo';
+    if(!wmsInboundSane(parsed))return 'inboundNo';
+    if(!present(parsed&&parsed.containerFrom)||!present(parsed&&parsed.containerTo))return 'containerRange';
+    return '';
   }
 
   function formulaFactors(text){
@@ -312,6 +323,10 @@
     }
     if(type==='wms'&&field==='inboundNo'){
       return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(context||{},d);
+    }
+    if(type==='wms'&&field==='containerRange'){
+      const m=String(v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
+      return !!(m&&Number(m[1])>0&&Number(m[2])>0&&Number(m[1])<=Number(m[2]));
     }
     return !!d;
   }
@@ -427,9 +442,20 @@
             const requiredVotes=variants.length>=2?2:1;
             const pick=A.pickTargetConsensus(candidates,requiredVotes);
             if(pick){
-              const merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+              let merged,changed=false;
+              if(type==='wms'&&target==='containerRange'){
+                const m=String(pick.v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
+                if(m){
+                  const candidate={containerFrom:m[1],containerTo:m[2]};
+                  merged=A.mergeCandidate(type,best.parsed,candidate,'');
+                  changed=String(best.parsed&&best.parsed.containerFrom||'')!==String(merged.containerFrom||'')
+                    ||String(best.parsed&&best.parsed.containerTo||'')!==String(merged.containerTo||'');
+                }else merged={...(best.parsed||{})};
+              }else{
+                merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+                changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
+              }
               const score=A.scoreParsed(type,merged,pick.rr.items);
-              const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
               if(changed||A.isStrictImprovement(best.score,score)){
                 best={result:pick.rr,parsed:merged,score,method:pick.method};
               }
@@ -464,5 +490,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.3] product-sanity retry + formula-confusion guard + dual-ROI consensus + split WMS recovery');
+  console.info('[V55-ADAPTIVE-OCR-2.4.4] sparse WMS container-range ROI + conservative dual-ROI recovery ready');
 })();
