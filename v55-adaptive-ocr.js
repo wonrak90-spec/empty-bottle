@@ -73,6 +73,7 @@
     const s=A.scoreParsed(type,parsed,[]);
     if(type==='vendor')return s.critical<3||s.sanity<3;
     if(s.critical<5)return true;
+    if(s.sanity<s.critical)return true;
     if(!wmsInboundSane(parsed))return true;
     return false;
   };
