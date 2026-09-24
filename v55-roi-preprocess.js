@@ -145,12 +145,15 @@
     const rows=rowGroups(boxes);
     let re=null;
     if(type==='vendor'&&field==='palletNo')re=/P\s*[/\-]?\s*(?:L\s*)?(?:No\.?|번\s*호)?|P\s*[-/]\s*번호/i;
-    if(type==='wms'&&field==='inboundNo')re=/입\s*고\s*번\s*호/i;
+    if(type==='wms'&&field==='inboundNo')re=/(?:입\s*고\s*번\s*호|관\s*리\s*번\s*호)/i;
+    if(type==='wms'&&field==='containerRange')re=/(?:용\s*기\s*번\s*호|[8B]\s*기\s*번)/i;
     if(!re)return null;
 
     let row=rows.find(r=>re.test(r.text));
     if(!row){
-      row=rows.find(r=>type==='vendor'?/P\s*[/\-]|번\s*호|No\.?/i.test(r.text):/입\s*고|번\s*호/.test(r.text));
+      row=rows.find(r=>type==='vendor'
+        ?/P\s*[/\-]|번\s*호|No\.?/i.test(r.text)
+        :(field==='containerRange'?/(?:용\s*기|[8B]\s*기).*번/i.test(r.text):/(?:입\s*고|관\s*리).*번/.test(r.text)));
     }
     if(!row)return null;
 
@@ -158,16 +161,12 @@
     const y1=Math.min(...row.items.map(x=>x.y1)),y2=Math.max(...row.items.map(x=>x.y2));
     const rw=Math.max(80,x2-x1),rh=Math.max(20,y2-y1);
 
-    const isWms=type==='wms';
+    const isWms=type==='wms',isContainer=isWms&&field==='containerRange';
     const rect={
       x:Math.max(0,x1-rw*(isWms?.15:.10)),
-      // WMS inbound-number ROI used to extend too far vertically and could
-      // include the quantity row (e.g. 21,320.000 -> 21320000). Keep the
-      // horizontal reach for a missing value box, but tighten the vertical
-      // window around the inbound-number label row.
-      y:Math.max(0,y1-rh*(isWms?.25:.45)),
-      w:isWms?Math.max(rw*3.20,iw*.55):Math.max(rw*1.85,iw*.30),
-      h:rh*(isWms?2.00:1.90)
+      y:Math.max(0,y1-rh*(isContainer?.55:(isWms?.25:.45))),
+      w:isWms?Math.max(rw*(isContainer?3.60:3.20),iw*(isContainer?.72:.55)):Math.max(rw*1.85,iw*.30),
+      h:rh*(isContainer?2.80:(isWms?2.00:1.90))
     };
     rect.w=Math.min(iw-rect.x,rect.w);
     rect.h=Math.min(ih-rect.y,rect.h);
@@ -285,5 +284,5 @@
   };
 
   R._test={polyBox,ocrScale,unionBounds,rowGroups,fieldRectFromItems,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
-  console.info('[V55-ROI-PREPROCESS-3] tight vendor + wide WMS target ROI ready');
+  console.info('[V55-ROI-PREPROCESS-3.1] WMS 관리번호 + 용기번호 target ROI ready');
 })();
