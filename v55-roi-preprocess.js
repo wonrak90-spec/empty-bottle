@@ -147,13 +147,28 @@
     if(type==='vendor'&&field==='palletNo')re=/P\s*[/\-]?\s*(?:L\s*)?(?:No\.?|번\s*호)?|P\s*[-/]\s*번호/i;
     if(type==='wms'&&field==='inboundNo')re=/(?:입\s*고\s*번\s*호|관\s*리\s*번\s*호)/i;
     if(type==='wms'&&field==='containerRange')re=/(?:용\s*기\s*번\s*호|[8B]\s*기\s*번)/i;
+    if(type==='wms'&&field==='displayQty')re=/수\s*량/i;
     if(!re)return null;
 
     let row=rows.find(r=>re.test(r.text));
     if(!row){
       row=rows.find(r=>type==='vendor'
         ?/P\s*[/\-]|번\s*호|No\.?/i.test(r.text)
-        :(field==='containerRange'?/(?:용\s*기|[8B]\s*기).*번/i.test(r.text):/(?:입\s*고|관\s*리).*번/.test(r.text)));
+        :(field==='containerRange'
+          ?/(?:용\s*기|[8B]\s*기).*번/i.test(r.text)
+          :(field==='displayQty'?/수\s*량/i.test(r.text):/(?:입\s*고|관\s*리).*번/.test(r.text))));
+    }
+    if(!row&&type==='wms'&&field==='containerRange'){
+      const all=boxes;
+      const minY=Math.min(...all.map(x=>x.y1)),maxY=Math.max(...all.map(x=>x.y2));
+      const y=Math.max(0,minY+(maxY-minY)*.62);
+      return {rect:{x:Math.max(0,iw*.05),y,w:Math.min(iw*.90,iw),h:Math.min(ih-y,(maxY-minY)*.38+40)},rowText:'positional-bottom-fallback'};
+    }
+    if(!row&&type==='wms'&&field==='displayQty'){
+      const all=boxes;
+      const minY=Math.min(...all.map(x=>x.y1)),maxY=Math.max(...all.map(x=>x.y2));
+      const y=Math.max(0,minY+(maxY-minY)*.28);
+      return {rect:{x:Math.max(0,iw*.05),y,w:Math.min(iw*.90,iw),h:Math.min(ih-y,(maxY-minY)*.34+40)},rowText:'positional-mid-fallback'};
     }
     if(!row)return null;
 
@@ -161,12 +176,12 @@
     const y1=Math.min(...row.items.map(x=>x.y1)),y2=Math.max(...row.items.map(x=>x.y2));
     const rw=Math.max(80,x2-x1),rh=Math.max(20,y2-y1);
 
-    const isWms=type==='wms',isContainer=isWms&&field==='containerRange';
+    const isWms=type==='wms',isContainer=isWms&&field==='containerRange',isQty=isWms&&field==='displayQty';
     const rect={
       x:Math.max(0,x1-rw*(isWms?.15:.10)),
-      y:Math.max(0,y1-rh*(isContainer?.55:(isWms?.25:.45))),
-      w:isWms?Math.max(rw*(isContainer?3.60:3.20),iw*(isContainer?.72:.55)):Math.max(rw*1.85,iw*.30),
-      h:rh*(isContainer?2.80:(isWms?2.00:1.90))
+      y:Math.max(0,y1-rh*(isContainer?.55:(isQty?.40:(isWms?.25:.45)))),
+      w:isWms?Math.max(rw*(isContainer?3.60:(isQty?3.40:3.20)),iw*(isContainer?.72:(isQty?.68:.55))):Math.max(rw*1.85,iw*.30),
+      h:rh*(isContainer?2.80:(isQty?2.45:(isWms?2.00:1.90)))
     };
     rect.w=Math.min(iw-rect.x,rect.w);
     rect.h=Math.min(ih-rect.y,rect.h);
@@ -284,5 +299,5 @@
   };
 
   R._test={polyBox,ocrScale,unionBounds,rowGroups,fieldRectFromItems,quadFromBoxes,perspectiveStrength,solveLinear,homographyDstToSrc,otsuThreshold};
-  console.info('[V55-ROI-PREPROCESS-3.1] WMS 관리번호 + 용기번호 target ROI ready');
+  console.info('[V55-ROI-PREPROCESS-3.2] WMS management/range/quantity ROI fallbacks ready');
 })();
