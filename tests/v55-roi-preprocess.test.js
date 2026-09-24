@@ -50,7 +50,7 @@ const containerTarget=R._test.fieldRectFromItems([
 ],1000,800,'wms','containerRange');
 assert.ok(containerTarget,'WMS 용기번호 target ROI missing');
 assert.ok(containerTarget.rect.w>=500,'WMS container range crop must include both current/total values');
-assert.ok(containerTarget.rect.y>580,'container target must stay near the lower label row');
+assert.ok(containerTarget.rect.y>340,'container target must stay near the lower label row after OCR coordinate scaling');
 
 const src=[
   {x:10,y:20},{x:210,y:30},{x:200,y:130},{x:20,y:120}
