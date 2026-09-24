@@ -122,7 +122,7 @@ const dirty=P._test.sanitizeWmsFields({
   supplier:'공급업체 입고일자20260917',manufacturer:'동화지앤피(주) 사용기한 20310917'
 });
 assert.strictEqual(dirty.displayQty,undefined,'tiny WMS quantity must be cleared');
-assert.strictEqual(dirty.supplier,'공급업체');
+assert.strictEqual(dirty.supplier,undefined);
 assert.strictEqual(dirty.manufacturer,'동화지앤피(주)');
 
 console.log('PASS V55 WMS parser V2.6: low-quality field sanitizing + management/range recovery');
