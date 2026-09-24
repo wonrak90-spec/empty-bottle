@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.4',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.5',
     MAX_EXTRA_PASSES:4
   };
 
@@ -50,7 +50,10 @@
       }else if(k==='itemCode'){
         const d=digits(v); if(d.length>=4&&d.length<=14)sanity++;
       }else if(k==='displayQty'||k==='qty'){
-        const n=Number(digits(v)); if(Number.isFinite(n)&&n>0)sanity++;
+        const n=Number(digits(v));
+        if(type==='wms'){
+          if(Number.isFinite(n)&&n>=1000&&n<=5000000)sanity++;
+        }else if(Number.isFinite(n)&&n>0)sanity++;
       }else if(k==='containerFrom'||k==='containerTo'||k==='palletNo'){
         const d=digits(v); if(d.length>=1&&d.length<=8)sanity++;
       }else if(k==='product'){
@@ -99,12 +102,15 @@
   }
   A.productSane=productSane;
 
-  function fieldSane(k,v){
+  function fieldSane(k,v,type){
     if(!present(v))return false;
     const d=digits(v);
     if(k==='inboundNo')return d.length===8;
     if(k==='itemCode')return d.length>=4&&d.length<=14;
-    if(k==='displayQty'||k==='qty')return Number(d)>0;
+    if(k==='displayQty'||k==='qty'){
+      const n=Number(d);
+      return type==='wms' ? (Number.isFinite(n)&&n>=1000&&n<=5000000) : n>0;
+    }
     if(k==='containerFrom'||k==='containerTo'||k==='palletNo')return d.length>=1&&d.length<=8;
     if(k==='product')return productSane(v);
     return true;
@@ -119,8 +125,8 @@
         continue;
       }
       if(!present(out[k]))out[k]=cand[k];
-      else if(!fieldSane(k,out[k])&&fieldSane(k,cand[k]))out[k]=cand[k];
-      else if(replaceField===k&&fieldSane(k,cand[k]))out[k]=cand[k];
+      else if(!fieldSane(k,out[k],type)&&fieldSane(k,cand[k],type))out[k]=cand[k];
+      else if(replaceField===k&&fieldSane(k,cand[k],type))out[k]=cand[k];
     }
     return out;
   };
@@ -247,10 +253,30 @@
       const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
       let m=text.match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:\-]?\s*([0-9OoQDIl|]{3,5})\s*(?:[/~～]|\s+)\s*([0-9OoQDIl|]{3,5})/i);
       if(!m)m=text.match(/(?:^|\D)([0-9OoQDIl|]{3,5})\s*[/~～]\s*([0-9OoQDIl|]{3,5})(?:\D|$)/i);
+      if(!m){
+        const lines=text.split(/\r?\n+/).map(x=>x.trim()).filter(Boolean);
+        for(const line of lines){
+          const nums=(line.match(/[0-9OoQDIl|]{3,5}/g)||[]).map(fix).filter(Boolean);
+          if(nums.length===2){
+            const a=Number(nums[0]),b=Number(nums[1]);
+            if(a>0&&b>0&&a<=b&&b<=500){m=[line,nums[0],nums[1]];break;}
+          }
+        }
+      }
       if(!m)return '';
       const a=fix(m[1]),b=fix(m[2]);
-      if(!a||!b||Number(a)<=0||Number(b)<=0||Number(a)>Number(b))return '';
+      if(!a||!b||Number(a)<=0||Number(b)<=0||Number(a)>Number(b)||Number(b)>500)return '';
       return a.padStart(4,'0')+'/'+b.padStart(4,'0');
+    }
+    if(type==='wms'&&field==='displayQty'){
+      const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+      let m=text.match(/수\s*량\s*[:\-]?\s*([0-9OoQDIl|][0-9OoQDIl|,.\s]{2,12})\s*(?:EA|개|본)?/i);
+      const candidates=[];
+      if(m)candidates.push(fix(m[1]));
+      (text.match(/[0-9][0-9,\.]{3,}/g)||[]).forEach(x=>candidates.push(fix(x)));
+      const sane=candidates.map(Number).filter(x=>Number.isFinite(x)&&x>=1000&&x<=5000000);
+      if(!sane.length)return '';
+      return String(Math.max(...sane));
     }
     if(type==='wms'&&field==='inboundNo'){
       const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
@@ -288,6 +314,7 @@
     if(type==='vendor')return 'palletNo';
     if(!wmsInboundSane(parsed))return 'inboundNo';
     if(!present(parsed&&parsed.containerFrom)||!present(parsed&&parsed.containerTo))return 'containerRange';
+    if(!fieldSane('displayQty',parsed&&parsed.displayQty,type))return 'displayQty';
     return '';
   }
 
@@ -326,7 +353,11 @@
     }
     if(type==='wms'&&field==='containerRange'){
       const m=String(v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
-      return !!(m&&Number(m[1])>0&&Number(m[2])>0&&Number(m[1])<=Number(m[2]));
+      return !!(m&&Number(m[1])>0&&Number(m[2])>0&&Number(m[1])<=Number(m[2])&&Number(m[2])<=500);
+    }
+    if(type==='wms'&&field==='displayQty'){
+      const n=Number(d);
+      return Number.isFinite(n)&&n>=1000&&n<=5000000;
     }
     return !!d;
   }
@@ -490,5 +521,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.4] sparse WMS container-range ROI + conservative dual-ROI recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.4.5] sparse WMS range + implausible quantity recovery ready');
 })();
