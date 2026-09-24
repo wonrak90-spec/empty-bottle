@@ -24,7 +24,7 @@ vm.runInContext(code,ctx,{filename:'v55-wms-parser.js'});
 
 const P=ctx.V55WmsParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.5');
+assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.6');
 
 const items=[
   {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
@@ -117,4 +117,12 @@ assert.strictEqual(noSlash.containerFrom,'0015');
 assert.strictEqual(noSlash.containerTo,'0028',
   'OCR-dropped slash between current/total pallet numbers must still recover under 용기번호 label');
 
-console.log('PASS V55 WMS parser V2.5: 관리번호 alias + damaged inbound repair + container-range recovery');
+const dirty=P._test.sanitizeWmsFields({
+  inboundNo:'25001347',itemCode:'2000990',displayQty:'2',
+  supplier:'공급업체 입고일자20260917',manufacturer:'동화지앤피(주) 사용기한 20310917'
+});
+assert.strictEqual(dirty.displayQty,undefined,'tiny WMS quantity must be cleared');
+assert.strictEqual(dirty.supplier,'공급업체');
+assert.strictEqual(dirty.manufacturer,'동화지앤피(주)');
+
+console.log('PASS V55 WMS parser V2.6: low-quality field sanitizing + management/range recovery');
