@@ -74,6 +74,11 @@ assert.strictEqual(missingRangeCheck.ok,false);
 assert.strictEqual(missingRangeCheck.missingRange,true,
   '8-digit management number without current/total pallet range must not save silently');
 
+const badQtyCheck=P.validateBeforeSave({...first,displayQty:'2'});
+assert.strictEqual(badQtyCheck.ok,false);
+assert.strictEqual(badQtyCheck.invalidQty,true,
+  'implausibly small WMS quantity must block save until corrected');
+
 const review={...first,inboundNo:'26004033',itemCode:'2000990',product:'판콜액 병',containerFrom:'0001',containerTo:'0028',finalResult:'확인필요',labelMatch:'불일치'};
 P.onSingleSaved(review);
 const g2=P.groups['26004033|2000990'];
