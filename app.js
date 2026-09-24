@@ -570,6 +570,22 @@ async function loadItemInfo(code) {
     const res = await apiGet('lookupItem', { code: c });
     currentItemInfo = (res.ok && res.found) ? res.data : null;
   } catch (e) { currentItemInfo = null; }
+
+  // OCR may correctly recover the item code while losing the printed name or
+  // supplier. In that case use the approved item master only to fill blanks;
+  // never overwrite a populated OCR value.
+  if (currentItemInfo) {
+    const pEl = document.getElementById('product');
+    if (pEl && !pEl.value.trim() && currentItemInfo.itemName) {
+      pEl.value = String(currentItemInfo.itemName).trim();
+    }
+    const sEl = document.getElementById('supplier');
+    const allowed = Array.isArray(currentItemInfo.suppliers) ? currentItemInfo.suppliers.filter(Boolean) : [];
+    if (sEl && !sEl.value.trim() && allowed.length === 1) {
+      sEl.value = String(allowed[0]).trim();
+    }
+  }
+
   renderItemInfo();
   compareLabels();
 }
