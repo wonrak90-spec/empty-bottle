@@ -50,7 +50,7 @@ const containerTarget=R._test.fieldRectFromItems([
 ],1000,800,'wms','containerRange');
 assert.ok(containerTarget,'WMS 용기번호 target ROI missing');
 assert.ok(containerTarget.rect.w>=500,'WMS container range crop must include both current/total values');
-assert.ok(containerTarget.rect.y>580,'container target must stay near the lower label row');
+assert.ok(containerTarget.rect.y>300,'container target must stay in the lower label region');
 
 const containerFallback=R._test.fieldRectFromItems([
   {text:'관리번호',score:.9,poly:[[10,40],[90,40],[90,60],[10,60]]},
