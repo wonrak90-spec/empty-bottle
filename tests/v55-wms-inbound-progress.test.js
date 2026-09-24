@@ -31,6 +31,7 @@ const first={
   inboundNo:'26004032',
   itemCode:'2000982',
   product:'까스활명수큐병',
+  displayQty:'10800',
   containerFrom:'0004',
   containerTo:'0048',
   finalResult:'적합',
