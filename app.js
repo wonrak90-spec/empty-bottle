@@ -1281,6 +1281,16 @@ async function saveSingleRecord() {
     itemPhotos: itemPhotos.single
   };
 
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.validateBeforeSave === 'function') {
+      const check = V55InboundProgress.validateBeforeSave(payload);
+      if (check && check.ok === false) {
+        setStatus('saveSingleStatus', check.message || '이미 처리된 WMS Pallet입니다.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
     setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
     return;
@@ -1306,6 +1316,11 @@ async function saveSingleRecord() {
       };
       document.getElementById('btnPrintSingle').classList.remove('hidden');
       rememberInspector(payload.inspector);
+      try {
+        if (window.V55InboundProgress && typeof V55InboundProgress.onSingleSaved === 'function') {
+          V55InboundProgress.onSingleSaved(payload, res);
+        }
+      } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
