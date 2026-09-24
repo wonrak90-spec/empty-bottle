@@ -24,7 +24,7 @@ vm.runInContext(code,ctx,{filename:'v55-wms-parser.js'});
 
 const P=ctx.V55WmsParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.4');
+assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.5');
 
 const items=[
   {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
@@ -82,4 +82,29 @@ const r5=P.parse('damaged',adjacentItems);
 assert.strictEqual(r5.inboundNo,'26003373',
   'adjacent split OCR row should recover the inbound number before generic 8-digit candidates');
 
-console.log('PASS V55 WMS parser V2.4: damaged inbound repair + container-range recovery');
+const actualLabel=P.parse([
+  'missingContainer',
+  '관리번호 26004291',
+  '품명 판콜액 병',
+  '품목코드 2000990',
+  '수량 21,320.000 EA',
+  '입고일자 20260910',
+  '용기번호 0015 / 0039'
+].join('\n'),[]);
+assert.strictEqual(actualLabel.inboundNo,'26004291',
+  'printed WMS 관리번호 must map to internal inboundNo');
+assert.strictEqual(actualLabel.containerFrom,'0015');
+assert.strictEqual(actualLabel.containerTo,'0039');
+
+const managementItems=[
+  {text:'관리번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
+  {text:'26004291',poly:[[120,20],[220,20],[220,40],[120,40]]},
+  {text:'용기번호',poly:[[10,70],[90,70],[90,90],[10,90]]},
+  {text:'0015 / 0039',poly:[[120,70],[220,70],[220,90],[120,90]]}
+];
+const mg=P.parse('missingContainer',managementItems);
+assert.strictEqual(mg.inboundNo,'26004291');
+assert.strictEqual(mg.containerFrom,'0015');
+assert.strictEqual(mg.containerTo,'0039');
+
+console.log('PASS V55 WMS parser V2.5: 관리번호 alias + damaged inbound repair + container-range recovery');
