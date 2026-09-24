@@ -107,4 +107,14 @@ assert.strictEqual(mg.inboundNo,'26004291');
 assert.strictEqual(mg.containerFrom,'0015');
 assert.strictEqual(mg.containerTo,'0039');
 
+const noSlash=P.parse([
+  'missingContainer',
+  '관리번호 26004291',
+  '용기번호 0015 0028'
+].join('\n'),[]);
+assert.strictEqual(noSlash.inboundNo,'26004291');
+assert.strictEqual(noSlash.containerFrom,'0015');
+assert.strictEqual(noSlash.containerTo,'0028',
+  'OCR-dropped slash between current/total pallet numbers must still recover under 용기번호 label');
+
 console.log('PASS V55 WMS parser V2.5: 관리번호 alias + damaged inbound repair + container-range recovery');
