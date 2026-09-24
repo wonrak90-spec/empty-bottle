@@ -690,6 +690,11 @@ async function registerAlias() {
 let singleMatchOk = null;
 
 function applyParsed(p, force) {
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.sanitizeParsed === 'function') {
+      p = V55WmsQuality.sanitizeParsed(p || {});
+    }
+  } catch (_) {}
   const ids = ['inboundNo', 'inboundDate', 'product', 'itemCode', 'manufacturer', 'supplier', 'displayQty', 'unit', 'expiryDate', 'containerFrom', 'containerTo', 'codeRaw'];
   ids.forEach(id => {
     const el = document.getElementById(id);
@@ -704,6 +709,11 @@ function applyParsed(p, force) {
   try {
     if (window.V55InboundProgress && typeof V55InboundProgress.refresh === 'function') {
       V55InboundProgress.refresh();
+    }
+  } catch (_) {}
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.render === 'function') {
+      V55WmsQuality.render();
     }
   } catch (_) {}
 }
@@ -1289,6 +1299,16 @@ async function saveSingleRecord() {
     labelMatch: singleMatchOk === true ? '일치' : (singleMatchOk === false ? '불일치' : '미대조'),
     itemPhotos: itemPhotos.single
   };
+
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
+      const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
+      if (qualityCheck && qualityCheck.ok === false) {
+        setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
 
   try {
     if (window.V55InboundProgress && typeof V55InboundProgress.validateBeforeSave === 'function') {
