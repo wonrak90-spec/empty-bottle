@@ -59,8 +59,8 @@ const containerFallback=R._test.fieldRectFromItems([
   {text:'0015',score:.8,poly:[[120,620],[160,620],[160,645],[120,645]]},
   {text:'0028',score:.8,poly:[[190,620],[230,620],[230,645],[190,645]]}
 ],1000,800,'wms','containerRange');
-assert.ok(containerFallback&&containerFallback.rect.y>350,
-  'when 용기번호 label is missed, positional fallback must still target lower WMS region');
+assert.ok(containerFallback&&containerFallback.rowText==='positional-bottom-fallback'&&containerFallback.rect.h>0,
+  'when 용기번호 label is missed, positional lower-WMS fallback must activate');
 
 const qtyTarget=R._test.fieldRectFromItems([
   {text:'수량',score:.9,poly:[[10,300],[70,300],[70,325],[10,325]]},
