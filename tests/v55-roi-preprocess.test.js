@@ -10,7 +10,7 @@ vm.runInContext(code,ctx,{filename:'v55-roi-preprocess.js'});
 
 const R=ctx.V55RoiPreprocess;
 assert.ok(R,'V55RoiPreprocess must be exposed');
-assert.strictEqual(R.VERSION,'V55-ROI-PREPROCESS-3.1');
+assert.strictEqual(R.VERSION,'V55-ROI-PREPROCESS-3.2');
 
 assert.strictEqual(R._test.ocrScale(1000,800),1.6);
 assert.strictEqual(R._test.ocrScale(3000,2000),2300/3000);
@@ -51,6 +51,22 @@ const containerTarget=R._test.fieldRectFromItems([
 assert.ok(containerTarget,'WMS 용기번호 target ROI missing');
 assert.ok(containerTarget.rect.w>=500,'WMS container range crop must include both current/total values');
 assert.ok(containerTarget.rect.y>580,'container target must stay near the lower label row');
+
+const containerFallback=R._test.fieldRectFromItems([
+  {text:'관리번호',score:.9,poly:[[10,40],[90,40],[90,60],[10,60]]},
+  {text:'26004341',score:.9,poly:[[120,40],[220,40],[220,60],[120,60]]},
+  {text:'2000990',score:.9,poly:[[120,260],[220,260],[220,280],[120,280]]},
+  {text:'0015',score:.8,poly:[[120,620],[160,620],[160,645],[120,645]]},
+  {text:'0028',score:.8,poly:[[190,620],[230,620],[230,645],[190,645]]}
+],1000,800,'wms','containerRange');
+assert.ok(containerFallback&&containerFallback.rect.y>350,
+  'when 용기번호 label is missed, positional fallback must still target lower WMS region');
+
+const qtyTarget=R._test.fieldRectFromItems([
+  {text:'수량',score:.9,poly:[[10,300],[70,300],[70,325],[10,325]]},
+  {text:'21,320',score:.9,poly:[[120,300],[210,300],[210,325],[120,325]]}
+],1000,800,'wms','displayQty');
+assert.ok(qtyTarget&&qtyTarget.rect.w>=500,'WMS quantity ROI must extend across the value row');
 
 const src=[
   {x:10,y:20},{x:210,y:30},{x:200,y:130},{x:20,y:120}
