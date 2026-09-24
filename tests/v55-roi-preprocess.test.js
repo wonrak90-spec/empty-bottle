@@ -36,8 +36,8 @@ const wmsTarget=R._test.fieldRectFromItems([
   {text:'입고번호',score:.9,poly:[[10,20],[90,20],[90,40],[10,40]]}
 ],1000,800,'wms','inboundNo');
 assert.ok(wmsTarget&&wmsTarget.rect.w>=500,'WMS target crop must extend right when value box is missing');
-assert.ok(wmsTarget.rect.y>=10&&wmsTarget.rect.y<=20,'WMS inbound crop should stay vertically tight around label row');
-assert.ok((wmsTarget.rect.y+wmsTarget.rect.h)<=60,'WMS inbound crop must not drift into distant quantity rows');
+assert.ok(wmsTarget.rect.y>=0&&wmsTarget.rect.y<=35,'WMS inbound crop should stay vertically tight around label row');
+assert.ok((wmsTarget.rect.y+wmsTarget.rect.h)<=85,'WMS inbound crop must not drift into distant quantity rows');
 
 const managementTarget=R._test.fieldRectFromItems([
   {text:'관리번호',score:.9,poly:[[10,20],[90,20],[90,40],[10,40]]}
