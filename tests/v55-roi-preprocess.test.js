@@ -39,6 +39,19 @@ assert.ok(wmsTarget&&wmsTarget.rect.w>=500,'WMS target crop must extend right wh
 assert.ok(wmsTarget.rect.y>=10&&wmsTarget.rect.y<=20,'WMS inbound crop should stay vertically tight around label row');
 assert.ok((wmsTarget.rect.y+wmsTarget.rect.h)<=60,'WMS inbound crop must not drift into distant quantity rows');
 
+const managementTarget=R._test.fieldRectFromItems([
+  {text:'관리번호',score:.9,poly:[[10,20],[90,20],[90,40],[10,40]]}
+],1000,800,'wms','inboundNo');
+assert.ok(managementTarget&&managementTarget.rect.w>=500,'WMS 관리번호 must use the inbound target ROI');
+
+const containerTarget=R._test.fieldRectFromItems([
+  {text:'용기번호',score:.9,poly:[[10,620],[90,620],[90,645],[10,645]]},
+  {text:'0015 / 0028',score:.9,poly:[[120,620],[260,620],[260,645],[120,645]]}
+],1000,800,'wms','containerRange');
+assert.ok(containerTarget,'WMS 용기번호 target ROI missing');
+assert.ok(containerTarget.rect.w>=500,'WMS container range crop must include both current/total values');
+assert.ok(containerTarget.rect.y>580,'container target must stay near the lower label row');
+
 const src=[
   {x:10,y:20},{x:210,y:30},{x:200,y:130},{x:20,y:120}
 ];
