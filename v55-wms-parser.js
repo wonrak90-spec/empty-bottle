@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.4'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.5'};
 
   function fixDigits(s){
     return String(s||'')
@@ -87,7 +87,7 @@
     // Raw-text fallback for OCR that inserts spaces inside the 8-digit
     // inbound number (for example "2600 3373").  Keep it tied to the
     // inbound-number label so unrelated quantity/date rows cannot be joined.
-    const rawMatch=fixDigits(String(raw||'')).match(/입\s*고\s*번(?:\s*호)?\s*[:：-]?\s*((?:[0-9][\s\-]*){6,10})/);
+    const rawMatch=fixDigits(String(raw||'')).match(/(?:입\s*고\s*번(?:\s*호)?|관\s*리\s*번\s*호)\s*[:：-]?\s*((?:[0-9][\s\-]*){6,10})/);
     if(rawMatch){
       const d=String(rawMatch[1]||'').replace(/\D/g,'');
       if(validInbound(d,out||{}))return d;
@@ -99,9 +99,9 @@
     let inboundRow=-1;
     for(let i=0;i<rr.length;i++){
       const row=rr[i];
-      if(!/입\s*고\s*번(?:\s*호)?/.test(row.text))continue;
+      if(!/(?:입\s*고\s*번(?:\s*호)?|관\s*리\s*번\s*호)/.test(row.text))continue;
       inboundRow=i;
-      const after=fixDigits(row.text.replace(/^.*?입\s*고\s*번(?:\s*호)?\s*[:：-]?\s*/,'')).replace(/\D/g,'');
+      const after=fixDigits(row.text.replace(/^.*?(?:입\s*고\s*번(?:\s*호)?|관\s*리\s*번\s*호)\s*[:：-]?\s*/,'')).replace(/\D/g,'');
       if(validInbound(after,out||{}))return after;
       const repaired=normalizeDamagedInbound(after,out||{},raw||'');
       if(validInbound(repaired,out||{}))return repaired;
@@ -176,5 +176,5 @@
   };
 
   P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange};
-  console.info('[V55-WMS-PARSER-2.4] damaged inbound year-prefix repair + tolerant container-range recovery ready');
+  console.info('[V55-WMS-PARSER-2.5] 관리번호 alias + damaged inbound repair + tolerant container-range recovery ready');
 })();
