@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.5'};
+  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.6'};
 
   function fixDigits(s){
     return String(s||'')
@@ -156,6 +156,32 @@
     return candidates.length?candidates[0].d:'';
   }
 
+  function sanitizeWmsFields(out){
+    const next={...(out||{})};
+
+    // Empty-bottle WMS pallet quantities are expected in the thousands.
+    // Tiny OCR fragments such as "2" or "21" are safer treated as missing
+    // so Adaptive OCR can retry instead of locking in a wrong quantity.
+    if(next.displayQty){
+      const q=Number(fixDigits(next.displayQty).replace(/\D/g,''));
+      if(!Number.isFinite(q)||q<1000||q>5000000)delete next.displayQty;
+    }
+
+    const stopNoise=v=>String(v||'')
+      .replace(/\s*(?:입\s*고\s*일(?:\s*자)?|사\s*용\s*기\s*한|유\s*효\s*기\s*한|용\s*기\s*번(?:\s*호)?|품\s*목\s*코\s*드|수\s*량)\b.*$/i,'')
+      .trim();
+
+    if(next.supplier){
+      next.supplier=stopNoise(next.supplier);
+      if(!next.supplier||/^\d+$/.test(next.supplier))delete next.supplier;
+    }
+    if(next.manufacturer){
+      next.manufacturer=stopNoise(next.manufacturer);
+      if(!next.manufacturer||/^\d+$/.test(next.manufacturer))delete next.manufacturer;
+    }
+    return next;
+  }
+
   P.parse=function(text,items){
     let out={};
     if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function'){
@@ -173,9 +199,10 @@
       }
     }
     if(!out.containerFrom||!out.containerTo)out=recoverContainerRange(text,items,out);
+    out=sanitizeWmsFields(out);
     return out;
   };
 
-  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange};
-  console.info('[V55-WMS-PARSER-2.5] 관리번호 alias + damaged inbound repair + tolerant container-range recovery ready');
+  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange,sanitizeWmsFields};
+  console.info('[V55-WMS-PARSER-2.6] low-quality WMS field sanitizing + range recovery ready');
 })();
