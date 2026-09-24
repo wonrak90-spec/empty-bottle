@@ -98,7 +98,14 @@
   }
 
   function modeProgress(mode){return mode==='vendor'?'ocrProgressVendor':(mode==='wms'?'ocrProgressWms':'ocrProgressMulti');}
-  function parseForMode(mode,text){return mode==='vendor'?parseVendorLabel(text):parseLabelText(text);}
+  function parseForMode(mode,text){
+    if(mode==='vendor')return parseVendorLabel(text);
+    try{
+      if(window.V55WmsParser&&typeof V55WmsParser.parse==='function')
+        return V55WmsParser.parse(text||'',[])||{};
+    }catch(_){}
+    return parseLabelText(text);
+  }
   function fieldCount(obj){return Object.keys(obj||{}).filter(k=>String(obj[k]||'').trim()).length;}
   function structuredScore(mode,text){
     const p=parseForMode(mode,text||''); let n=0;
