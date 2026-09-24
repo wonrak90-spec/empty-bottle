@@ -16,7 +16,7 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.3');
+assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.4');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -77,6 +77,11 @@ assert.strictEqual(A.extractTargetField('vendor','palletNo',{text:'40 41 13'}),'
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호 26003373'}),'26003373');
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호 2600 3373'}),'26003373');
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호\n2600 3373'}),'26003373');
+assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'관리번호 26004341'}),'26004341');
+assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0015 / 0028'}),'0015/0028');
+assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0015 0028'}),'0015/0028');
+assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0029 / 0028'}),'',
+  'current pallet may not exceed total pallet count');
 
 assert.strictEqual(
   A.suspiciousTarget('vendor',{product:'까스활명수75ml',qty:'10800',palletNo:'900'},'포장사양 900×12=10,800 본'),
@@ -197,4 +202,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.4.3: product-sanity retry + formula guard + safe dual consensus + split WMS recovery');
+console.log('PASS V55 adaptive OCR V2.4.4: sparse WMS range ROI + product/formula guards + safe dual consensus');
