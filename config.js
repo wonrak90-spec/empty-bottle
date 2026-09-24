@@ -40,6 +40,7 @@ const CONFIG = {
     'ocr-runtime.js',
     'v26-production-wms.js',
     'v55-ocr-learning.js',
+    'v55-wms-inbound-progress.js',
     'v26-stability.js'
   ];
 
