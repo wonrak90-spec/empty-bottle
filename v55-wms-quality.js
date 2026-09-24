@@ -78,7 +78,9 @@
 
   Q.inspect=function(obj){
     obj=obj||{};
-    const issues=[...parseIssues];
+    // A field dropped as label-noise remains a warning until the operator
+    // supplies a clean value. Once manually corrected, remove that stale warning.
+    const issues=parseIssues.filter(x=>!x.field||!text(obj[x.field]));
     const inbound=digits(obj.inboundNo);
 
     if(inbound&&inbound.length!==8){
@@ -163,7 +165,7 @@
     Q.render();
   }
 
-  Q._test={digits,num,parseDate,isFutureInboundDate,managementYearMismatch,contaminated,fieldLooksLikeLabelNoise,qtyMismatch};
+  Q._test={digits,num,parseDate,isFutureInboundDate,managementYearMismatch,expectedManagementPrefix,contaminated,fieldLooksLikeLabelNoise,qtyMismatch};
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(inject,0),{once:true});
   else setTimeout(inject,0);
