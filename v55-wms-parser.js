@@ -168,15 +168,15 @@
     }
 
     const stopNoise=v=>String(v||'')
-      .replace(/\s*(?:입\s*고\s*일(?:\s*자)?|사\s*용\s*기\s*한|유\s*효\s*기\s*한|용\s*기\s*번(?:\s*호)?|품\s*목\s*코\s*드|수\s*량)\b.*$/i,'')
+      .replace(/\s*(?:입\s*고\s*일(?:\s*자)?|사\s*용\s*기\s*한|유\s*효\s*기\s*한|용\s*기\s*번(?:\s*호)?|품\s*목\s*코\s*드|수\s*량).*$/i,'')
       .trim();
 
     if(next.supplier){
-      next.supplier=stopNoise(next.supplier);
+      next.supplier=stopNoise(next.supplier).replace(/^공\s*급\s*업\s*체\s*/i,'').trim();
       if(!next.supplier||/^\d+$/.test(next.supplier))delete next.supplier;
     }
     if(next.manufacturer){
-      next.manufacturer=stopNoise(next.manufacturer);
+      next.manufacturer=stopNoise(next.manufacturer).replace(/^제\s*조(?:\s*원|\s*사)\s*/i,'').trim();
       if(!next.manufacturer||/^\d+$/.test(next.manufacturer))delete next.manufacturer;
     }
     return next;
