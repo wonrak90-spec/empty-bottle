@@ -63,8 +63,9 @@ assert.strictEqual(P.missingOf(g)[3],6);
 
 const invalid={...first,containerFrom:'0049',containerTo:'0048'};
 assert.strictEqual(P.seqInfo(invalid),null);
-assert.strictEqual(P.validateBeforeSave(invalid).ok,true);
-assert.strictEqual(P.validateBeforeSave(invalid).tracked,false);
+assert.strictEqual(P.validateBeforeSave(invalid).ok,false);
+assert.strictEqual(P.validateBeforeSave(invalid).missingRange,true,
+  'invalid current/total range must be corrected before save');
 
 const noTotal={...first,containerFrom:'0004',containerTo:''};
 assert.strictEqual(P.seqInfo(noTotal),null);
