@@ -61,6 +61,11 @@
   }
   function validateBeforeSave(obj){
     const seq=seqInfo(obj);
+    const inbound=String(obj&&obj.inboundNo||'').trim();
+    if(!seq&&/^\d{8}$/.test(inbound)){
+      return {ok:false,tracked:false,missingRange:true,message:
+        '관리번호는 인식됐지만 현재/전체 Pallet 순번이 없습니다. WMS 라벨 하단을 다시 인식하거나 직접 입력하세요.'};
+    }
     if(!seq)return {ok:true,tracked:false,message:'WMS 순번/전체수량을 확인할 수 없어 진행률 추적 없이 저장합니다.'};
     if(isDuplicate(obj)){
       return {ok:false,tracked:true,duplicate:true,message:
@@ -184,9 +189,13 @@
         dup?'bad':(remain===0?'ok':''));
     }else{
       $('v55ipDone').textContent='–';$('v55ipRemain').textContent='–';
+      const missingRange=!!(displayNo&&!seq);
       setStatus('v55ipStatus',seq?
         ('순번 '+seq.currentText+' / '+seq.totalText+' · 저장하면 진행률에 반영됩니다.'):
-        'WMS 라벨의 순번 정보가 확인되면 자동으로 진행률을 시작합니다.','');
+        (missingRange
+          ? '⚠ 관리번호는 인식됨 · 현재/전체 Pallet 순번 재인식 필요'
+          : 'WMS 라벨의 순번 정보가 확인되면 자동으로 진행률을 시작합니다.'),
+        missingRange?'bad':'');
     }
   }
 
