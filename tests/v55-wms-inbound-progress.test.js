@@ -75,4 +75,30 @@ const g2=P.groups['26004033|2000990'];
 assert.deepStrictEqual(Array.from(g2.review),[1]);
 assert.strictEqual(g2.total,28);
 
-console.log('PASS V55 WMS inbound progress V1: sequence tracking + duplicate prevention');
+
+
+assert.strictEqual(P._test.itemSeq({containerNo:'0007'},48),7);
+assert.strictEqual(P._test.itemSeq({containerNo:'',code:'26004032-0008'},48),8);
+assert.strictEqual(P._test.itemSeq({containerNo:'0049'},48),0);
+
+(async()=>{
+  ctx.apiGet=async(action,args)=>{
+    assert.strictEqual(action,'searchPallets');
+    assert.strictEqual(args.keyword,'26004100');
+    return {ok:true,items:[
+      {inboundNo:'26004100',itemCode:'2000982',containerNo:'0001',result:'적합'},
+      {inboundNo:'26004100',itemCode:'2000982',containerNo:'0002',result:'확인필요'},
+      {inboundNo:'99999999',itemCode:'2000982',containerNo:'0003',result:'적합'}
+    ]};
+  };
+  const serverObj={
+    inboundNo:'26004100',itemCode:'2000982',product:'까스활명수큐병',
+    containerFrom:'0003',containerTo:'0048'
+  };
+  await P.syncFromServer(serverObj);
+  const sg=P.groups['26004100|2000982'];
+  assert.deepStrictEqual(Array.from(sg.done),[1,2]);
+  assert.deepStrictEqual(Array.from(sg.review),[2]);
+  console.log('PASS V55 WMS inbound progress V1: sequence tracking + duplicate prevention + server restore');
+})().catch(e=>{console.error(e);process.exit(1);});
+
