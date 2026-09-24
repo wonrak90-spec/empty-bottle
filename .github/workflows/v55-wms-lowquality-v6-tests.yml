@@ -1,0 +1,26 @@
+name: V55 WMS Low Quality V6 Tests
+
+on:
+  push:
+    branches:
+      - feature/v55-wms-lowquality-v6-20260925
+
+jobs:
+  low-quality-wms:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: WMS inbound progress tests
+        run: node tests/v55-wms-inbound-progress.test.js
+      - name: Vendor parser regression
+        run: node tests/v55-vendor-parser.test.js
+      - name: WMS parser regression
+        run: node tests/v55-wms-parser.test.js
+      - name: ROI regression
+        run: node tests/v55-roi-preprocess.test.js
+      - name: Adaptive OCR regression
+        run: node tests/v55-adaptive-ocr.test.js
