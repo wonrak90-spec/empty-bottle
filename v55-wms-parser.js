@@ -68,8 +68,9 @@
   }
   function recoverContainerRange(raw,items,out){
     const src=[String(raw||''),...rows(items).map(r=>r.text||'')].join('\n');
-    const labelled=fixDigits(src).match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:：-]?\s*([0-9]{3,5})\s*[/~～]\s*([0-9]{3,5})/i);
-    const generic=fixDigits(src).match(/(?:^|\D)([0-9]{3,5})\s*[/~～]\s*([0-9]{3,5})(?:\D|$)/);
+    const fixed=fixDigits(src);
+    const labelled=fixed.match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:：-]?\s*([0-9]{3,5})\s*(?:[/~～]|\s{1,4})\s*([0-9]{3,5})(?=\D|$)/i);
+    const generic=fixed.match(/(?:^|\D)([0-9]{3,5})\s*[/~～]\s*([0-9]{3,5})(?:\D|$)/);
     const m=labelled||generic;
     if(!m)return out||{};
     const next={...(out||{})};
