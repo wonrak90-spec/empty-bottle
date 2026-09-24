@@ -7,7 +7,7 @@
   if(window.__V55_ROI_PREPROCESS__)return;
   window.__V55_ROI_PREPROCESS__=true;
 
-  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3.1'};
+  const R=window.V55RoiPreprocess={VERSION:'V55-ROI-PREPROCESS-3.2'};
 
   function point(p){
     if(Array.isArray(p))return {x:Number(p[0])||0,y:Number(p[1])||0};
