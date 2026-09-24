@@ -62,11 +62,16 @@
   function validateBeforeSave(obj){
     const seq=seqInfo(obj);
     const inbound=String(obj&&obj.inboundNo||'').trim();
+    const qty=Number(String(obj&&obj.displayQty||'').replace(/[^0-9]/g,''));
     if(!seq&&/^\d{8}$/.test(inbound)){
       return {ok:false,tracked:false,missingRange:true,message:
         '관리번호는 인식됐지만 현재/전체 Pallet 순번이 없습니다. WMS 라벨 하단을 다시 인식하거나 직접 입력하세요.'};
     }
     if(!seq)return {ok:true,tracked:false,message:'WMS 순번/전체수량을 확인할 수 없어 진행률 추적 없이 저장합니다.'};
+    if(!Number.isFinite(qty)||qty<1000||qty>5000000){
+      return {ok:false,tracked:true,invalidQty:true,message:
+        'WMS 표시수량이 비어 있거나 비정상적으로 작습니다. WMS 라벨을 다시 인식하거나 수량을 확인 후 입력하세요.'};
+    }
     if(isDuplicate(obj)){
       return {ok:false,tracked:true,duplicate:true,message:
         '이미 확인한 Pallet입니다 · 관리번호 '+String(obj.inboundNo||'')+' / 순번 '+seq.currentText+' / '+seq.totalText};
