@@ -16,7 +16,7 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.4');
+assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.5');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -32,6 +32,10 @@ assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'21320000',displayQt
 
 const wmsWeak={inboundNo:'26003373',displayQty:'21320'};
 assert.strictEqual(A.needsRetry('wms',wmsWeak),true);
+assert.strictEqual(A.needsRetry('wms',{...wmsGood,displayQty:'2'}),true,
+  'implausibly tiny empty-bottle WMS quantity must retry');
+assert.strictEqual(A.mergeCandidate('wms',{...wmsGood,displayQty:'2'},{displayQty:'21320'},'').displayQty,'21320',
+  'sane retry quantity must replace tiny OCR fragment');
 
 const vendorGood={product:'까스활명수75mL병',qty:'10800',palletNo:'9'};
 assert.strictEqual(A.needsRetry('vendor',vendorGood),false);
@@ -80,6 +84,11 @@ assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'입고번호\n2
 assert.strictEqual(A.extractTargetField('wms','inboundNo',{text:'관리번호 26004341'}),'26004341');
 assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0015 / 0028'}),'0015/0028');
 assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0015 0028'}),'0015/0028');
+assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'0015 0028'}),'0015/0028',
+  'lower-ROI numeric pair may recover range even if 용기번호 label is missed');
+assert.strictEqual(A.extractTargetField('wms','displayQty',{text:'수량 21,320 EA'}),'21320');
+assert.strictEqual(A.extractTargetField('wms','displayQty',{text:'수량 2 EA'}),'',
+  'tiny OCR quantity must not be accepted as a recovery value');
 assert.strictEqual(A.extractTargetField('wms','containerRange',{text:'용기번호 0029 / 0028'}),'',
   'current pallet may not exceed total pallet count');
 
@@ -202,4 +211,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.4.4: sparse WMS range ROI + product/formula guards + safe dual consensus');
+console.log('PASS V55 adaptive OCR V2.4.5: sparse WMS range + tiny-qty recovery + safe dual consensus');
