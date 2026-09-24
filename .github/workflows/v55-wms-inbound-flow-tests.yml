@@ -16,6 +16,10 @@ jobs:
           node-version: '20'
       - name: WMS inbound progress tests
         run: node tests/v55-wms-inbound-progress.test.js
+      - name: WMS OCR quality guard tests
+        run: node tests/v55-wms-quality.test.js
+      - name: ROI preprocessing regression
+        run: node tests/v55-roi-preprocess.test.js
       - name: Vendor parser regression
         run: node tests/v55-vendor-parser.test.js
       - name: WMS parser regression
