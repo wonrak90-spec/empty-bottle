@@ -45,7 +45,7 @@
     const b=document.createElement('div');
     b.id='v55PreviewBanner';
     b.style.cssText='position:sticky;top:0;z-index:9999;background:#fff3cd;color:#664d03;border-bottom:1px solid #ffecb5;padding:8px 12px;text-align:center;font:700 12px system-ui;';
-    b.textContent='V55 현장검증 미리보기 · OCR/차량 Session 테스트용 · 서버 저장 차단';
+    b.textContent='V55 WMS 입고 흐름 미리보기 · OCR/진행률 테스트용 · 서버 저장 차단';
     document.body.insertBefore(b,document.body.firstChild);
   }
 
