@@ -16,7 +16,7 @@ vm.runInContext(code,ctx,{filename:'v55-adaptive-ocr.js'});
 
 const A=ctx.V55AdaptiveOCR;
 assert.ok(A,'V55AdaptiveOCR must be exposed');
-assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.4');
+assert.strictEqual(A.VERSION,'V55-ADAPTIVE-OCR-2.4.5');
 assert.deepStrictEqual(Array.from(A.criticalKeys('wms')),['inboundNo','itemCode','product','displayQty','containerFrom','containerTo']);
 assert.deepStrictEqual(Array.from(A.criticalKeys('vendor')),['product','qty','palletNo']);
 
@@ -29,6 +29,11 @@ assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'0003373'}),true,
   '7-digit damaged WMS inbound number must retry');
 assert.strictEqual(A.needsRetry('wms',{...wmsGood,inboundNo:'21320000',displayQty:'21320'}),true,
   'quantity-scaled 21320.000 artifact must not be accepted as inbound number');
+assert.strictEqual(A.wmsRangeSane({...wmsGood,containerFrom:'0015',containerTo:'0028'}),true);
+assert.strictEqual(A.wmsRangeSane({...wmsGood,containerFrom:'00157',containerTo:'0028'}),false,
+  'current pallet 157 cannot be sane when total is 28');
+assert.strictEqual(A.needsRetry('wms',{...wmsGood,containerFrom:'00157',containerTo:'0028'}),true,
+  'invalid populated pallet range must trigger Adaptive retry, not pass as complete');
 
 const wmsWeak={inboundNo:'26003373',displayQty:'21320'};
 assert.strictEqual(A.needsRetry('wms',wmsWeak),true);
@@ -202,4 +207,4 @@ assert.strictEqual(targetMerged.product,'까스활명수75ml');
 assert.strictEqual(targetMerged.qty,'10800');
 assert.strictEqual(targetMerged.palletNo,'43');
 
-console.log('PASS V55 adaptive OCR V2.4.4: sparse WMS range ROI + product/formula guards + safe dual consensus');
+console.log('PASS V55 adaptive OCR V2.4.5: invalid/missing WMS range retry + product/formula guards + safe dual consensus');
