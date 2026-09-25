@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.4',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.5',
     MAX_EXTRA_PASSES:4
   };
 
@@ -34,6 +34,14 @@
     const d=digits(parsed&&parsed.inboundNo);
     return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(parsed,d);
   }
+  function wmsRangeSane(parsed){
+    const a=digits(parsed&&parsed.containerFrom),b=digits(parsed&&parsed.containerTo);
+    if(!a&&!b)return false;
+    if(!a||!b)return false;
+    const x=Number(a),y=Number(b);
+    return x>0&&y>0&&x<=y&&y<=9999;
+  }
+  A.wmsRangeSane=wmsRangeSane;
 
   A.criticalKeys=function(type){return (CRITICAL[type]||CRITICAL.wms).slice();};
 
@@ -51,7 +59,10 @@
         const d=digits(v); if(d.length>=4&&d.length<=14)sanity++;
       }else if(k==='displayQty'||k==='qty'){
         const n=Number(digits(v)); if(Number.isFinite(n)&&n>0)sanity++;
-      }else if(k==='containerFrom'||k==='containerTo'||k==='palletNo'){
+      }else if(k==='containerFrom'||k==='containerTo'){
+        const d=digits(v);
+        if(type!=='wms'?(d.length>=1&&d.length<=8):wmsRangeSane(parsed))sanity++;
+      }else if(k==='palletNo'){
         const d=digits(v); if(d.length>=1&&d.length<=8)sanity++;
       }else if(k==='product'){
         if(productSane(v))sanity++;
@@ -71,6 +82,7 @@
     if(type==='vendor')return s.critical<3||s.sanity<3;
     if(s.critical<5)return true;
     if(!wmsInboundSane(parsed))return true;
+    if(!wmsRangeSane(parsed))return true;
     return false;
   };
 
@@ -287,7 +299,7 @@
   function retryTarget(type,parsed){
     if(type==='vendor')return 'palletNo';
     if(!wmsInboundSane(parsed))return 'inboundNo';
-    if(!present(parsed&&parsed.containerFrom)||!present(parsed&&parsed.containerTo))return 'containerRange';
+    if(!wmsRangeSane(parsed))return 'containerRange';
     return '';
   }
 
@@ -311,7 +323,7 @@
       const factors=formulaFactors(text);
       return factors.includes(String(Number(p)));
     }
-    return !wmsInboundSane(parsed);
+    return !wmsInboundSane(parsed)||!wmsRangeSane(parsed);
   };
 
   function targetValueSane(type,field,v,sourceText,context){
@@ -447,7 +459,11 @@
                 const m=String(pick.v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
                 if(m){
                   const candidate={containerFrom:m[1],containerTo:m[2]};
-                  merged=A.mergeCandidate(type,best.parsed,candidate,'');
+                  if(!wmsRangeSane(best.parsed)&&wmsRangeSane(candidate)){
+                    merged={...(best.parsed||{}),...candidate};
+                  }else{
+                    merged=A.mergeCandidate(type,best.parsed,candidate,'');
+                  }
                   changed=String(best.parsed&&best.parsed.containerFrom||'')!==String(merged.containerFrom||'')
                     ||String(best.parsed&&best.parsed.containerTo||'')!==String(merged.containerTo||'');
                 }else merged={...(best.parsed||{})};
@@ -490,5 +506,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.4] sparse WMS container-range ROI + conservative dual-ROI recovery ready');
+  console.info('[V55-ADAPTIVE-OCR-2.4.5] invalid/missing WMS pallet range retry + conservative dual-ROI recovery ready');
 })();
