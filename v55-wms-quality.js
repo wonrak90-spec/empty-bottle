@@ -7,7 +7,7 @@
   if(window.__V55_WMS_QUALITY__)return;
   window.__V55_WMS_QUALITY__=true;
 
-  const Q=window.V55WmsQuality={VERSION:'V55-WMS-QUALITY-1'};
+  const Q=window.V55WmsQuality={VERSION:'V55-WMS-QUALITY-1.1'};
   let parseIssues=[];
 
   const digits=v=>String(v==null?'':v).replace(/[^0-9]/g,'');
@@ -62,6 +62,18 @@
     }
     return {severe:false,a,b,ratio,factor10:false};
   }
+  function palletRangeIssue(from,to){
+    const a=digits(from),b=digits(to);
+    if(!a&&!b)return null;
+    if(!a||!b)return {code:'pallet_range_missing',severity:'block',
+      message:'현재/전체 Pallet 순번 중 일부가 누락되었습니다. WMS 라벨 하단을 다시 인식하세요.'};
+    const x=Number(a),y=Number(b);
+    if(!x||!y||y>9999)return {code:'pallet_range_format',severity:'block',
+      message:'Pallet 순번 형식이 올바르지 않습니다. WMS 라벨 하단을 다시 인식하세요.'};
+    if(x>y)return {code:'pallet_range_order',severity:'block',
+      message:'현재 Pallet 순번('+a+')이 전체 Pallet 수('+b+')보다 큽니다. OCR 오인식 여부를 확인하세요.'};
+    return null;
+  }
 
   Q.sanitizeParsed=function(parsed){
     const out={...(parsed||{})};
@@ -103,6 +115,9 @@
       }
     }
 
+    const rangeIssue=palletRangeIssue(obj.containerFrom,obj.containerTo);
+    if(rangeIssue)issues.push(rangeIssue);
+
     const qm=qtyMismatch(obj.displayQty,obj.vendorQty);
     if(qm&&qm.severe){
       issues.push({code:'qty_extreme',severity:'block',
@@ -118,7 +133,8 @@
     return Q.inspect({
       inboundNo:val('inboundNo'),inboundDate:val('inboundDate'),
       product:val('product'),manufacturer:val('manufacturer'),supplier:val('supplier'),
-      displayQty:val('displayQty'),vendorQty:val('vQty')
+      displayQty:val('displayQty'),vendorQty:val('vQty'),
+      containerFrom:val('containerFrom'),containerTo:val('containerTo')
     });
   };
 
@@ -130,7 +146,9 @@
       manufacturer:payload&&payload.manufacturer,
       supplier:payload&&payload.supplier,
       displayQty:payload&&payload.displayQty,
-      vendorQty:payload&&payload.vendorQty
+      vendorQty:payload&&payload.vendorQty,
+      containerFrom:payload&&payload.containerFrom,
+      containerTo:payload&&payload.containerTo
     });
     if(r.ok)return {ok:true,issues:r.issues};
     return {ok:false,issues:r.issues,message:r.issues.filter(x=>x.severity==='block').map(x=>x.message).join(' · ')};
@@ -159,13 +177,13 @@
     el.style.marginTop='8px';
     el.textContent='WMS OCR 품질검사 대기';
     card.appendChild(el);
-    ['inboundNo','inboundDate','product','manufacturer','supplier','displayQty','vQty'].forEach(id=>{
+    ['inboundNo','inboundDate','product','manufacturer','supplier','displayQty','vQty','containerFrom','containerTo'].forEach(id=>{
       const x=document.getElementById(id);if(x)x.addEventListener('input',Q.render);
     });
     Q.render();
   }
 
-  Q._test={digits,num,parseDate,isFutureInboundDate,managementYearMismatch,expectedManagementPrefix,contaminated,fieldLooksLikeLabelNoise,qtyMismatch};
+  Q._test={digits,num,parseDate,isFutureInboundDate,managementYearMismatch,expectedManagementPrefix,contaminated,fieldLooksLikeLabelNoise,qtyMismatch,palletRangeIssue};
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(inject,0),{once:true});
   else setTimeout(inject,0);
