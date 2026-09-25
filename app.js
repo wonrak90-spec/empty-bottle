@@ -275,6 +275,11 @@ function applyOcrToMode(mode, parsed) {
     if (v.lotNo) { document.getElementById('vLotNo').value = v.lotNo; filled++; }
     if (v.line) { document.getElementById('vLine').value = v.line; filled++; }
     compareLabels();
+    try {
+      if (window.V55WmsQuality && typeof V55WmsQuality.render === 'function') {
+        V55WmsQuality.render();
+      }
+    } catch (_) {}
   } else if (mode === 'multi') {
     if (parsed.product) { document.getElementById('mProduct').value = parsed.product; filled++; }
     if (parsed.itemCode) { document.getElementById('mItemCode').value = parsed.itemCode; filled++; }
