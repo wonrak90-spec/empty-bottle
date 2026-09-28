@@ -111,6 +111,31 @@
     }
     return x>0&&(!total||x<=total)?x:0;
   }
+  async function checkServerDuplicate(obj){
+    obj=obj||currentForm();
+    const seq=seqInfo(obj),inbound=String(obj&&obj.inboundNo||'').trim();
+    if(!seq||!inbound)return {ok:false,checked:false,message:'WMS 관리번호/현재 Pallet 순번을 확인할 수 없습니다.'};
+    if(typeof window.apiGet!=='function')return {ok:false,checked:false,message:'서버 중복확인 기능을 불러오지 못했습니다.'};
+    try{
+      const res=await window.apiGet('searchPallets',{keyword:inbound});
+      if(!res||!res.ok||!Array.isArray(res.items)){
+        return {ok:false,checked:false,message:'서버에서 기존 Pallet 이력을 확인하지 못했습니다. 네트워크를 확인한 뒤 다시 저장하세요.'};
+      }
+      const hit=res.items.find(it=>{
+        if(String(it&&it.inboundNo||'').trim()!==inbound)return false;
+        const s=itemSeq(it,seq.total);
+        return s===seq.current;
+      });
+      if(hit){
+        return {ok:false,checked:true,duplicate:true,existing:hit,message:
+          '이미 서버에 저장된 Pallet입니다 · 관리번호 '+inbound+' / 순번 '+seq.currentText+' / '+seq.totalText};
+      }
+      return {ok:true,checked:true,duplicate:false};
+    }catch(e){
+      return {ok:false,checked:false,message:'서버 중복확인 실패 · '+String(e&&e.message?e.message:e)};
+    }
+  }
+
   async function syncFromServer(obj){
     obj=obj||currentForm();
     const seq=seqInfo(obj),key=keyOf(obj);
@@ -201,7 +226,7 @@
 
   window.V55InboundProgress={
     VERSION:'V55-WMS-INBOUND-PROGRESS-1',
-    seqInfo,keyOf,validateBeforeSave,onSingleSaved,isDuplicate,missingOf,syncFromServer,refresh,
+    seqInfo,keyOf,validateBeforeSave,onSingleSaved,isDuplicate,missingOf,checkServerDuplicate,syncFromServer,refresh,
     get groups(){return JSON.parse(JSON.stringify(groups));},
     reset(){groups={};persist();},
     _test:{seqInfo,keyOf,missingOf,latestGroup,itemSeq}
