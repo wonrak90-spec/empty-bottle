@@ -14,6 +14,19 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
+      - name: Frontend syntax check
+        run: |
+          node --check app.js
+          node --check v55-wms-inbound-progress.js
+          node --check v55-wms-quality.js
+          node --check v55-wms-parser.js
+          node --check v55-vendor-parser.js
+          node --check v55-adaptive-ocr.js
+          node --check v55-roi-preprocess.js
+      - name: Apps Script syntax check
+        run: |
+          cp Code.gs /tmp/Code.js
+          node --check /tmp/Code.js
       - name: WMS inbound progress tests
         run: node tests/v55-wms-inbound-progress.test.js
       - name: WMS OCR quality guard tests
