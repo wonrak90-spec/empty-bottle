@@ -37,7 +37,7 @@ vm.runInContext(code,ctx,{filename:'v55-capture-assist.js'});
 
 const C=ctx.V55CaptureAssist;
 assert.ok(C);
-assert.strictEqual(C.VERSION,'V55-CAPTURE-ASSIST-1');
+assert.strictEqual(C.VERSION,'V55-CAPTURE-ASSIST-1.1');
 assert.strictEqual(C._test.saneRange('0015','0028'),true);
 assert.strictEqual(C._test.saneRange('00157','0028'),false);
 assert.strictEqual(C._test.severeQtyMismatch('1640','21320'),true);
@@ -83,4 +83,4 @@ assert.strictEqual(els.vQty.value,'21320','severe bad vendor qty may be replaced
 assert.strictEqual(els.vPalletNo.value,'75');
 assert.strictEqual(els.vProdDate.value,'2026-09-28');
 
-console.log('PASS V55 capture assist V1: safe close-up merge + no overwrite of valid values');
+console.log('PASS V55 capture assist V1.1: fullscreen modal support + safe close-up merge');
