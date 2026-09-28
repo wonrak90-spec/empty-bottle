@@ -104,6 +104,36 @@ assert.strictEqual(P._test.itemSeq({containerNo:'0049'},48),0);
   const sg=P.groups['26004100|2000982'];
   assert.deepStrictEqual(Array.from(sg.done),[1,2]);
   assert.deepStrictEqual(Array.from(sg.review),[2]);
-  console.log('PASS V55 WMS inbound progress V1: sequence tracking + duplicate prevention + server restore');
+
+  ctx.apiGet=async(action,args)=>{
+    assert.strictEqual(action,'searchPallets');
+    if(args.keyword==='26005000'){
+      return {ok:true,items:[
+        {inboundNo:'26005000',itemCode:'2000990',containerNo:'0015',result:'적합'}
+      ]};
+    }
+    if(args.keyword==='26005001')return {ok:true,items:[]};
+    return {ok:false,message:'unexpected keyword'};
+  };
+  const duplicateObj={
+    inboundNo:'26005000',itemCode:'2000990',product:'판콜액 병',
+    containerFrom:'0015',containerTo:'0028'
+  };
+  const duplicateCheck=await P.checkServerDuplicate(duplicateObj);
+  assert.strictEqual(duplicateCheck.ok,false);
+  assert.strictEqual(duplicateCheck.duplicate,true);
+
+  const freshObj={...duplicateObj,inboundNo:'26005001',containerFrom:'0016'};
+  const freshCheck=await P.checkServerDuplicate(freshObj);
+  assert.strictEqual(freshCheck.ok,true);
+  assert.strictEqual(freshCheck.checked,true);
+
+  ctx.apiGet=async()=>{throw new Error('network down');};
+  const failedCheck=await P.checkServerDuplicate(freshObj);
+  assert.strictEqual(failedCheck.ok,false);
+  assert.strictEqual(failedCheck.checked,false,
+    'server duplicate precheck must fail closed on network errors');
+
+  console.log('PASS V55 WMS inbound progress V1: sequence tracking + local/server duplicate prevention + server restore');
 })().catch(e=>{console.error(e);process.exit(1);});
 
