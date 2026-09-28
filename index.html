@@ -265,7 +265,20 @@
     <p class="step-title"><span class="step-num">1</span>WMS 입고라벨 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(공병창고 라벨)</span></p>
     <input id="wmsPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'wms')">
     <input id="wmsPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'wms')">
-    <button class="btn primary" id="btnScanSingle" onclick="startScanner('single')">📊 바코드 스캔 (가장 정확·권장)</button>
+    <div class="v22-action-row" data-live-mode="wms">
+      <button type="button" class="btn primary" data-live-start="wms" onclick="V22.startLive('wms')">🎥 WMS 라벨 실시간 인식 (기본)</button>
+      <button type="button" class="btn outline" data-live-stop="wms" onclick="V22.stopLive('wms')">카메라 중지</button>
+    </div>
+    <div id="v22LiveWrap_wms" class="v22-live hidden">
+      <div class="v22-live-hint">WMS 라벨을 정면으로 크게 맞추고 반사광을 피해주세요. 흐리면 🎯 초점을 누르세요.</div>
+      <video id="v22LiveVideo_wms" playsinline muted></video><div class="v22-guide"></div>
+      <div class="v22-live-actions">
+        <button type="button" class="btn primary" onclick="V22.captureLive('wms')">📷 현재 화면 확정</button>
+        <button type="button" class="btn outline" onclick="V22.refocus('wms')">🎯 초점</button>
+        <button type="button" class="btn outline" onclick="V22.stopLive('wms')">중지</button>
+      </div>
+    </div>
+    <button class="btn outline" id="btnScanSingle" onclick="startScanner('single')">📊 바코드 스캔</button>
     <button class="btn outline" onclick="document.getElementById('wmsPhoto').click()">📷 라벨 촬영</button>
     <button class="btn outline" onclick="document.getElementById('wmsPhotoGallery').click()">🖼 갤러리에서 불러오기</button>
     <div id="readerWrapSingle" class="hidden" style="margin-top:10px;">
@@ -282,7 +295,20 @@
     <p class="step-title"><span class="step-num">2</span>업체 라벨 <span style="font-weight:400;color:var(--muted);font-size:0.78rem;">(실물에 붙은 라벨)</span></p>
     <input id="vendorPhoto" type="file" accept="image/*" capture="environment" class="hidden" onchange="labelPhotoSelected(event,'vendor')">
     <input id="vendorPhotoGallery" type="file" accept="image/*" class="hidden" onchange="labelPhotoSelected(event,'vendor')">
-    <button class="btn primary" onclick="document.getElementById('vendorPhoto').click()">📷 업체 라벨 촬영</button>
+    <div class="v22-action-row" data-live-mode="vendor">
+      <button type="button" class="btn primary" data-live-start="vendor" onclick="V22.startLive('vendor')">🎥 업체 라벨 실시간 인식 (기본)</button>
+      <button type="button" class="btn outline" data-live-stop="vendor" onclick="V22.stopLive('vendor')">카메라 중지</button>
+    </div>
+    <div id="v22LiveWrap_vendor" class="v22-live hidden">
+      <div class="v22-live-hint">업체 라벨을 정면으로 크게 맞추고 반사광을 피해주세요. 흐리면 🎯 초점을 누르세요.</div>
+      <video id="v22LiveVideo_vendor" playsinline muted></video><div class="v22-guide"></div>
+      <div class="v22-live-actions">
+        <button type="button" class="btn primary" onclick="V22.captureLive('vendor')">📷 현재 화면 확정</button>
+        <button type="button" class="btn outline" onclick="V22.refocus('vendor')">🎯 초점</button>
+        <button type="button" class="btn outline" onclick="V22.stopLive('vendor')">중지</button>
+      </div>
+    </div>
+    <button class="btn outline" onclick="document.getElementById('vendorPhoto').click()">📷 업체 라벨 촬영</button>
     <button class="btn outline" onclick="document.getElementById('vendorPhotoGallery').click()">🖼 갤러리에서 불러오기</button>
     <img id="vendorPreview" class="preview hidden">
     <div class="progress hidden" id="ocrBoxVendor"><div id="ocrProgressVendor"></div></div>
