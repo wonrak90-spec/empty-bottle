@@ -42,6 +42,7 @@ const CONFIG = {
     'v55-ocr-learning.js',
     'v55-wms-inbound-progress.js',
     'v55-wms-quality.js',
+    'v55-capture-assist.js',
     'v26-stability.js'
   ];
 
