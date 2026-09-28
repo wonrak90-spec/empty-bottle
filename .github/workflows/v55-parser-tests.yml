@@ -1,0 +1,25 @@
+name: V55 Vendor 3.6 / WMS 2.4 Tests
+
+on:
+  push:
+    branches:
+      - feature/v55-vendor-parser-3_6-20260924
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  parser-tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Vendor parser tests
+        run: node tests/v55-vendor-parser.test.js
+      - name: WMS parser tests
+        run: node tests/v55-wms-parser.test.js
+      - name: Adaptive OCR tests
+        run: node tests/v55-adaptive-ocr.test.js

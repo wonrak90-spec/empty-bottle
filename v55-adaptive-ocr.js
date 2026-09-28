@@ -8,7 +8,7 @@
   window.__V55_ADAPTIVE_OCR__=true;
 
   const A=window.V55AdaptiveOCR={
-    VERSION:'V55-ADAPTIVE-OCR-2.4.1',
+    VERSION:'V55-ADAPTIVE-OCR-2.4.5',
     MAX_EXTRA_PASSES:4
   };
 
@@ -19,6 +19,12 @@
 
   function present(v){return v!=null&&String(v).trim()!=='';}
   function digits(v){return String(v??'').replace(/[^0-9]/g,'');}
+  function fixNumericConfusions(v){
+    return String(v??'')
+      .replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1')
+      .replace(/[Ss]/g,'5').replace(/[Bb]/g,'8')
+      .replace(/[Zz]/g,'2').replace(/[gq]/g,'9').replace(/[Tt]/g,'7');
+  }
   function allFields(parsed){return Object.keys(parsed||{}).filter(k=>present(parsed[k]));}
   function isQtyScaledInbound(parsed,v){
     const d=digits(v),q=digits(parsed&&parsed.displayQty);
@@ -28,6 +34,14 @@
     const d=digits(parsed&&parsed.inboundNo);
     return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(parsed,d);
   }
+  function wmsRangeSane(parsed){
+    const a=digits(parsed&&parsed.containerFrom),b=digits(parsed&&parsed.containerTo);
+    if(!a&&!b)return false;
+    if(!a||!b)return false;
+    const x=Number(a),y=Number(b);
+    return x>0&&y>0&&x<=y&&y<=9999;
+  }
+  A.wmsRangeSane=wmsRangeSane;
 
   A.criticalKeys=function(type){return (CRITICAL[type]||CRITICAL.wms).slice();};
 
@@ -45,10 +59,13 @@
         const d=digits(v); if(d.length>=4&&d.length<=14)sanity++;
       }else if(k==='displayQty'||k==='qty'){
         const n=Number(digits(v)); if(Number.isFinite(n)&&n>0)sanity++;
-      }else if(k==='containerFrom'||k==='containerTo'||k==='palletNo'){
+      }else if(k==='containerFrom'||k==='containerTo'){
+        const d=digits(v);
+        if(type!=='wms'?(d.length>=1&&d.length<=8):wmsRangeSane(parsed))sanity++;
+      }else if(k==='palletNo'){
         const d=digits(v); if(d.length>=1&&d.length<=8)sanity++;
       }else if(k==='product'){
-        if(String(v).replace(/\s/g,'').length>=2)sanity++;
+        if(productSane(v))sanity++;
       }
     }
     const total=allFields(parsed).length;
@@ -62,9 +79,10 @@
 
   A.needsRetry=function(type,parsed){
     const s=A.scoreParsed(type,parsed,[]);
-    if(type==='vendor')return s.critical<3;
+    if(type==='vendor')return s.critical<3||s.sanity<3;
     if(s.critical<5)return true;
     if(!wmsInboundSane(parsed))return true;
+    if(!wmsRangeSane(parsed))return true;
     return false;
   };
 
@@ -76,6 +94,23 @@
     return false;
   };
 
+  function productSane(v){
+    const s=String(v??'').replace(/\s+/g,' ').trim();
+    const compact=s.replace(/\s/g,'');
+    if(compact.length<2)return false;
+    if(/^\d{1,4}m(?:l|1|i)$/i.test(compact))return false;
+    if(/^(?:당진|검사|생산|포장|수량|일자|시간|라인|제조|품명|제품명)$/i.test(compact))return false;
+    if(/^(?:품명|품령|제품명)\d{1,4}m(?:l|1|i)$/i.test(compact))return false;
+    const hangul=(s.match(/[가-힣]/g)||[]).length;
+    if(hangul<2&&!/[A-Za-z]{3,}/.test(s))return false;
+    const digitRuns=s.match(/\d+/g)||[];
+    const operators=s.match(/[=×*$]/g)||[];
+    if(operators.length>=2&&digitRuns.length>=3)return false;
+    if(/(?:년|월|일|시)/.test(s)&&digitRuns.length>=2)return false;
+    return true;
+  }
+  A.productSane=productSane;
+
   function fieldSane(k,v){
     if(!present(v))return false;
     const d=digits(v);
@@ -83,7 +118,7 @@
     if(k==='itemCode')return d.length>=4&&d.length<=14;
     if(k==='displayQty'||k==='qty')return Number(d)>0;
     if(k==='containerFrom'||k==='containerTo'||k==='palletNo')return d.length>=1&&d.length<=8;
-    if(k==='product')return String(v).replace(/\s/g,'').length>=2;
+    if(k==='product')return productSane(v);
     return true;
   }
 
@@ -220,12 +255,21 @@
         .filter(x=>x&&Number(x)>0))];
       return lone.length===1?lone[0]:'';
     }
+    if(type==='wms'&&field==='containerRange'){
+      const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
+      let m=text.match(/(?:용\s*기|[8B]\s*기)\s*번(?:\s*호)?\s*[:\-]?\s*([0-9OoQDIl|]{3,5})\s*(?:[/~～]|\s+)\s*([0-9OoQDIl|]{3,5})/i);
+      if(!m)m=text.match(/(?:^|\D)([0-9OoQDIl|]{3,5})\s*[/~～]\s*([0-9OoQDIl|]{3,5})(?:\D|$)/i);
+      if(!m)return '';
+      const a=fix(m[1]),b=fix(m[2]);
+      if(!a||!b||Number(a)<=0||Number(b)<=0||Number(a)>Number(b))return '';
+      return a.padStart(4,'0')+'/'+b.padStart(4,'0');
+    }
     if(type==='wms'&&field==='inboundNo'){
       const fix=(s)=>digits(String(s||'').replace(/[OoQD]/g,'0').replace(/[Il|]/g,'1'));
 
-      // Prefer the value immediately following the inbound-number label, but
-      // tolerate OCR inserting whitespace between digit groups: 2600 3373.
-      let m=text.match(/입\s*고\s*번\s*호\s*[:\-]?\s*((?:[0-9OoQDIl|][\s\-]*){8,10})/);
+      // Prefer the value immediately following the inbound/management-number label,
+      // but tolerate OCR inserting whitespace between digit groups: 2600 3373.
+      let m=text.match(/(?:입\s*고\s*번\s*호|관\s*리\s*번\s*호)\s*[:\-]?\s*((?:[0-9OoQDIl|][\s\-]*){8,10})/);
       if(m){
         const v=fix(m[1]);
         if(v.length===8&&!isDate8(v))return v;
@@ -254,12 +298,14 @@
 
   function retryTarget(type,parsed){
     if(type==='vendor')return 'palletNo';
-    return wmsInboundSane(parsed)?'':'inboundNo';
+    if(!wmsInboundSane(parsed))return 'inboundNo';
+    if(!wmsRangeSane(parsed))return 'containerRange';
+    return '';
   }
 
   function formulaFactors(text){
     const out=[];
-    const s=String(text||'').replace(/,/g,'');
+    const s=fixNumericConfusions(text).replace(/,/g,'');
     // Also catch OCR where one multiplication mark disappears:
     // 40×41 13단 -> factors 40, 41, 13.
     const re=/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})(?:(?:\s*[xX×*]\s*([0-9]{1,4}))|(?:\s+([0-9]{1,3})\s*단))?/g;
@@ -277,7 +323,7 @@
       const factors=formulaFactors(text);
       return factors.includes(String(Number(p)));
     }
-    return !wmsInboundSane(parsed);
+    return !wmsInboundSane(parsed)||!wmsRangeSane(parsed);
   };
 
   function targetValueSane(type,field,v,sourceText,context){
@@ -289,6 +335,10 @@
     }
     if(type==='wms'&&field==='inboundNo'){
       return d.length===8&&!isDate8(d)&&!isQtyScaledInbound(context||{},d);
+    }
+    if(type==='wms'&&field==='containerRange'){
+      const m=String(v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
+      return !!(m&&Number(m[1])>0&&Number(m[2])>0&&Number(m[1])<=Number(m[2]));
     }
     return !!d;
   }
@@ -404,9 +454,24 @@
             const requiredVotes=variants.length>=2?2:1;
             const pick=A.pickTargetConsensus(candidates,requiredVotes);
             if(pick){
-              const merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+              let merged,changed=false;
+              if(type==='wms'&&target==='containerRange'){
+                const m=String(pick.v||'').match(/^(\d{3,5})\/(\d{3,5})$/);
+                if(m){
+                  const candidate={containerFrom:m[1],containerTo:m[2]};
+                  if(!wmsRangeSane(best.parsed)&&wmsRangeSane(candidate)){
+                    merged={...(best.parsed||{}),...candidate};
+                  }else{
+                    merged=A.mergeCandidate(type,best.parsed,candidate,'');
+                  }
+                  changed=String(best.parsed&&best.parsed.containerFrom||'')!==String(merged.containerFrom||'')
+                    ||String(best.parsed&&best.parsed.containerTo||'')!==String(merged.containerTo||'');
+                }else merged={...(best.parsed||{})};
+              }else{
+                merged=A.mergeCandidate(type,best.parsed,{[target]:pick.v},target);
+                changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
+              }
               const score=A.scoreParsed(type,merged,pick.rr.items);
-              const changed=String((best.parsed&&best.parsed[target])??'')!==String(merged[target]??'');
               if(changed||A.isStrictImprovement(best.score,score)){
                 best={result:pick.rr,parsed:merged,score,method:pick.method};
               }
@@ -441,5 +506,5 @@
       extraPasses:Math.max(0,attempts.length-1)};
   };
 
-  console.info('[V55-ADAPTIVE-OCR-2.4.1] dual-ROI consensus + split WMS number recovery');
+  console.info('[V55-ADAPTIVE-OCR-2.4.5] invalid/missing WMS pallet range retry + conservative dual-ROI recovery ready');
 })();

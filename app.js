@@ -275,6 +275,11 @@ function applyOcrToMode(mode, parsed) {
     if (v.lotNo) { document.getElementById('vLotNo').value = v.lotNo; filled++; }
     if (v.line) { document.getElementById('vLine').value = v.line; filled++; }
     compareLabels();
+    try {
+      if (window.V55WmsQuality && typeof V55WmsQuality.render === 'function') {
+        V55WmsQuality.render();
+      }
+    } catch (_) {}
   } else if (mode === 'multi') {
     if (parsed.product) { document.getElementById('mProduct').value = parsed.product; filled++; }
     if (parsed.itemCode) { document.getElementById('mItemCode').value = parsed.itemCode; filled++; }
@@ -348,7 +353,7 @@ async function labelPhotoSelected(event, mode) {
    그래서 줄 단위가 아니라 "항목명을 기준으로 전체 글자를 잘라내는" 방식을 쓴다. */
 
 const WMS_LABELS = [
-  { key: 'inboundNo',    pat: '입\\s*고\\s*번\\s*호' },
+  { key: 'inboundNo',    pat: '입\\s*고\\s*번\\s*호|관\\s*리\\s*번\\s*호' },
   { key: 'itemCode',     pat: '품\\s*목\\s*코\\s*드|자\\s*재\\s*코\\s*드' },
   { key: 'product',      pat: '품\\s*명|자\\s*재\\s*명' },
   { key: 'qty',          pat: '수\\s*량|수' },
@@ -613,7 +618,11 @@ function compareLabels() {
   // 1) 수량 — 가장 확실한 대조 기준
   if (wmsQty && vQty) {
     if (wmsQty === vQty) okMsgs.push('수량 일치(' + wmsQty.toLocaleString() + ')');
-    else issues.push('수량 다름 (WMS ' + wmsQty.toLocaleString() + ' / 업체 ' + vQty.toLocaleString() + ')');
+    else {
+      const factor10 = (wmsQty * 10 === vQty) || (vQty * 10 === wmsQty);
+      issues.push('수량 다름 (WMS ' + wmsQty.toLocaleString() + ' / 업체 ' + vQty.toLocaleString() + ')' +
+        (factor10 ? ' · OCR 숫자 1자리 누락 가능' : ''));
+    }
   }
 
   // 2) 용량 (100mL 등) — 양쪽에서 읽히면 비교
@@ -686,6 +695,11 @@ async function registerAlias() {
 let singleMatchOk = null;
 
 function applyParsed(p, force) {
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.sanitizeParsed === 'function') {
+      p = V55WmsQuality.sanitizeParsed(p || {});
+    }
+  } catch (_) {}
   const ids = ['inboundNo', 'inboundDate', 'product', 'itemCode', 'manufacturer', 'supplier', 'displayQty', 'unit', 'expiryDate', 'containerFrom', 'containerTo', 'codeRaw'];
   ids.forEach(id => {
     const el = document.getElementById(id);
@@ -697,6 +711,16 @@ function applyParsed(p, force) {
     document.getElementById('actualQty').value = p.displayQty;
     updateSingleQty();
   }
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.refresh === 'function') {
+      V55InboundProgress.refresh();
+    }
+  } catch (_) {}
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.render === 'function') {
+      V55WmsQuality.render();
+    }
+  } catch (_) {}
 }
 
 function applyMasterToForm(d) {
@@ -1245,6 +1269,10 @@ function updateSingleQty() {
 /* ============ 저장 ============ */
 
 async function saveSingleRecord() {
+  if (!window.__EMPTY_BOTTLE_BOOT_READY__ || !window.V55WmsQuality || !window.V55InboundProgress) {
+    setStatus('saveSingleStatus', '프로그램 안전검사 모듈을 아직 불러오는 중입니다. 잠시 후 다시 저장하세요.', 'bad');
+    return;
+  }
   compareLabels();
   if (singleMatchOk === false) {
     const go = window.confirm(
@@ -1281,6 +1309,43 @@ async function saveSingleRecord() {
     itemPhotos: itemPhotos.single
   };
 
+  try {
+    if (window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
+      const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
+      if (qualityCheck && qualityCheck.ok === false) {
+        setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.validateBeforeSave === 'function') {
+      const check = V55InboundProgress.validateBeforeSave(payload);
+      if (check && check.ok === false) {
+        setStatus('saveSingleStatus', check.message || '이미 처리된 WMS Pallet입니다.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.checkServerDuplicate === 'function') {
+      setStatus('saveSingleStatus', '서버 중복 여부 확인 중...', 'warn');
+      const serverCheck = await V55InboundProgress.checkServerDuplicate(payload);
+      if (!serverCheck || serverCheck.ok === false) {
+        setStatus('saveSingleStatus', (serverCheck && serverCheck.message) || '서버 중복확인에 실패했습니다.', 'bad');
+        return;
+      }
+    } else {
+      setStatus('saveSingleStatus', '서버 중복확인 모듈이 준비되지 않아 저장을 중단했습니다.', 'bad');
+      return;
+    }
+  } catch (e) {
+    setStatus('saveSingleStatus', '서버 중복확인 실패 · ' + e, 'bad');
+    return;
+  }
+
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
     setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
     return;
@@ -1306,6 +1371,11 @@ async function saveSingleRecord() {
       };
       document.getElementById('btnPrintSingle').classList.remove('hidden');
       rememberInspector(payload.inspector);
+      try {
+        if (window.V55InboundProgress && typeof V55InboundProgress.onSingleSaved === 'function') {
+          V55InboundProgress.onSingleSaved(payload, res);
+        }
+      } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
