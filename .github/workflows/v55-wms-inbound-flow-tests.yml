@@ -3,6 +3,7 @@ name: V55 WMS Inbound Flow Tests
 on:
   push:
     branches:
+      - main
       - feature/v55-wms-inbound-flow-v1-20260924
       - release/v55-live-rc-20260928
 
