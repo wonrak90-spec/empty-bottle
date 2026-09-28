@@ -37,7 +37,7 @@ vm.runInContext(code,ctx,{filename:'v55-capture-assist.js'});
 
 const C=ctx.V55CaptureAssist;
 assert.ok(C);
-assert.strictEqual(C.VERSION,'V55-CAPTURE-ASSIST-1.2');
+assert.strictEqual(C.VERSION,'V55-CAPTURE-ASSIST-1.2.1');
 assert.strictEqual(C._test.saneRange('0015','0028'),true);
 assert.strictEqual(C._test.saneRange('00157','0028'),false);
 assert.strictEqual(C._test.severeQtyMismatch('1640','21320'),true);
@@ -83,4 +83,23 @@ assert.strictEqual(els.vQty.value,'21320','severe bad vendor qty may be replaced
 assert.strictEqual(els.vPalletNo.value,'75');
 assert.strictEqual(els.vProdDate.value,'2026-09-28');
 
-console.log('PASS V55 capture assist V1.2: live-first layout + fullscreen modal + safe close-up merge');
+// A hidden preview may still contain the previous pallet image after save/reset.
+// It must never unlock photo view/close-up for the next pallet.
+els.wmsPreview={
+  id:'wmsPreview',src:'data:image/jpeg;base64,OLD',
+  classList:{contains:x=>x==='hidden'}
+};
+ctx.lastPhotoDataUrl={wms:'',vendor:''};
+assert.strictEqual(C._test.fullPhoto('wms'),'',
+  'hidden stale preview from previous pallet must be ignored');
+
+els.wmsPreview.classList={contains:()=>false};
+assert.strictEqual(C._test.fullPhoto('wms'),'data:image/jpeg;base64,OLD',
+  'visible current preview may be used as fallback');
+
+ctx.lastPhotoDataUrl={wms:'data:image/jpeg;base64,CURRENT',vendor:''};
+els.wmsPreview.src='data:image/jpeg;base64,OLD';
+assert.strictEqual(C._test.fullPhoto('wms'),'data:image/jpeg;base64,CURRENT',
+  'current evidence buffer must take precedence over preview src');
+
+console.log('PASS V55 capture assist V1.2.1: live-first modal + safe merge + stale-photo isolation');
