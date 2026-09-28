@@ -87,7 +87,8 @@
   }
 
   V22.ensureLiveUi=function(){
-    V22.ensureLiveUi();
+    insertLiveUi('wms','readerWrapSingle','WMS 라벨');
+    insertLiveUi('vendor','vendorPreview','업체 라벨');
     return !!($('v22LiveWrap_wms')&&$('v22LiveWrap_vendor'));
   };
 
