@@ -1269,6 +1269,10 @@ function updateSingleQty() {
 /* ============ 저장 ============ */
 
 async function saveSingleRecord() {
+  if (!window.__EMPTY_BOTTLE_BOOT_READY__ || !window.V55WmsQuality || !window.V55InboundProgress) {
+    setStatus('saveSingleStatus', '프로그램 안전검사 모듈을 아직 불러오는 중입니다. 잠시 후 다시 저장하세요.', 'bad');
+    return;
+  }
   compareLabels();
   if (singleMatchOk === false) {
     const go = window.confirm(
@@ -1324,6 +1328,23 @@ async function saveSingleRecord() {
       }
     }
   } catch (_) {}
+
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.checkServerDuplicate === 'function') {
+      setStatus('saveSingleStatus', '서버 중복 여부 확인 중...', 'warn');
+      const serverCheck = await V55InboundProgress.checkServerDuplicate(payload);
+      if (!serverCheck || serverCheck.ok === false) {
+        setStatus('saveSingleStatus', (serverCheck && serverCheck.message) || '서버 중복확인에 실패했습니다.', 'bad');
+        return;
+      }
+    } else {
+      setStatus('saveSingleStatus', '서버 중복확인 모듈이 준비되지 않아 저장을 중단했습니다.', 'bad');
+      return;
+    }
+  } catch (e) {
+    setStatus('saveSingleStatus', '서버 중복확인 실패 · ' + e, 'bad');
+    return;
+  }
 
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
     setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
