@@ -177,7 +177,15 @@
     else{card.appendChild(button);card.appendChild(note);}
   }
 
+  function renameBaseButtons(){
+    const w=document.querySelector('button[onclick*="wmsPhoto"][onclick*="click"]');
+    if(w&&/라벨 촬영/.test(w.textContent))w.textContent='📷 전체 라벨 촬영';
+    const v=document.querySelector('button[onclick*="vendorPhoto"][onclick*="click"]');
+    if(v&&/업체 라벨 촬영/.test(v.textContent))v.textContent='📷 전체 라벨 촬영';
+  }
+
   function polish(){
+    renameBaseButtons();
     const w=$('wmsPhoto'),v=$('vendorPhoto');
     if(w){
       const card=w.closest('.card');if(card){addInput('wms',card);addButton('wms',card);}
@@ -187,7 +195,7 @@
     }
   }
 
-  C._test={saneManagement,saneRange,severeQtyMismatch};
+  C._test={saneManagement,saneRange,severeQtyMismatch,mergeWms,mergeVendor};
 
   function boot(){
     polish();setTimeout(polish,500);setTimeout(polish,1600);
