@@ -23,6 +23,7 @@ jobs:
           node --check v55-vendor-parser.js
           node --check v55-adaptive-ocr.js
           node --check v55-roi-preprocess.js
+          node --check v55-capture-assist.js
       - name: Apps Script syntax check
         run: |
           cp Code.gs /tmp/Code.js
@@ -31,6 +32,8 @@ jobs:
         run: node tests/v55-wms-inbound-progress.test.js
       - name: WMS OCR quality guard tests
         run: node tests/v55-wms-quality.test.js
+      - name: Close-up capture assist tests
+        run: node tests/v55-capture-assist.test.js
       - name: ROI preprocessing regression
         run: node tests/v55-roi-preprocess.test.js
       - name: Vendor parser regression
