@@ -788,83 +788,16 @@ function saveItemPhotos_(photos, idPrefix) {
   return urls.join(', ');
 }
 
-function normalizePalletSeq_(v) {
-  const d = String(v || '').replace(/[^0-9]/g, '');
-  if (!d) return '';
-  const n = Number(d);
-  return n > 0 ? String(n) : '';
-}
-
-function findExistingPallet_(ss, inboundNo, containerNo) {
-  const inNo = String(inboundNo || '').trim();
-  const seq = normalizePalletSeq_(containerNo);
-  if (!inNo || !seq) return null;
-
-  const records = ss.getSheetByName('Records');
-  if (records && records.getLastRow() >= 2) {
-    const data = records.getDataRange().getValues();
-    const idx = {};
-    RECORD_HEADERS.forEach(function(h, i) { idx[h] = i; });
-    for (let i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][idx['입고번호']] || '').trim() !== inNo) continue;
-      if (normalizePalletSeq_(data[i][idx['용기번호시작']]) !== seq) continue;
-      return { source: 'Records', id: data[i][idx['ID']] || '', inboundNo: inNo, containerNo: seq };
-    }
-  }
-
-  const pallets = ss.getSheetByName('PalletDetails');
-  if (pallets && pallets.getLastRow() >= 2) {
-    const data = pallets.getDataRange().getValues();
-    const idx = {};
-    PALLET_HEADERS.forEach(function(h, i) { idx[h] = i; });
-    for (let i = data.length - 1; i >= 1; i--) {
-      if (String(data[i][idx['입고번호']] || '').trim() !== inNo) continue;
-      if (normalizePalletSeq_(data[i][idx['용기번호']]) !== seq) continue;
-      return { source: 'PalletDetails', id: data[i][idx['Record ID']] || '', inboundNo: inNo, containerNo: seq };
-    }
-  }
-  return null;
-}
-
 function saveSingleRecord_(p) {
   const ss = getSs_();
   const sheet = ss.getSheetByName('Records');
-  const inboundNo = String(p.inboundNo || '').trim();
-  const containerNo = normalizePalletSeq_(p.containerFrom);
-
-  if (!/^\d{8}$/.test(inboundNo)) {
-    return { ok: false, message: '관리번호가 올바르지 않습니다.' };
-  }
-  if (!containerNo) {
-    return { ok: false, message: '현재 Pallet 순번이 없습니다.' };
-  }
-
-  // Fast duplicate check before uploading photos.
-  const existingBefore = findExistingPallet_(ss, inboundNo, containerNo);
-  if (existingBefore) {
-    return { ok: false, duplicate: true, existingId: existingBefore.id,
-      message: '이미 저장된 Pallet입니다. 관리번호 ' + inboundNo + ' / 순번 ' + containerNo };
-  }
-
   const id = Utilities.getUuid();
   const photoUrl = savePhoto_(p.photo, id + '_라벨');
   const itemPhotoUrls = saveItemPhotos_(p.itemPhotos, id);
+
   const vendorPhotoUrl = savePhoto_(p.vendorPhoto, id + '_업체라벨');
 
-  // Final check + append are protected by a script lock so two devices cannot
-  // create the same management-number/pallet-sequence record simultaneously.
-  const lock = LockService.getScriptLock();
-  if (!lock.tryLock(15000)) {
-    return { ok: false, message: '다른 작업자가 저장 중입니다. 잠시 후 다시 저장하세요.' };
-  }
-  try {
-    const existing = findExistingPallet_(ss, inboundNo, containerNo);
-    if (existing) {
-      return { ok: false, duplicate: true, existingId: existing.id,
-        message: '이미 저장된 Pallet입니다. 관리번호 ' + inboundNo + ' / 순번 ' + containerNo };
-    }
-
-    sheet.appendRow([
+  sheet.appendRow([
     id, new Date(), '단건',
     p.inboundNo || '', p.inboundDate || '', p.product || '', p.itemCode || '',
     p.manufacturer || '', p.supplier || '', p.displayQty || '', p.unit || '',
@@ -875,12 +808,9 @@ function saveSingleRecord_(p) {
     p.labelMatch || '', p.vendorProduct || '', p.vendorQty || '',
     p.vendorProdDate || '', p.vendorProdTime || '', p.vendorLotNo || '', p.vendorLine || '',
     vendorPhotoUrl, p.vendorOcrRaw || ''
-    ]);
+  ]);
 
-    return { ok: true, id: id, photoUrl: photoUrl, itemPhotoUrls: itemPhotoUrls };
-  } finally {
-    try { lock.releaseLock(); } catch (e) {}
-  }
+  return { ok: true, id: id, photoUrl: photoUrl, itemPhotoUrls: itemPhotoUrls };
 }
 
 function saveMultiRecord_(p) {
