@@ -16,13 +16,15 @@
   let modalMode='wms',modalStream=null,zoomTrack=null;
 
   function fullPhoto(mode){
-    try{
-      const pv=$(mode==='vendor'?'vendorPreview':'wmsPreview');
-      if(pv&&pv.src)return pv.src;
-    }catch(_){}
+    // The current evidence buffer is authoritative. It is cleared after save/reset.
+    // A hidden preview may still carry the previous pallet's src, so never use it.
     try{
       if(typeof lastPhotoDataUrl!=='undefined'&&lastPhotoDataUrl&&lastPhotoDataUrl[mode])
         return lastPhotoDataUrl[mode];
+    }catch(_){}
+    try{
+      const pv=$(mode==='vendor'?'vendorPreview':'wmsPreview');
+      if(pv&&pv.src&&!pv.classList.contains('hidden'))return pv.src;
     }catch(_){}
     return '';
   }
