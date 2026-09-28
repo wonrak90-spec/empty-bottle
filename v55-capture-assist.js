@@ -8,7 +8,7 @@
   if(window.__V55_CAPTURE_ASSIST__)return;
   window.__V55_CAPTURE_ASSIST__=true;
 
-  const C=window.V55CaptureAssist={VERSION:'V55-CAPTURE-ASSIST-1.1'};
+  const C=window.V55CaptureAssist={VERSION:'V55-CAPTURE-ASSIST-1.2'};
   const $=id=>document.getElementById(id);
   const digits=v=>String(v==null?'':v).replace(/[^0-9]/g,'');
   const val=id=>$(id)?$(id).value.trim():'';
@@ -330,6 +330,28 @@
     }
   }
 
+  function ensureLivePrimary(){
+    try{
+      if(window.V22&&typeof V22.ensureLiveUi==='function')V22.ensureLiveUi();
+    }catch(_){}
+    for(const mode of ['wms','vendor']){
+      const row=document.querySelector('[data-live-mode="'+mode+'"]');
+      const input=$(mode==='vendor'?'vendorPhoto':'wmsPhoto');
+      const card=input&&input.closest?input.closest('.card'):null;
+      const title=card&&card.querySelector?card.querySelector('.step-title'):null;
+      if(row&&card&&title){
+        // Live OCR is the default workflow. Keep it immediately below the card title.
+        if(title.nextSibling!==row)card.insertBefore(row,title.nextSibling);
+        const start=row.querySelector('[data-live-start="'+mode+'"]');
+        if(start){
+          start.classList.remove('outline');
+          start.classList.add('primary');
+          start.textContent='🎥 '+(mode==='vendor'?'업체 라벨':'WMS 라벨')+' 실시간 인식 (기본)';
+        }
+      }
+    }
+  }
+
   function renameBaseButtons(){
     const w=document.querySelector('button[onclick*="wmsPhoto"][onclick*="click"]');
     if(w&&/라벨 촬영/.test(w.textContent))w.textContent='📷 전체 라벨 촬영';
@@ -344,6 +366,7 @@
   }
 
   function polish(){
+    ensureLivePrimary();
     renameBaseButtons();
     const w=$('wmsPhoto'),v=$('vendorPhoto');
     if(w){const card=w.closest('.card');if(card){addInput('wms',card);addButtons('wms',card);}watchPreview('wms');}
@@ -353,7 +376,10 @@
   C._test={saneManagement,saneRange,severeQtyMismatch,mergeWms,mergeVendor};
 
   function boot(){
-    injectStyle();injectModal();polish();setTimeout(polish,500);setTimeout(polish,1600);
+    injectStyle();injectModal();polish();
+    // Runtime/UI scripts are loaded dynamically. Re-assert the live-first layout
+    // several times so a slow phone cannot lose the primary live OCR controls.
+    setTimeout(polish,250);setTimeout(polish,700);setTimeout(polish,1600);setTimeout(polish,3200);
   }
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
