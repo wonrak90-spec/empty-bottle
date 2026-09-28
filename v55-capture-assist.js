@@ -8,7 +8,7 @@
   if(window.__V55_CAPTURE_ASSIST__)return;
   window.__V55_CAPTURE_ASSIST__=true;
 
-  const C=window.V55CaptureAssist={VERSION:'V55-CAPTURE-ASSIST-1.2'};
+  const C=window.V55CaptureAssist={VERSION:'V55-CAPTURE-ASSIST-1.2.1'};
   const $=id=>document.getElementById(id);
   const digits=v=>String(v==null?'':v).replace(/[^0-9]/g,'');
   const val=id=>$(id)?$(id).value.trim():'';
@@ -375,7 +375,7 @@
     if(v){const card=v.closest('.card');if(card){addInput('vendor',card);addButtons('vendor',card);}watchPreview('vendor');}
   }
 
-  C._test={saneManagement,saneRange,severeQtyMismatch,mergeWms,mergeVendor};
+  C._test={saneManagement,saneRange,severeQtyMismatch,mergeWms,mergeVendor,fullPhoto};
 
   function boot(){
     injectStyle();injectModal();polish();
