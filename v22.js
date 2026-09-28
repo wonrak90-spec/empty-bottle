@@ -69,9 +69,9 @@
   function insertLiveUi(mode, anchorId, label){
     const anchor=$(anchorId); if(!anchor || $(`v22LiveWrap_${mode}`)) return;
     const wrap=document.createElement('div');
-    wrap.innerHTML=`<div class="v22-action-row">
-      <button type="button" class="btn outline" onclick="V22.startLive('${mode}')">🎥 ${label} 실시간 인식</button>
-      <button type="button" class="btn outline" onclick="V22.stopLive('${mode}')">카메라 중지</button>
+    wrap.innerHTML=`<div class="v22-action-row" data-live-mode="${mode}">
+      <button type="button" class="btn primary" data-live-start="${mode}" onclick="V22.startLive('${mode}')">🎥 ${label} 실시간 인식 (기본)</button>
+      <button type="button" class="btn outline" data-live-stop="${mode}" onclick="V22.stopLive('${mode}')">카메라 중지</button>
     </div>
     <div id="v22LiveWrap_${mode}" class="v22-live hidden">
       <div class="v22-live-hint">라벨을 정면으로 크게 맞추고 반사광을 피해주세요. 흐리면 🎯 초점을 누르세요.</div>
@@ -85,6 +85,11 @@
     const frag=wrap.children;
     while(frag.length) anchor.parentNode.insertBefore(frag[0],anchor);
   }
+
+  V22.ensureLiveUi=function(){
+    V22.ensureLiveUi();
+    return !!($('v22LiveWrap_wms')&&$('v22LiveWrap_vendor'));
+  };
 
   function cropVideo(video, maxPx){
     const vw=video.videoWidth, vh=video.videoHeight; if(!vw||!vh)return '';
