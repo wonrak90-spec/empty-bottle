@@ -349,7 +349,7 @@
           setFast(pm.isLast?'제품명 기준 유지 · 마지막 Pallet 수량은 별도 확인':'업체 기준정보 LOCK 완료 · 정상 확인·저장 가능합니다.','ok');
           setTimeout(()=>D.close(),500);
         }else{
-          D.evidence=true;
+          D.evidence=false;
           setVendorStatus('첫 업체라벨 OCR 결과가 WMS와 자동 일치하지 않습니다. 상세 확인 후 기준을 확정하세요.','warn');
           setFast('첫 업체라벨 기준 확정 필요 · 상세 확인하세요.','warn');
         }
