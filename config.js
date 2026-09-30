@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v56-wms-single-fix4';
+  const RELEASE='20261001-v56-photo-controls-fix5';
 
   const styles=[
     'v22.css',
