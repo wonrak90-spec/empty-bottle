@@ -328,8 +328,8 @@
         D.mismatch=!!(observed&&!productSame(observed,lock.vendorProduct));
         D.evidence=!!val('vQty')&&!D.mismatch;
         try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
-        setVendorStatus('마지막 Pallet · 업체라벨 수량 재확인 완료','ok');
-        setFast('마지막 Pallet 수량 확인 완료 · 판정 결과를 확인하세요.','ok');
+        setVendorStatus(D.evidence?'마지막 Pallet · 실제 수량 확인 완료':'마지막 Pallet · 제품명/수량 확인 필요',D.evidence?'ok':'warn');
+        setFast(D.evidence?'마지막 Pallet 판정 결과를 확인하세요.':'마지막 Pallet 판독 미완료 · 정상 저장 중단',D.evidence?'ok':'warn');
         setTimeout(()=>D.close(),500);
       }else if(lock&&lock.vendorQty){
         modalStatus('기준정보 재사용 · 사진 저장 후 백그라운드로 이상 여부를 확인합니다.');
