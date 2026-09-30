@@ -319,9 +319,6 @@
         setTimeout(()=>D.close(),350);
       }else{
         modalStatus('첫 Pallet · 제품명/수량 OCR 후 기준정보를 확정합니다...');
-        try{
-          if(window.V56FastFlow&&typeof V56FastFlow.noteEvidence==='function')V56FastFlow.noteEvidence('vendor',full);
-        }catch(_){}
         const out=await firstCapture(full,k);
         if(out.ok){
           setVendorStatus('첫 업체라벨 확인 완료 · 제품명/수량 기준 LOCK','ok');
