@@ -36,6 +36,7 @@ const ctx={
   navigator:{},
   singleMatchOk:true,
   V55WmsQuality:{inspectForm:()=>({ok:true,issues:[]})},
+  V56VendorDistance:{evidenceReady:()=>true,hasMismatch:()=>false,resetForNext(){}},
   updateSingleQty(){qtyUpdated++;},
   saveSingleRecord:async()=>{saved++;},
   addEventListener(){}
