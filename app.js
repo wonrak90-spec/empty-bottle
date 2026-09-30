@@ -1339,23 +1339,6 @@ async function saveSingleRecord() {
     }
   } catch (_) {}
 
-  try {
-    if (window.V55InboundProgress && typeof V55InboundProgress.checkServerDuplicate === 'function') {
-      setStatus('saveSingleStatus', '서버 중복 여부 확인 중...', 'warn');
-      const serverCheck = await V55InboundProgress.checkServerDuplicate(payload);
-      if (!serverCheck || serverCheck.ok === false) {
-        setStatus('saveSingleStatus', (serverCheck && serverCheck.message) || '서버 중복확인에 실패했습니다.', 'bad');
-        return;
-      }
-    } else {
-      setStatus('saveSingleStatus', '서버 중복확인 모듈이 준비되지 않아 저장을 중단했습니다.', 'bad');
-      return;
-    }
-  } catch (e) {
-    setStatus('saveSingleStatus', '서버 중복확인 실패 · ' + e, 'bad');
-    return;
-  }
-
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
     setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
     return;
