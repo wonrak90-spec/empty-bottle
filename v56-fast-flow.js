@@ -8,7 +8,7 @@
   window.__V56_FAST_FLOW__=true;
 
   const F=window.V56FastFlow={
-    VERSION:'V56-FAST-FLOW-1',
+    VERSION:'V56-FAST-FLOW-1.1',
     continuous:false,
     busy:false,
     photoUrls:{wms:'',vendor:''},
@@ -35,7 +35,13 @@
     return /^\d{8}$/.test(val('inboundNo'))&&!!val('itemCode')&&!!val('displayQty')&&!!val('containerFrom')&&!!val('containerTo');
   }
   function hasVendor(){
-    return !!val('vProduct')&&!!val('vQty');
+    const fields=!!val('vProduct')&&!!val('vQty');
+    try{
+      if(window.V56VendorDistance){
+        return fields&&V56VendorDistance.evidenceReady()&&!V56VendorDistance.hasMismatch();
+      }
+    }catch(_){}
+    return fields;
   }
   function state(){
     const q=wmsQuality(),m=labelMatch();
@@ -128,6 +134,7 @@
     const p=preUpload(mode,dataUrl).finally(()=>{if(F.uploads[mode]===p)F.uploads[mode]=null;});
     F.uploads[mode]=p;
   }
+  F.noteEvidence=function(mode,dataUrl){startUpload(mode==='vendor'?'vendor':'wms',dataUrl);};
   F.waitForUploads=async function(){
     const ps=['wms','vendor'].map(k=>F.uploads[k]).filter(Boolean);
     if(ps.length)await Promise.allSettled(ps);
@@ -167,8 +174,14 @@
       const s=state();
       if(s.wms&&s.quality){
         try{if(navigator.vibrate)navigator.vibrate(45);}catch(_){}
-        setFastStatus('WMS 완료 · 업체라벨로 이동하세요. 카메라를 자동 전환합니다.','ok');
-        setTimeout(()=>{if(F.continuous)startLive('vendor');},700);
+        setFastStatus('WMS 완료 · 업체라벨 원거리 촬영으로 자동 전환합니다.','ok');
+        setTimeout(()=>{
+          if(!F.continuous)return;
+          try{
+            if(window.V56VendorDistance&&typeof V56VendorDistance.open==='function')V56VendorDistance.open();
+            else startLive('vendor');
+          }catch(_){startLive('vendor');}
+        },450);
       }else{
         setFastStatus('WMS 결과 확인 필요 · 자동 전환을 중단했습니다. 확대/상세 확인하세요.','bad');
       }
@@ -180,6 +193,7 @@
 
   F.onSaved=function(){
     F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};
+    try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
     if(F.continuous){
       setTimeout(()=>{
         if(!F.continuous)return;
