@@ -789,6 +789,10 @@ function saveItemPhotos_(photos, idPrefix) {
 }
 
 function saveSingleRecord_(p) {
+  // Serialize duplicate check and append across simultaneous operators.
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(30000)) return {ok:false,message:'저장 대기시간 초과 · 재시도하세요.'};
+  try {
   const ss = getSs_();
   const sheet = ss.getSheetByName('Records');
 
@@ -830,7 +834,9 @@ function saveSingleRecord_(p) {
     vendorPhotoUrl, p.vendorOcrRaw || ''
   ]);
 
+  SpreadsheetApp.flush();
   return { ok: true, id: id, photoUrl: photoUrl, itemPhotoUrls: itemPhotoUrls };
+  } finally { lock.releaseLock(); }
 }
 
 function saveMultiRecord_(p) {
