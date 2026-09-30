@@ -1300,8 +1300,12 @@ async function saveSingleRecord() {
     qtyResult: disp === actual ? '일치' : '불일치',
     finalResult: (disp === actual && document.getElementById('matchYes').classList.contains('sel-ok') && document.getElementById('mixNo').classList.contains('sel-ok')) ? '적합' : '확인필요',
     note: get('note'), inspector: get('inspector'),
-    photo: lastPhotoDataUrl.wms || lastPhotoDataUrl.single, ocrRaw: lastOcrText.wms || lastOcrText.single,
-    vendorPhoto: lastPhotoDataUrl.vendor, vendorOcrRaw: lastOcrText.vendor,
+    photoUrl: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.wms) || '',
+    vendorPhotoUrl: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.vendor) || '',
+    photo: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.wms) ? '' : (lastPhotoDataUrl.wms || lastPhotoDataUrl.single),
+    ocrRaw: lastOcrText.wms || lastOcrText.single,
+    vendorPhoto: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.vendor) ? '' : lastPhotoDataUrl.vendor,
+    vendorOcrRaw: lastOcrText.vendor,
     vendorProduct: get('vProduct'), vendorQty: get('vQty'),
     vendorProdDate: get('vProdDate'), vendorProdTime: get('vProdTime'),
     vendorLotNo: get('vLotNo'), vendorPalletNo: get('vPalletNo'), vendorLine: get('vLine'),
@@ -1375,6 +1379,9 @@ async function saveSingleRecord() {
         if (window.V55InboundProgress && typeof V55InboundProgress.onSingleSaved === 'function') {
           V55InboundProgress.onSingleSaved(payload, res);
         }
+      } catch (_) {}
+      try {
+        if (window.V56FastFlow && typeof V56FastFlow.onSaved === 'function') V56FastFlow.onSaved(payload, res);
       } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {
