@@ -196,14 +196,7 @@
     }
 
     const n=countFields(p);
-    if(!previewOnly){
-      setStatus(sid(mode),(label||'V4.6 OCR 완료')+' · '+n+'개 항목 · 작업자 확인 후 확정하세요.','ok');
-      try{
-        window.dispatchEvent(new CustomEvent('v55:ocr-applied',{
-          detail:{mode,parsed:p,raw,dataUrl,label:label||'',fieldCount:n}
-        }));
-      }catch(_){}
-    }
+    if(!previewOnly)setStatus(sid(mode),(label||'V4.6 OCR 완료')+' · '+n+'개 항목 · 작업자 확인 후 확정하세요.','ok');
     return {count:n,parsed:p};
   }
   R.apply=applyResult;
