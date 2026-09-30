@@ -1284,6 +1284,19 @@ async function saveSingleRecord() {
       return;
     }
   }
+  try {
+    if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
+      await V56FastFlow.waitForUploads();
+      // Background vendor OCR may finish while photos upload; never save stale evidence.
+      if (document.body.classList.contains('v56-fast') &&
+          window.V56VendorDistance &&
+          (!V56VendorDistance.evidenceReady() || V56VendorDistance.hasMismatch())) {
+        setStatus('saveSingleStatus', '업체라벨 확인이 완료되지 않았거나 불일치가 감지되었습니다. 저장을 중단합니다.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
   const get = id => document.getElementById(id).value.trim();
   const disp = num(get('displayQty'));
   const actual = num(get('actualQty'));
@@ -1300,8 +1313,12 @@ async function saveSingleRecord() {
     qtyResult: disp === actual ? '일치' : '불일치',
     finalResult: (disp === actual && document.getElementById('matchYes').classList.contains('sel-ok') && document.getElementById('mixNo').classList.contains('sel-ok')) ? '적합' : '확인필요',
     note: get('note'), inspector: get('inspector'),
-    photo: lastPhotoDataUrl.wms || lastPhotoDataUrl.single, ocrRaw: lastOcrText.wms || lastOcrText.single,
-    vendorPhoto: lastPhotoDataUrl.vendor, vendorOcrRaw: lastOcrText.vendor,
+    photoUrl: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.wms) || '',
+    vendorPhotoUrl: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.vendor) || '',
+    photo: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.wms) ? '' : (lastPhotoDataUrl.wms || lastPhotoDataUrl.single),
+    ocrRaw: lastOcrText.wms || lastOcrText.single,
+    vendorPhoto: (window.V56FastFlow && V56FastFlow.photoUrls && V56FastFlow.photoUrls.vendor) ? '' : lastPhotoDataUrl.vendor,
+    vendorOcrRaw: lastOcrText.vendor,
     vendorProduct: get('vProduct'), vendorQty: get('vQty'),
     vendorProdDate: get('vProdDate'), vendorProdTime: get('vProdTime'),
     vendorLotNo: get('vLotNo'), vendorPalletNo: get('vPalletNo'), vendorLine: get('vLine'),
@@ -1328,23 +1345,6 @@ async function saveSingleRecord() {
       }
     }
   } catch (_) {}
-
-  try {
-    if (window.V55InboundProgress && typeof V55InboundProgress.checkServerDuplicate === 'function') {
-      setStatus('saveSingleStatus', '서버 중복 여부 확인 중...', 'warn');
-      const serverCheck = await V55InboundProgress.checkServerDuplicate(payload);
-      if (!serverCheck || serverCheck.ok === false) {
-        setStatus('saveSingleStatus', (serverCheck && serverCheck.message) || '서버 중복확인에 실패했습니다.', 'bad');
-        return;
-      }
-    } else {
-      setStatus('saveSingleStatus', '서버 중복확인 모듈이 준비되지 않아 저장을 중단했습니다.', 'bad');
-      return;
-    }
-  } catch (e) {
-    setStatus('saveSingleStatus', '서버 중복확인 실패 · ' + e, 'bad');
-    return;
-  }
 
   if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
     setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
@@ -1375,6 +1375,9 @@ async function saveSingleRecord() {
         if (window.V55InboundProgress && typeof V55InboundProgress.onSingleSaved === 'function') {
           V55InboundProgress.onSingleSaved(payload, res);
         }
+      } catch (_) {}
+      try {
+        if (window.V56FastFlow && typeof V56FastFlow.onSaved === 'function') V56FastFlow.onSaved(payload, res);
       } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {

@@ -36,7 +36,7 @@ vm.runInContext(code,ctx,{filename:'v56-vendor-distance.js'});
 
 const D=ctx.V56VendorDistance;
 assert.ok(D);
-assert.strictEqual(D.VERSION,'V56-VENDOR-DISTANCE-1');
+assert.strictEqual(D.VERSION,'V56-VENDOR-DISTANCE-1.2');
 assert.strictEqual(D._test.productSame('판콜-A','판콜 A'),true);
 assert.strictEqual(D._test.productSame('까스활명수큐병','판콜-A'),false);
 

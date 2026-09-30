@@ -1,7 +1,7 @@
 // Production configuration — unified OCR runtime
 // Individual employee + PIN session auth. No static API token.
 const CONFIG = {
-  API_URL: 'https://script.google.com/macros/s/AKfycbw6cRBWwrtwBiTlY6SShBRs5tFPaGwYio2xn7d3ebrBX2Eru4bNogFTiL8MM2IJ1SmUaw/exec',
+  API_URL: 'https://script.google.com/macros/s/AKfycbwaq4JxAp_JCHam-SERSdyif5PEF092zCaOVQWoVsPLrL7vmAY1mhf6h0QNWwQzZaGSKA/exec',
   API_TOKEN: ''
 };
 
@@ -43,6 +43,8 @@ const CONFIG = {
     'v55-wms-inbound-progress.js',
     'v55-wms-quality.js',
     'v55-capture-assist.js',
+    'v56-fast-flow.js',
+    'v56-vendor-distance.js',
     'v26-stability.js'
   ];
 
