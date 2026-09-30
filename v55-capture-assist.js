@@ -348,7 +348,7 @@
         if(start){
           start.classList.remove('outline');
           start.classList.add('primary');
-          start.textContent='🎥 '+(mode==='vendor'?'업체 라벨':'WMS 라벨')+' 실시간 인식 (기본)';
+          start.textContent='🎥 '+(mode==='vendor'?'업체 라벨 자동 인식':'WMS 자동 인식');
         }
       }
     }
