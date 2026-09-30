@@ -791,6 +791,26 @@ function saveItemPhotos_(photos, idPrefix) {
 function saveSingleRecord_(p) {
   const ss = getSs_();
   const sheet = ss.getSheetByName('Records');
+
+  // 저장 요청 자체에서 중복을 다시 확인한다.
+  // 클라이언트의 별도 searchPallets 왕복 없이도 동일 관리번호+Pallet 순번의 이중 저장을 차단한다.
+  const inboundNo = String(p.inboundNo || '').trim();
+  const currentSeq = Number(String(p.containerFrom || '').replace(/[^0-9]/g, '')) || 0;
+  if (inboundNo && currentSeq) {
+    const data = sheet.getDataRange().getValues();
+    const idx = {};
+    RECORD_HEADERS.forEach(function(h, i) { idx[h] = i; });
+    for (let i = data.length - 1; i >= 1; i--) {
+      const row = data[i];
+      if (String(row[idx['모드']] || '') !== '단건') continue;
+      if (String(row[idx['입고번호']] || '').trim() !== inboundNo) continue;
+      const savedSeq = Number(String(row[idx['용기번호시작']] || '').replace(/[^0-9]/g, '')) || 0;
+      if (savedSeq === currentSeq) {
+        return { ok:false, duplicate:true, id:String(row[idx['ID']] || ''), message:'이미 저장된 Pallet입니다 · 관리번호 '+inboundNo+' / 순번 '+currentSeq };
+      }
+    }
+  }
+
   const id = Utilities.getUuid();
   const photoUrl = p.photoUrl || savePhoto_(p.photo, id + '_라벨');
   const itemPhotoUrls = saveItemPhotos_(p.itemPhotos, id);
