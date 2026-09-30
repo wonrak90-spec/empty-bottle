@@ -428,8 +428,35 @@
     return out;
   }
 
+  function detectSGC(raw,rows){
+    const src=[raw,...rows].join(' ').replace(/\s/g,'');
+    return /SGC솔루션|천안유리공장/i.test(src) ||
+      (/포장사양/.test(src)&&/생산라인/.test(src)&&/P\/?L(?:NO)?/i.test(src));
+  }
+  function parseSGC(raw,items){
+    const rows=rowsOf(raw,items),src=rows.join('\n')+'\n'+String(raw||'');
+    // SGC vertical table: product, P/L number and packaging specification are distinct fields.
+    // Never infer the pallet number from a formula factor or a production date.
+    const out={};
+    const compact=src.replace(/\s/g,'');
+    if(/판콜[-－–]?A/i.test(compact)||/판콜[-－–]?에이/.test(compact))out.product='판콜-A';
+    const pm=src.match(/P\s*[/\\|]?\s*L\s*(?:N\s*[oO0]\.?|번\s*호)?\s*[:：.]?\s*([0-9]{1,3})(?![0-9])/i);
+    if(pm)out.palletNo=String(Number(pm[1]));
+    // Only compute count when BOTH factors and the packaging unit are visible.
+    const fm=src.replace(/,/g,'').match(/([0-9]{3,4})\s*(?:본)?\s*[xX×*]\s*([0-9]{1,2})\s*단/);
+    if(fm){
+      const a=Number(fm[1]),b=Number(fm[2]);
+      if(a>0&&b>0&&a*b<=999999)out.qty=String(a*b);
+    }
+    const lm=src.match(/생\s*산\s*라\s*인\s*[:：]?\s*([0-9]+\s*[-－]\s*[0-9]+)/);
+    if(lm)out.line=lm[1].replace(/\s/g,'');
+    P.lastTemplate='SGC솔루션';
+    return out;
+  }
+
   P.detect=function(raw,items){
     const rows=rowsOf(raw,items);
+    if(detectSGC(raw,rows))return 'SGC솔루션';
     if(detectDonghwa(raw,rows,{}))return '동화지앤피';
     if(detectDonga(raw,rows))return '동아에코팩';
     return '';
@@ -440,12 +467,13 @@
       ? V26VendorTemplates.parse(raw||'',items||[])
       : (typeof window.parseVendorLabel==='function'?window.parseVendorLabel(raw||''):{} )||{};
     const rows=rowsOf(raw,items);
+    if(detectSGC(raw,rows))return parseSGC(raw,items);
     if(detectDonghwa(raw,rows,base))return parseDonghwa(raw,items,base);
     if(detectDonga(raw,rows))return parseDonga(raw,items,base);
     P.lastTemplate=(window.V26VendorTemplates&&V26VendorTemplates.lastTemplate)||'';
     return base;
   };
 
-  P._test={cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
+  P._test={detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
   console.info('[V55-VENDOR-PARSER-3.6] pallet context recovery + volume-noise guard + Donga dotted-qty recovery ready');
 })();
