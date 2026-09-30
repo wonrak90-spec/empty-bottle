@@ -43,6 +43,8 @@ const CONFIG = {
     'v55-wms-inbound-progress.js',
     'v55-wms-quality.js',
     'v55-capture-assist.js',
+    'v56-fast-flow.js',
+    'v56-vendor-distance.js',
     'v26-stability.js'
   ];
 
