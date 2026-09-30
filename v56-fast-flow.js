@@ -207,6 +207,8 @@
     if($('v56FastStyle'))return;
     const s=document.createElement('style');s.id='v56FastStyle';
     s.textContent=`
+      #single [data-live-mode="wms"]{display:flex!important;visibility:visible!important}
+      #single [data-live-start="wms"]{display:block!important;visibility:visible!important}
       #v56FastCard{border:2px solid var(--primary);position:relative}
       .v56-pills{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
       .v56-pill{font-size:.73rem;padding:5px 8px;border-radius:999px;background:#eee;color:#666;font-weight:700}
