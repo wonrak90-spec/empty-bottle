@@ -792,10 +792,10 @@ function saveSingleRecord_(p) {
   const ss = getSs_();
   const sheet = ss.getSheetByName('Records');
   const id = Utilities.getUuid();
-  const photoUrl = savePhoto_(p.photo, id + '_라벨');
+  const photoUrl = p.photoUrl || savePhoto_(p.photo, id + '_라벨');
   const itemPhotoUrls = saveItemPhotos_(p.itemPhotos, id);
 
-  const vendorPhotoUrl = savePhoto_(p.vendorPhoto, id + '_업체라벨');
+  const vendorPhotoUrl = p.vendorPhotoUrl || savePhoto_(p.vendorPhoto, id + '_업체라벨');
 
   sheet.appendRow([
     id, new Date(), '단건',
