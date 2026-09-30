@@ -6,6 +6,7 @@ on:
       - main
       - feature/v55-wms-inbound-flow-v1-20260924
       - feature/v56-fast-inbound-v1-20260930
+      - feature/v56-vendor-distance-v1-20260930
       - release/v55-live-rc-20260928
 
 jobs:
@@ -28,6 +29,7 @@ jobs:
           node --check v55-roi-preprocess.js
           node --check v55-capture-assist.js
           node --check v56-fast-flow.js
+          node --check v56-vendor-distance.js
       - name: Apps Script syntax check
         run: |
           cp Code.gs /tmp/Code.js
@@ -40,6 +42,8 @@ jobs:
         run: node tests/v55-capture-assist.test.js
       - name: V56 fast inbound flow tests
         run: node tests/v56-fast-flow.test.js
+      - name: V56 vendor distance capture tests
+        run: node tests/v56-vendor-distance.test.js
       - name: Live OCR UI preservation
         run: node tests/v55-live-ocr-ui.test.js
       - name: ROI preprocessing regression
