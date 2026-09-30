@@ -431,7 +431,7 @@
   function detectSGC(raw,rows){
     const src=[raw,...rows].join(' ').replace(/\s/g,'');
     return /SGC솔루션|천안유리공장/i.test(src) ||
-      (/포장사양/.test(src)&&/생산라인/.test(src)&&/P\/?L(?:NO)?/i.test(src));
+      (!/동아에코팩|동화지앤피/i.test(src)&&/포장사양/.test(src)&&/생산라인/.test(src)&&/P\/?L(?:NO)?/i.test(src));
   }
   function parseSGC(raw,items){
     const rows=rowsOf(raw,items),src=rows.join('\n')+'\n'+String(raw||'');
