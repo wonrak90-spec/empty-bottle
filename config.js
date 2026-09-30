@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20260928-v55-live3';
+  const RELEASE='20260930-v56-refresh-fix1';
 
   const styles=[
     'v22.css',
