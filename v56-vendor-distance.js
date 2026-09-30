@@ -10,9 +10,9 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V56-VENDOR-DISTANCE-1.1',
+    VERSION:'V56-VENDOR-DISTANCE-1.2',
     stream:null,track:null,mode:'capture',busy:false,
-    evidence:false,mismatch:false,currentKey:''
+    evidence:false,mismatch:false,currentKey:'',generation:0
   };
   const $=id=>document.getElementById(id);
   const val=id=>$(id)?$(id).value.trim():'';
@@ -171,7 +171,7 @@
 
   D.open=async function(){
     ensureStyle();ensureModal();
-    D.currentKey=key();D.evidence=false;D.mismatch=false;
+    D.generation++;D.currentKey=key();D.evidence=false;D.mismatch=false;
     renderLock();
     try{if(window.OcrRuntime&&typeof OcrRuntime.stopAll==='function')OcrRuntime.stopAll(false);}catch(_){}
     const m=$('v56VendorDistanceModal');m.classList.add('open');document.body.style.overflow='hidden';
@@ -280,14 +280,16 @@
     }catch(_){}
     try{window.dispatchEvent(new CustomEvent('v56:vendor-evidence',{detail:{key:D.currentKey,locked:true}}));}catch(_){}
 
-    // Background OCR is a mismatch detector only. It never blocks because text is unreadable.
+    // Background OCR must finish before normal save is enabled.
+    const generation=D.generation,captureKey=D.currentKey;
     (async()=>{
       try{
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진 미준비');
         const crop=await cropForOcr(full);
         const r=await OcrRuntime.recognize(crop,'vendor','');
         const p=r&&r.parsed||{};
-        if(!p.product&&!p.qty)throw new Error('Unreadable vendor label');
+        if(!p.product||!p.qty)throw new Error('Incomplete vendor label');
+        if(generation!==D.generation||captureKey!==D.currentKey)return;
         const qty=p.qty?digits(p.qty):'',expected=digits(lock.vendorQty);
         const name=p.product||'';
         const positiveMismatch=(qty&&expected&&qty!==expected)||(name&&!productSame(name,lock.vendorProduct));
@@ -300,14 +302,14 @@
           setFast('⚠ 업체라벨 기준 불일치 가능 · 정상 저장을 중단하고 상세 확인하세요.','bad');
           try{window.dispatchEvent(new CustomEvent('v56:vendor-mismatch',{detail:{parsed:p,lock}}));}catch(_){}
         }
-      }catch(_){setVendorStatus('업체라벨 OCR 미확인 · 상세 확인 필요','warn');D.mismatch=true;}
-      finally{D.evidence=!D.mismatch;try{if(window.V56FastFlow)V56FastFlow.refresh();}catch(_){}}
+      }catch(_){if(generation===D.generation&&captureKey===D.currentKey){setVendorStatus('업체라벨 OCR 미확인 · 상세 확인 필요','warn');D.mismatch=true;}}
+      finally{if(generation===D.generation&&captureKey===D.currentKey){D.evidence=!D.mismatch;try{if(window.V56FastFlow)V56FastFlow.refresh();}catch(_){}}}
     })();
     return {ok:true,locked:true};
   }
 
   D.capture=async function(){
-    if(D.busy)return;D.busy=true;
+    if(D.busy)return;D.busy=true;D.generation++;D.evidence=false;D.mismatch=false;
     const btn=$('v56VendorShot');if(btn)btn.disabled=true;
     modalStatus('고해상도 사진 확보 중...');
     try{
@@ -324,9 +326,10 @@
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
         const r=await OcrRuntime.recognize(crop,'vendor','vendorStatus');
         await OcrRuntime.apply('vendor',r,full,'마지막 Pallet 업체라벨 수량 확인 완료');
-        const observed=val('vProduct');
-        D.mismatch=!!(observed&&!productSame(observed,lock.vendorProduct));
-        D.evidence=!!val('vQty')&&!D.mismatch;
+        const parsed=r&&r.parsed||{};
+        const observed=parsed.product||'';
+        D.mismatch=!observed||!productSame(observed,lock.vendorProduct)||!digits(parsed.qty);
+        D.evidence=!D.mismatch;
         try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
         setVendorStatus(D.evidence?'마지막 Pallet · 실제 수량 확인 완료':'마지막 Pallet · 제품명/수량 확인 필요',D.evidence?'ok':'warn');
         setFast(D.evidence?'마지막 Pallet 판정 결과를 확인하세요.':'마지막 Pallet 판독 미완료 · 정상 저장 중단',D.evidence?'ok':'warn');
@@ -364,7 +367,7 @@
   };
 
   D.resetForNext=function(){
-    D.evidence=false;D.mismatch=false;D.currentKey='';
+    D.generation++;D.evidence=false;D.mismatch=false;D.currentKey='';
   };
 
   function addButton(){
