@@ -1,0 +1,19 @@
+name: Export project snapshot
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/export-project-snapshot.yml'
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create project zip
+        run: |
+          zip -r empty-bottle-project-main.zip . -x '.git/*' 'empty-bottle-project-main.zip'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: empty-bottle-project-main
+          path: empty-bottle-project-main.zip
+          retention-days: 7
