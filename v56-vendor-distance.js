@@ -44,7 +44,7 @@
   function getLock(k){
     k=k||key();if(!k)return null;
     const x=loadAll()[k];
-    return x&&x.vendorProduct&&x.vendorQty?x:null;
+    return x&&x.vendorProduct?x:null;
   }
   function setLock(k,lock){
     if(!k||!lock)return;
@@ -135,7 +135,7 @@
   function renderLock(){
     const e=$('v56VendorLockInfo');if(!e)return;
     const k=key(),lock=getLock(k),pm=palletMeta();
-    if(lock)e.textContent='기준 LOCK · '+lock.vendorProduct+' / 일반 Pallet '+Number(digits(lock.vendorQty)||0).toLocaleString()+' · '+(pm.isLast?'현재 WMS는 마지막 Pallet → 수량 재확인':'현재 Pallet은 기준값 재사용');
+    if(lock)e.textContent='제품명 LOCK · '+lock.vendorProduct+(lock.vendorQty?' / 일반 Pallet '+Number(digits(lock.vendorQty)).toLocaleString():' / 일반 Pallet 수량 미확정')+' · '+(pm.isLast?'마지막 Pallet → 실제 수량 재확인':'현재 Pallet 기준정보 확인');
     else e.textContent='최초 기준확인 · 업체라벨을 확대 촬영해 제품명/수량을 읽고 WMS와 일치하면 기준으로 고정합니다.';
   }
 
@@ -245,11 +245,11 @@
     if(!lock)return;
     const p=$('vProduct'),q=$('vQty');
     if(p)p.value=lock.vendorProduct||'';
-    if(q)q.value=lock.vendorQty||'';
+    if(q&&lock.vendorQty)q.value=lock.vendorQty;
     try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
   }
 
-  async function firstCapture(full,k){
+  async function firstCapture(full,k,pm){
     const crop=await cropForOcr(full);
     if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
     const r=await OcrRuntime.recognize(crop,'vendor','vendorStatus');
@@ -260,7 +260,7 @@
     try{ok=(typeof singleMatchOk!=='undefined'&&singleMatchOk===true);}catch(_){}
     const vp=val('vProduct'),vq=val('vQty');
     if(ok&&vp&&vq){
-      setLock(k,{vendorProduct:vp,vendorQty:vq,createdAt:new Date().toISOString()});
+      setLock(k,{vendorProduct:vp,vendorQty:pm.isLast?'':vq,createdAt:new Date().toISOString()});
       D.evidence=true;D.mismatch=false;
       renderLock();
       return {ok:true,locked:true};
@@ -274,7 +274,7 @@
       if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;}
     }catch(_){}
     applyLocked(lock);
-    D.evidence=true;D.mismatch=false;
+    D.evidence=false;D.mismatch=false;
     try{
       if(window.V56FastFlow&&typeof V56FastFlow.noteEvidence==='function')V56FastFlow.noteEvidence('vendor',full);
     }catch(_){}
@@ -283,7 +283,7 @@
     // Background OCR is a mismatch detector only. It never blocks because text is unreadable.
     (async()=>{
       try{
-        if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')return;
+        if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진 미준비');
         const crop=await cropForOcr(full);
         const r=await OcrRuntime.recognize(crop,'vendor','');
         const p=r&&r.parsed||{};
@@ -299,7 +299,8 @@
           setFast('⚠ 업체라벨 기준 불일치 가능 · 정상 저장을 중단하고 상세 확인하세요.','bad');
           try{window.dispatchEvent(new CustomEvent('v56:vendor-mismatch',{detail:{parsed:p,lock}}));}catch(_){}
         }
-      }catch(_){}
+      }catch(_){setVendorStatus('업체라벨 배경 OCR 실패 · 상세 확인이 필요합니다.','warn');D.mismatch=true;}
+      finally{D.evidence=!D.mismatch;try{if(window.V56FastFlow)V56FastFlow.refresh();}catch(_){}}
     })();
     return {ok:true,locked:true};
   }
@@ -322,28 +323,29 @@
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
         const r=await OcrRuntime.recognize(crop,'vendor','vendorStatus');
         await OcrRuntime.apply('vendor',r,full,'마지막 Pallet 업체라벨 수량 확인 완료');
-        D.evidence=true;D.mismatch=false;
+        const observed=val('vProduct');
+        D.mismatch=!!(observed&&!productSame(observed,lock.vendorProduct));
+        D.evidence=!!val('vQty')&&!D.mismatch;
         try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
         setVendorStatus('마지막 Pallet · 업체라벨 수량 재확인 완료','ok');
         setFast('마지막 Pallet 수량 확인 완료 · 판정 결과를 확인하세요.','ok');
         setTimeout(()=>D.close(),500);
-      }else if(lock){
+      }else if(lock&&lock.vendorQty){
         modalStatus('기준정보 재사용 · 사진 저장 후 백그라운드로 이상 여부를 확인합니다.');
         await laterCapture(full,lock);
         setVendorStatus('업체라벨 사진 확보 완료 · 기준 제품명/수량 재사용 · 백그라운드 확인 중','ok');
         setFast('업체라벨 사진 확보 완료 · 실물 이상이 없으면 정상 확인·저장하세요.','ok');
         setTimeout(()=>D.close(),350);
       }else{
-        modalStatus('첫 Pallet · 제품명/수량 OCR 후 기준정보를 확정합니다...');
-        const out=await firstCapture(full,k);
+        modalStatus('제품명/일반 Pallet 수량 OCR 후 기준정보를 확인합니다...');
+        const out=await firstCapture(full,k,pm);
         if(out.ok){
           if(pm.isLast){
-            clearLock(k);
             setVendorStatus('첫 촬영이 마지막 Pallet입니다 · 제품명은 확인했지만 일반 Pallet 수량은 LOCK하지 않습니다.','ok');
           } else {
             setVendorStatus('업체라벨 확인 완료 · 제품명/일반 Pallet 수량 기준 LOCK','ok');
           }
-          setFast('업체 기준정보 LOCK 완료 · 정상 확인·저장 가능합니다.','ok');
+          setFast(pm.isLast?'제품명 기준 유지 · 마지막 Pallet 수량은 별도 확인':'업체 기준정보 LOCK 완료 · 정상 확인·저장 가능합니다.','ok');
           setTimeout(()=>D.close(),500);
         }else{
           D.evidence=true;
