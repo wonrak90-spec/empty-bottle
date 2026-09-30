@@ -245,7 +245,13 @@
 
   function inject(){
     if($('v56FastCard'))return;
-    addCss();const verdict=tagCards();if(!verdict)return;
+    addCss();const verdict=tagCards();if(!verdict){
+      // The legacy single-card DOM can be initialized after the runtime script.
+      // Retry instead of permanently losing the V56 controls on refresh.
+      if(inject.attempts++<30)setTimeout(inject,250);
+      else console.error('[V56] Could not locate single inspection card');
+      return;
+    }
     const card=document.createElement('div');card.id='v56FastCard';card.className='card';
     card.innerHTML=`
       <p class="step-title">⚡ 빠른 검수</p>
@@ -273,6 +279,7 @@
     refresh();
   }
 
+  inject.attempts=0;
   window.addEventListener('v55:ocr-applied',afterOcr);
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(inject,50),{once:true});
   else setTimeout(inject,50);
