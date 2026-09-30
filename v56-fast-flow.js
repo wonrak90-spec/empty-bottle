@@ -245,6 +245,18 @@
 
   function inject(){
     if($('v56FastCard'))return;
+    // Keep WMS live OCR accessible even if a legacy UI layer hides/reorders its row.
+    const wmsRow=document.querySelector('#single [data-live-mode="wms"]');
+    if(wmsRow){
+      wmsRow.style.setProperty('display','flex','important');
+      wmsRow.style.setProperty('visibility','visible','important');
+      const wmsStart=wmsRow.querySelector('[data-live-start="wms"]');
+      if(wmsStart){
+        wmsStart.style.setProperty('display','block','important');
+        wmsStart.style.setProperty('visibility','visible','important');
+        wmsStart.textContent='🎥 WMS 라벨 자동 인식';
+      }
+    }
     addCss();const verdict=tagCards();if(!verdict){
       // The legacy single-card DOM can be initialized after the runtime script.
       // Retry instead of permanently losing the V56 controls on refresh.
