@@ -207,8 +207,6 @@
     if($('v56FastStyle'))return;
     const s=document.createElement('style');s.id='v56FastStyle';
     s.textContent=`
-      #single [data-live-mode="wms"]{display:flex!important;visibility:visible!important}
-      #single [data-live-start="wms"]{display:block!important;visibility:visible!important}
       #v56FastCard{border:2px solid var(--primary);position:relative}
       .v56-pills{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}
       .v56-pill{font-size:.73rem;padding:5px 8px;border-radius:999px;background:#eee;color:#666;font-weight:700}
@@ -247,18 +245,6 @@
 
   function inject(){
     if($('v56FastCard'))return;
-    // Keep WMS live OCR accessible even if a legacy UI layer hides/reorders its row.
-    const wmsRow=document.querySelector('#single [data-live-mode="wms"]');
-    if(wmsRow){
-      wmsRow.style.setProperty('display','flex','important');
-      wmsRow.style.setProperty('visibility','visible','important');
-      const wmsStart=wmsRow.querySelector('[data-live-start="wms"]');
-      if(wmsStart){
-        wmsStart.style.setProperty('display','block','important');
-        wmsStart.style.setProperty('visibility','visible','important');
-        wmsStart.textContent='🎥 WMS 라벨 자동 인식';
-      }
-    }
     addCss();const verdict=tagCards();if(!verdict){
       // The legacy single-card DOM can be initialized after the runtime script.
       // Retry instead of permanently losing the V56 controls on refresh.
