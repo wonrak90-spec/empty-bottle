@@ -11,7 +11,12 @@
   window.__V26_KOREAN_OCR__=true;
 
   const SDK_URL='https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm';
-  const WASM_URL='https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/';
+  // Do NOT pin wasmPaths to a different onnxruntime-web version than the one
+  // paddleocr-js itself loads. 0.4.2 declares onnxruntime-web ^1.22.0 and ships
+  // 1.24.3 as its own default wasmPaths; serving 1.22.0 .wasm binaries against
+  // 1.24.3 JS glue fails with "no available backend found". Leaving wasmPaths
+  // unset makes the SDK use its own matched default.
+  const WASM_URL='';
   const MODEL_BASE='https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/';
   const DET_URL=MODEL_BASE+'PP-OCRv5_mobile_det_onnx_infer.tar';
   const REC_URL=MODEL_BASE+'korean_PP-OCRv5_mobile_rec_onnx_infer.tar';
@@ -54,13 +59,12 @@
           textRecognitionModelAsset:{url:REC_URL},
           textDetectionBatchSize:1,
           textRecognitionBatchSize:6,
-          ortOptions:{
+          ortOptions:Object.assign({
             backend:'wasm',
-            wasmPaths:WASM_URL,
             numThreads:1,
             simd:true,
             proxy:false
-          }
+          },WASM_URL?{wasmPaths:WASM_URL}:{})
         });
         KO.engine=engine;
         KO.ready=true;

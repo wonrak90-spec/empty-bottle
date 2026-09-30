@@ -13,10 +13,28 @@
   const V26W=window.V26W=window.V26W||{};
   V26W.VERSION='V26-WEB-UI-4';
 
+  // V56 fast flow collapses the detail cards (#v56WmsDetailCard etc.) with
+  // `body.v56-fast{display:none}`. Manual entry must open them first, or the
+  // scroll/focus lands on an invisible field and 직접 입력 looks dead.
+  function revealDetail(){
+    try{
+      if(document.body.classList.contains('v56-fast')&&
+         !document.body.classList.contains('v56-show-detail')){
+        if(window.V56FastFlow&&typeof V56FastFlow.showDetail==='function')V56FastFlow.showDetail(true);
+        else document.body.classList.add('v56-show-detail');
+      }
+    }catch(_){}
+  }
+
   function scrollToField(id){
+    revealDetail();
     const el=$(id);if(!el)return;
-    el.scrollIntoView({behavior:'smooth',block:'center'});
-    setTimeout(()=>{try{el.focus();}catch(_){}},250);
+    const go=()=>{
+      el.scrollIntoView({behavior:'smooth',block:'center'});
+      setTimeout(()=>{try{el.focus();}catch(_){}},250);
+    };
+    // Let the reveal reflow before measuring scroll position.
+    requestAnimationFrame(()=>requestAnimationFrame(go));
   }
 
   V26W.manualWms=function(){
@@ -50,15 +68,22 @@
 
   function simplifySingleUi(){
     const single=$('single');if(!single)return;
-    const cards=single.querySelectorAll(':scope > .card');
-    const wmsCard=cards[0],vendorCard=cards[1];
+    // Identify the cards by an element that only ever lives inside them.
+    // Positional indexing breaks as soon as another layer prepends a card to
+    // #single (v55-wms-inbound-progress.js does exactly that, after this file
+    // has loaded), which made the 400ms/1500ms re-runs apply the vendor
+    // hide-rules to the WMS card and hide WMS 자동 인식 / 갤러리.
+    const wmsAnchor=$('wmsPhoto'),vendorAnchor=$('vendorPhoto');
+    const wmsCard=wmsAnchor&&wmsAnchor.closest?wmsAnchor.closest('.card'):null;
+    const vendorCard=vendorAnchor&&vendorAnchor.closest?vendorAnchor.closest('.card'):null;
+    if(!wmsCard||!vendorCard)return;
 
     const scan=$('btnScanSingle');if(scan)scan.classList.add('hidden');
     const reader=$('readerWrapSingle');if(reader)reader.classList.add('hidden');
 
     if(wmsCard){
       Array.from(wmsCard.querySelectorAll('button')).forEach(b=>{
-        if(b.closest('#v26Actions_wms'))return;
+        if(b.closest('#v26Actions_wms')||b.closest('#v26Actions_vendor'))return;
         if(b.id==='btnScanSingle'||/라벨 촬영|갤러리|실시간|자동 인식|직접 입력|코드 없음/.test(b.textContent||''))b.classList.add('hidden');
       });
       createActionGrid('wms',wmsCard);
@@ -66,7 +91,7 @@
 
     if(vendorCard){
       Array.from(vendorCard.querySelectorAll('button')).forEach(b=>{
-        if(b.closest('#v26Actions_vendor'))return;
+        if(b.closest('#v26Actions_wms')||b.closest('#v26Actions_vendor'))return;
         if(/업체 라벨 촬영|갤러리|실시간|자동 인식|카메라 중지/.test(b.textContent||''))b.classList.add('hidden');
       });
       createActionGrid('vendor',vendorCard);

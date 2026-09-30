@@ -101,10 +101,49 @@
     }
   }
 
+  // Server OCR (Google Drive OCR, `action:'ocr'` in Code.gs) is kept as the
+  // safety net for the photo path. PP-OCRv5 needs an ~18MB model from a CDN on
+  // first use; if that download is blocked or the device cannot run the WASM
+  // engine, this keeps the pallet moving instead of dead-ending the operator.
+  // The live path deliberately does NOT use this — it must stay fast.
+  async function serverOcr(dataUrl){
+    if(typeof window.apiPost!=='function')throw new Error('서버 OCR을 사용할 수 없습니다.');
+    let sending=dataUrl;
+    try{if(typeof window.shrinkForUpload==='function')sending=await shrinkForUpload(dataUrl,2000,.82);}catch(_){}
+    const res=await apiPost('ocr',{image:sending});
+    if(!res||!res.ok||!String(res.text||'').trim())
+      throw new Error((res&&res.message)||'서버 OCR이 글자를 읽지 못했습니다.');
+    return {text:String(res.text),items:[],latency:0};
+  }
+
   async function recognize(dataUrl,mode,statusId){
     const KO=window.V26KoreanOCR;
-    if(!KO||typeof KO.recognize!=='function')throw new Error('한국어 OCR 엔진이 준비되지 않았습니다.');
-    const baseline=await KO.recognize(dataUrl,false,statusId||sid(mode));
+    let baseline=null,engineErr='';
+    if(KO&&typeof KO.recognize==='function'){
+      try{baseline=await KO.recognize(dataUrl,false,statusId||sid(mode));}
+      catch(e){engineErr=String(e&&e.message?e.message:e);}
+    }else{
+      engineErr='한국어 OCR 엔진이 준비되지 않았습니다.';
+    }
+    if(!baseline){
+      console.warn('[OCR Runtime] local engine failed, falling back to server OCR:',engineErr);
+      if($(statusId||sid(mode)))
+        setStatus(statusId||sid(mode),'기기 OCR 실패 · 서버 OCR로 재시도 중...','warn');
+      try{
+        baseline=await serverOcr(dataUrl);
+        try{window.lastOcrEngine='서버 OCR (구글 인식)';window.lastOcrError='';}catch(_){}
+      }catch(e2){
+        throw new Error(engineErr+' / 서버 OCR도 실패: '+String(e2&&e2.message?e2.message:e2)+
+          ' · 사진은 저장되므로 직접 입력으로 계속하세요.');
+      }
+      // Server OCR returns plain text only, so adaptive ROI retries (which need
+      // per-word polygons) are skipped for this result.
+      return {
+        text:String(baseline.text||''),items:[],
+        parsed:parse(mode,baseline.text,[]),
+        latency:0,method:'server_ocr_fallback',attempts:[]
+      };
+    }
     let parsed=parse(mode,baseline.text,baseline.items||[]);
     let method='baseline',attempts=[];
     if(window.V55AdaptiveOCR&&typeof V55AdaptiveOCR.recognize==='function'){

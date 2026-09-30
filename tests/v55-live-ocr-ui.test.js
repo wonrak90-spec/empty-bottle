@@ -25,7 +25,10 @@ assert.ok(index.includes('id="v22LiveWrap_vendor"'),'Vendor live camera wrapper 
 assert.ok(index.includes('id="v22LiveVideo_vendor"'),'Vendor live video must exist statically');
 
 assert.ok(assist.includes("ensureLivePrimary()"),'capture UI must preserve live-first layout');
-assert.ok(assist.includes("실시간 인식 (기본)"),'live OCR default label missing');
+// The live-start control was renamed from "실시간 인식 (기본)" to "자동 인식"
+// in V56. Assert on the current labels so this guard tracks the real UI.
+assert.ok(assist.includes("WMS 자동 인식"),'WMS live OCR label missing');
+assert.ok(assist.includes("업체 라벨 자동 인식"),'vendor live OCR label missing');
 assert.ok(assist.includes("확대 재촬영"),'fallback close-up control missing');
 assert.ok(assist.includes("촬영사진 보기"),'photo popup control missing');
 
