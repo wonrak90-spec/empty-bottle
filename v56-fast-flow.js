@@ -8,7 +8,7 @@
   window.__V56_FAST_FLOW__=true;
 
   const F=window.V56FastFlow={
-    VERSION:'V56-FAST-FLOW-1.1',
+    VERSION:'V56-FAST-FLOW-1.2',
     continuous:false,
     busy:false,
     photoUrls:{wms:'',vendor:''},
@@ -174,13 +174,13 @@
       const s=state();
       if(s.wms&&s.quality){
         try{if(navigator.vibrate)navigator.vibrate(45);}catch(_){}
-        setFastStatus('WMS 완료 · 업체라벨 원거리 촬영으로 자동 전환합니다.','ok');
+        setFastStatus('WMS 완료 · 업체라벨 확대 사진촬영으로 자동 전환합니다.','ok');
         setTimeout(()=>{
           if(!F.continuous)return;
           try{
             if(window.V56VendorDistance&&typeof V56VendorDistance.open==='function')V56VendorDistance.open();
-            else startLive('vendor');
-          }catch(_){startLive('vendor');}
+            else setFastStatus('업체라벨 확대 촬영 모듈이 준비되지 않았습니다. 상세 촬영을 사용하세요.','bad');
+          }catch(_){setFastStatus('업체라벨 확대 촬영을 시작하지 못했습니다. 다시 촬영하세요.','bad');}
         },450);
       }else{
         setFastStatus('WMS 결과 확인 필요 · 자동 전환을 중단했습니다. 확대/상세 확인하세요.','bad');
@@ -258,7 +258,7 @@
       <button type="button" class="btn primary" id="v56NormalSave">✓ 정상 확인 · 저장</button>
       <button type="button" class="btn outline" id="v56Continuous">⚡ 연속 자동인식 시작</button>
       <button type="button" class="btn ghost" id="v56DetailToggle">이상/상세 처리</button>
-      <p id="v56FastHint">정상 저장 1회 터치가 작업자 확인입니다. 자동대조 정상 + 실물 혼입/이상 없음일 때만 누르세요. 이상건만 상세 판정을 사용합니다.</p>
+      <p id="v56FastHint">WMS는 실시간 OCR, 업체라벨은 확대 사진촬영 후 OCR합니다. 정상 저장 1회 터치가 작업자 확인이며 이상건만 상세 판정을 사용합니다.</p>
     `;
     verdict.parentNode.insertBefore(card,verdict);
     $('v56NormalSave').onclick=F.normalSave;
