@@ -136,7 +136,7 @@
     const e=$('v56VendorLockInfo');if(!e)return;
     const k=key(),lock=getLock(k),pm=palletMeta();
     if(lock)e.textContent='기준 LOCK · '+lock.vendorProduct+' / 일반 Pallet '+Number(digits(lock.vendorQty)||0).toLocaleString()+' · '+(pm.isLast?'현재 WMS는 마지막 Pallet → 수량 재확인':'현재 Pallet은 기준값 재사용');
-    else e.textContent='첫 Pallet · 업체라벨 제품명/수량을 1회 읽어 WMS와 일치하면 기준으로 고정합니다.';
+    else e.textContent='최초 기준확인 · 업체라벨을 확대 촬영해 제품명/수량을 읽고 WMS와 일치하면 기준으로 고정합니다.';
   }
 
   function stop(){
@@ -175,7 +175,7 @@
     renderLock();
     try{if(window.OcrRuntime&&typeof OcrRuntime.stopAll==='function')OcrRuntime.stopAll(false);}catch(_){}
     const m=$('v56VendorDistanceModal');m.classList.add('open');document.body.style.overflow='hidden';
-    modalStatus('2~3m 원거리 촬영 모드 · 라벨 전체를 흰 프레임 안에 크게 맞춰주세요.');
+    modalStatus('업체라벨 확대 사진촬영 · 실시간 OCR은 사용하지 않습니다. 라벨 전체를 흰 프레임 안에 크게 맞춘 뒤 촬영하세요.');
     try{
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('카메라를 사용할 수 없습니다.');
       const tries=[
