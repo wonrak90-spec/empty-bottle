@@ -831,9 +831,10 @@ function saveSingleRecord_(p) {
     photoUrl, itemPhotoUrls, p.ocrRaw || '',
     p.labelMatch || '', p.vendorProduct || '', p.vendorQty || '',
     p.vendorProdDate || '', p.vendorProdTime || '', p.vendorLotNo || '', p.vendorLine || '',
-    vendorPhotoUrl, p.vendorOcrRaw || ''
+    vendorPhotoUrl, p.vendorOcrRaw || '', p.vendorPalletNo || ''
   ]);
 
+  try{CacheService.getScriptCache().remove('v22_dashboard');}catch(e){}
   SpreadsheetApp.flush();
   return { ok: true, id: id, photoUrl: photoUrl, itemPhotoUrls: itemPhotoUrls };
   } finally { lock.releaseLock(); }
