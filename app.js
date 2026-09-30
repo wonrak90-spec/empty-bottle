@@ -1287,6 +1287,13 @@ async function saveSingleRecord() {
   try {
     if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
       await V56FastFlow.waitForUploads();
+      // Background vendor OCR may finish while photos upload; never save stale evidence.
+      if (document.body.classList.contains('v56-fast') &&
+          window.V56VendorDistance &&
+          (!V56VendorDistance.evidenceReady() || V56VendorDistance.hasMismatch())) {
+        setStatus('saveSingleStatus', '업체라벨 확인이 완료되지 않았거나 불일치가 감지되었습니다. 저장을 중단합니다.', 'bad');
+        return;
+      }
     }
   } catch (_) {}
 
