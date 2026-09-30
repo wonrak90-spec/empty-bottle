@@ -221,12 +221,6 @@
       body.v56-fast.v56-show-detail #v56ManualVerdictCard,
       body.v56-fast.v56-show-detail #v56WmsDetailCard,
       body.v56-fast.v56-show-detail #v56ItemPhotoCard{display:block}
-      body.v56-fast #single button[onclick*="wmsPhoto"][onclick*="click"],
-      body.v56-fast #single button[onclick*="vendorPhoto"][onclick*="click"],
-      body.v56-fast #single button[onclick*="PhotoGallery"]{display:none}
-      body.v56-fast.v56-show-detail #single button[onclick*="wmsPhoto"][onclick*="click"],
-      body.v56-fast.v56-show-detail #single button[onclick*="vendorPhoto"][onclick*="click"],
-      body.v56-fast.v56-show-detail #single button[onclick*="PhotoGallery"]{display:block}
       #v56FastHint{font-size:.74rem;color:var(--muted);line-height:1.45;margin:8px 0 0}
       @media(max-width:600px){#v56FastCard{position:sticky;bottom:8px;z-index:30;box-shadow:0 4px 18px rgba(0,0,0,.14)}}
     `;
