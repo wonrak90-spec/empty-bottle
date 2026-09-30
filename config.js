@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20260930-v56-refresh-fix1';
+  const RELEASE='20260930-v56-boot-fix2';
 
   const styles=[
     'v22.css',
@@ -60,10 +60,10 @@ const CONFIG = {
     return new Promise((resolve,reject)=>{
       const id='js-'+file.replace(/[^a-z0-9]/gi,'-');
       const old=document.getElementById(id);
-      if(old){resolve(file);return;}
+      if(old){if(old.dataset.loaded==='1'){resolve(file);return;} old.remove();}
       const el=document.createElement('script');
       el.id=id;el.src=file+'?v='+RELEASE;el.async=false;
-      el.onload=()=>resolve(file);
+      el.onload=()=>{el.dataset.loaded='1';resolve(file);};
       el.onerror=()=>reject(new Error(file+' 로드 실패'));
       document.body.appendChild(el);
     });
@@ -72,7 +72,13 @@ const CONFIG = {
   async function boot(){
     styles.forEach(addStyle);
     try{
-      for(const file of scripts)await addScript(file);
+      for(const file of scripts){
+        try{await addScript(file);}catch(firstError){
+          console.warn('[EMPTY-BOTTLE] retry script',file,firstError);
+          await new Promise(resolve=>setTimeout(resolve,350));
+          await addScript(file);
+        }
+      }
       window.__EMPTY_BOTTLE_BOOT_READY__=true;
       console.info('[EMPTY-BOTTLE] runtime ready',RELEASE);
     }catch(e){
