@@ -4,6 +4,7 @@ on:
   push:
     branches:
       - main
+      - feature/v56-integrated-from-stable-20260930
       - feature/v55-wms-inbound-flow-v1-20260924
       - feature/v56-fast-inbound-v1-20260930
       - feature/v56-vendor-distance-v1-20260930
@@ -48,6 +49,8 @@ jobs:
         run: node tests/v55-live-ocr-ui.test.js
       - name: ROI preprocessing regression
         run: node tests/v55-roi-preprocess.test.js
+      - name: SGC vendor parser regression
+        run: node tests/sgc-vendor-parser.test.js
       - name: Vendor parser regression
         run: node tests/v55-vendor-parser.test.js
       - name: WMS parser regression
