@@ -221,7 +221,7 @@
       return;
     }
     modalMode=mode;
-    try{if(window.OcrRuntime&&typeof OcrRuntime.stopAll==='function')OcrRuntime.stopAll();}catch(_){}
+    try{if(window.OCRRuntime&&typeof OCRRuntime.stopAll==='function')OCRRuntime.stopAll();}catch(_){}
     showModal('capture');
     $('v55ModalTitle').textContent=(mode==='vendor'?'업체 라벨':'WMS 입고라벨')+' · 확대 재촬영';
     setModalStatus('작은 글자 부분이 화면의 60~80%를 차지하도록 정면으로 맞춰주세요.');
@@ -252,8 +252,8 @@
 
   async function recognizeCloseup(dataUrl,mode){
     const statusId=mode==='vendor'?'vendorStatus':'wmsStatus';
-    if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 아직 준비되지 않았습니다.');
-    const r=await OcrRuntime.recognize(dataUrl,mode,statusId);
+    if(!window.OCRRuntime||typeof OCRRuntime.recognize!=='function')throw new Error('OCR 엔진이 아직 준비되지 않았습니다.');
+    const r=await OCRRuntime.recognize(dataUrl,mode,statusId);
     return mode==='vendor'?mergeVendor(r.parsed):mergeWms(r.parsed);
   }
 
