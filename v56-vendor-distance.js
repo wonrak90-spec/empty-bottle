@@ -287,6 +287,7 @@
         const crop=await cropForOcr(full);
         const r=await OcrRuntime.recognize(crop,'vendor','');
         const p=r&&r.parsed||{};
+        if(!p.product&&!p.qty)throw new Error('Unreadable vendor label');
         const qty=p.qty?digits(p.qty):'',expected=digits(lock.vendorQty);
         const name=p.product||'';
         const positiveMismatch=(qty&&expected&&qty!==expected)||(name&&!productSame(name,lock.vendorProduct));
@@ -299,7 +300,7 @@
           setFast('⚠ 업체라벨 기준 불일치 가능 · 정상 저장을 중단하고 상세 확인하세요.','bad');
           try{window.dispatchEvent(new CustomEvent('v56:vendor-mismatch',{detail:{parsed:p,lock}}));}catch(_){}
         }
-      }catch(_){setVendorStatus('업체라벨 배경 OCR 실패 · 상세 확인이 필요합니다.','warn');D.mismatch=true;}
+      }catch(_){setVendorStatus('업체라벨 OCR 미확인 · 상세 확인 필요','warn');D.mismatch=true;}
       finally{D.evidence=!D.mismatch;try{if(window.V56FastFlow)V56FastFlow.refresh();}catch(_){}}
     })();
     return {ok:true,locked:true};
