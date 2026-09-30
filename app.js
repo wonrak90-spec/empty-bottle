@@ -1284,6 +1284,12 @@ async function saveSingleRecord() {
       return;
     }
   }
+  try {
+    if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
+      await V56FastFlow.waitForUploads();
+    }
+  } catch (_) {}
+
   const get = id => document.getElementById(id).value.trim();
   const disp = num(get('displayQty'));
   const actual = num(get('actualQty'));
