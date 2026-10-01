@@ -10,7 +10,7 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V56-VENDOR-DISTANCE-1.2',
+    VERSION:'V57.2-VENDOR-DISTANCE-1.3',
     stream:null,track:null,mode:'capture',busy:false,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
@@ -249,12 +249,32 @@
     try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
   }
 
+  async function recognizeVendorFastFirst(dataUrl,statusId){
+    if(!window.OcrRuntime)throw new Error('OCR 엔진이 준비되지 않았습니다.');
+    const t0=performance.now();
+    let fast=null;
+    if(typeof OcrRuntime.recognizeFast==='function'){
+      try{fast=await OcrRuntime.recognizeFast(dataUrl,'vendor',statusId||'vendorStatus');}catch(_){}
+    }
+    const fp=fast&&fast.parsed||{};
+    if(fp.product&&digits(fp.qty)){
+      fast.fastPath=true;
+      fast.elapsedMs=Math.round(performance.now()-t0);
+      return fast;
+    }
+    if(typeof OcrRuntime.recognize!=='function')throw new Error('정밀 OCR을 사용할 수 없습니다.');
+    const precise=await OcrRuntime.recognize(dataUrl,'vendor',statusId||'vendorStatus');
+    precise.fastPath=false;
+    precise.elapsedMs=Math.round(performance.now()-t0);
+    return precise;
+  }
+
   async function firstCapture(full,k,pm){
     const crop=await cropForOcr(full);
     if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
-    const r=await OcrRuntime.recognize(crop,'vendor','vendorStatus');
-    // Apply OCR values but keep the full-resolution full-frame photo as evidence.
-    await OcrRuntime.apply('vendor',r,full,'업체라벨 원거리 사진 OCR 완료');
+    const r=await recognizeVendorFastFirst(crop,'vendorStatus');
+    // Normal pallets use one fast OCR pass; precision retry is exception-only.
+    await OcrRuntime.apply('vendor',r,full,(r.fastPath?'업체라벨 Fast OCR 완료':'업체라벨 정밀 OCR 완료'));
     try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
     let ok=false;
     try{ok=(typeof singleMatchOk!=='undefined'&&singleMatchOk===true);}catch(_){}
@@ -286,7 +306,7 @@
       try{
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진 미준비');
         const crop=await cropForOcr(full);
-        const r=await OcrRuntime.recognize(crop,'vendor','');
+        const r=await recognizeVendorFastFirst(crop,'');
         const p=r&&r.parsed||{};
         if(!p.product||!p.qty)throw new Error('Incomplete vendor label');
         if(generation!==D.generation||captureKey!==D.currentKey)return;
@@ -315,6 +335,9 @@
     try{
       const full=await still();
       try{
+        if(window.V56FastFlow&&typeof V56FastFlow.noteEvidence==='function')V56FastFlow.noteEvidence('vendor',full);
+      }catch(_){}
+      try{
         if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;}
         const pv=$('vendorPreview');if(pv){pv.src=full;pv.classList.remove('hidden');}
       }catch(_){}
@@ -324,8 +347,8 @@
         modalStatus('마지막 Pallet · 업체라벨 수량을 실제값으로 다시 확인합니다...');
         const crop=await cropForOcr(full);
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
-        const r=await OcrRuntime.recognize(crop,'vendor','vendorStatus');
-        await OcrRuntime.apply('vendor',r,full,'마지막 Pallet 업체라벨 수량 확인 완료');
+        const r=await recognizeVendorFastFirst(crop,'vendorStatus');
+        await OcrRuntime.apply('vendor',r,full,(r.fastPath?'마지막 Pallet Fast OCR 완료':'마지막 Pallet 정밀 OCR 완료'));
         const parsed=r&&r.parsed||{};
         const observed=parsed.product||'';
         D.mismatch=!observed||!productSame(observed,lock.vendorProduct)||!digits(parsed.qty);
