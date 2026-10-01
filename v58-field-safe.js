@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.3',
+    VERSION:'V58-FIELD-SAFE-1.4',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -253,6 +253,34 @@
     }catch(_){S.lastError='업체라벨 카메라를 열 수 없습니다.';render();}
   }
 
+  S.handleOcrApplied=function(detail){
+    const d=detail||{},lock=loadLock();
+    if(lock&&d.mode==='vendor'&&!isLast()){
+      set('vProduct',lock.vendorProduct||'');
+      set('vQty',lock.vendorQty||'');
+    }
+    if(lock&&d.mode==='wms'){
+      set('product',lock.product||'');
+      set('itemCode',lock.itemCode||'');
+      set('manufacturer',lock.manufacturer||'');
+      set('supplier',lock.supplier||'');
+      set('unit',lock.unit||'EA');
+      if(!val('containerTo'))set('containerTo',lock.containerTo||'');
+
+      if(isLast()){
+        const lastQty=d.parsed&&d.parsed.displayQty?String(d.parsed.displayQty):'';
+        set('displayQty',lastQty);
+        set('actualQty',lastQty);
+        set('vProduct',lock.vendorProduct||'');
+        set('vQty','');
+      }else{
+        set('displayQty',lock.displayQty||'');
+        if(!val('actualQty'))set('actualQty',lock.displayQty||'');
+      }
+    }
+    setTimeout(render,0);
+  };
+
   function addCss(){
     if($('v58Style'))return;
     const s=document.createElement('style');s.id='v58Style';
@@ -354,36 +382,6 @@
       .forEach(id=>{const e=$(id);if(e){e.addEventListener('input',render);e.addEventListener('change',render);}});
     const obs=new MutationObserver(()=>render());
     ['wmsPreview','vendorPreview'].forEach(id=>{const e=$(id);if(e)obs.observe(e,{attributes:true,attributeFilter:['src','class']});});
-    S.handleOcrApplied=function(detail){
-      const d=detail||{},lock=loadLock();
-      // After the first pallet, fixed values are authoritative.
-      // OCR may suggest an anomaly, but it must not overwrite the locked product/regular qty.
-      if(lock&&d.mode==='vendor'&&!isLast()){
-        set('vProduct',lock.vendorProduct||'');
-        set('vQty',lock.vendorQty||'');
-      }
-      if(lock&&d.mode==='wms'){
-        set('product',lock.product||'');
-        set('itemCode',lock.itemCode||'');
-        set('manufacturer',lock.manufacturer||'');
-        set('supplier',lock.supplier||'');
-        set('unit',lock.unit||'EA');
-        if(!val('containerTo'))set('containerTo',lock.containerTo||'');
-
-        if(isLast()){
-          // Last pallet can have a different quantity. Never reuse the regular-pallet qty.
-          const lastQty=d.parsed&&d.parsed.displayQty?String(d.parsed.displayQty):'';
-          set('displayQty',lastQty);
-          set('actualQty',lastQty);
-          set('vProduct',lock.vendorProduct||'');
-          set('vQty','');
-        }else{
-          set('displayQty',lock.displayQty||'');
-          if(!val('actualQty'))set('actualQty',lock.displayQty||'');
-        }
-      }
-      setTimeout(render,0);
-    };
     window.addEventListener('v55:ocr-applied',ev=>S.handleOcrApplied(ev&&ev.detail||{}));
     window.addEventListener('v58:vendor-photo',()=>setTimeout(render,0));
     applyLock(loadLock());
