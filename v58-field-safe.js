@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-2.1',
+    VERSION:'V58-FIELD-SAFE-2.2',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -399,6 +399,7 @@
         <span id="v58LockState" class="v58-state warn">첫 Pallet 기준설정</span>
         <span id="v58QueueStatus" class="v58-state ok">저장 대기 0건</span>
       </div>
+      <button type="button" class="btn outline" id="v58RetryQueue">미전송 저장 재전송</button>
       <div class="v58-summary">
         <div class="v58-row"><b>품명</b><span id="v58Product">—</span></div>
         <div class="v58-row"><b>수량</b><span id="v58Qty">—</span></div>
@@ -454,6 +455,26 @@
 
       const fallback=$('v58LegacyFallback');
       if(fallback)fallback.onclick=()=>S.fallbackToLegacy('작업자 수동 전환');
+
+      const retryBtn=$('v58RetryQueue');
+      if(retryBtn)retryBtn.onclick=async()=>{
+        retryBtn.disabled=true;
+        try{
+          if(!window.V58SaveQueue||typeof V58SaveQueue.retryAll!=='function')throw new Error('저장 Queue를 사용할 수 없습니다.');
+          const res=await V58SaveQueue.retryAll();
+          if(!res||res.ok===false){
+            S.lastError=(res&&res.message)||'재전송할 수 없습니다.';
+          }else{
+            S.lastError=res.saved?('미전송 저장 '+res.saved+'건 재전송 완료'):'미전송 저장이 없습니다.';
+          }
+        }catch(e){
+          S.lastError='재전송 오류 · '+String(e&&e.message?e.message:e);
+        }finally{
+          retryBtn.disabled=false;
+          try{V58SaveQueue.renderStatus();}catch(_){}
+          render();
+        }
+      };
 
       // Low-cost watchdog: if V58 controls disappear after refresh/mutation,
       // immediately expose the legacy controls instead of leaving a broken screen.
