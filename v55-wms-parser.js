@@ -7,7 +7,7 @@
   if(window.__V55_WMS_PARSER__)return;
   window.__V55_WMS_PARSER__=true;
 
-  const P=window.V55WmsParser={VERSION:'V55-WMS-PARSER-2.5'};
+  const P=window.V55WmsParser={VERSION:'V57.3-WMS-PARSER-2.6'};
 
   function fixDigits(s){
     return String(s||'')
@@ -156,6 +156,71 @@
     return candidates.length?candidates[0].d:'';
   }
 
+  function normalizeQtyToken(v){
+    let s=fixDigits(String(v||'')).replace(/\u00a0/g,' ').trim();
+    if(!s)return '';
+    // 21,320.000 / 21.320.000 / 21 320.000 -> 21320
+    s=s.replace(/\s+/g,' ');
+    const m=s.match(/([0-9][0-9,. ]*)/);
+    if(!m)return '';
+    let t=m[1].trim().replace(/\s+/g,'');
+    if(/[.,]000$/.test(t))t=t.slice(0,-4);
+    const d=t.replace(/\D/g,'');
+    if(!d)return '';
+    const n=Number(d);
+    return Number.isFinite(n)&&n>0&&n<=9999999?String(Math.trunc(n)):'';
+  }
+
+  function strictQty(raw,items,out){
+    const rr=rows(items);
+    const rawLines=String(raw||'').replace(/\r/g,'').split(/\n+/).map(x=>x.trim()).filter(Boolean);
+    const all=[...rawLines,...rr.map(r=>r.text||'')];
+
+    // Highest confidence: quantity label and unit appear in the same OCR row.
+    for(const row of all){
+      if(!/수\s*량/.test(row))continue;
+      const tail=row.replace(/^.*?수\s*량\s*[:：-]?\s*/,'');
+      const m=tail.match(/([0-9OoDQIl|SsBbZzgqTt][0-9OoDQIl|SsBbZzgqTt,. ]{0,20}?)\s*(EA|개|본)\b/i);
+      if(m){
+        const q=normalizeQtyToken(m[1]);
+        if(q)return q;
+      }
+      // WMS labels often print quantities with .000 and OCR drops the unit.
+      const dec=tail.match(/([0-9OoDQIl|SsBbZzgqTt]{1,3}(?:[,\. ][0-9OoDQIl|SsBbZzgqTt]{3})+[\.,]000|[0-9OoDQIl|SsBbZzgqTt]{4,}[\.,]000)\b/);
+      if(dec){
+        const q=normalizeQtyToken(dec[1]);
+        if(q)return q;
+      }
+    }
+
+    // Second choice: the row immediately after a standalone quantity label,
+    // but only when a quantity unit is present.
+    for(let i=0;i<all.length;i++){
+      if(!/^(?:.*\s)?수\s*량\s*[:：-]?\s*$/i.test(all[i]))continue;
+      for(const j of [i+1]){
+        if(j>=all.length)continue;
+        const m=all[j].match(/([0-9OoDQIl|SsBbZzgqTt][0-9OoDQIl|SsBbZzgqTt,. ]{0,20}?)\s*(EA|개|본)\b/i);
+        if(m){
+          const q=normalizeQtyToken(m[1]);
+          if(q)return q;
+        }
+      }
+    }
+
+    // Never reuse identifiers as WMS quantity.
+    const q=normalizeQtyToken(out&&out.displayQty);
+    if(!q)return '';
+    const blocked=new Set([
+      String(out&&out.inboundNo||'').replace(/\D/g,''),
+      String(out&&out.itemCode||'').replace(/\D/g,''),
+      String(out&&out.containerFrom||'').replace(/\D/g,''),
+      String(out&&out.containerTo||'').replace(/\D/g,''),
+      String(out&&out.inboundDate||'').replace(/\D/g,''),
+      String(out&&out.expiryDate||'').replace(/\D/g,'')
+    ].filter(Boolean));
+    return blocked.has(q)?'':q;
+  }
+
   P.parse=function(text,items){
     let out={};
     if(window.V26WmsCardScan&&typeof V26WmsCardScan.parseWms==='function'){
@@ -173,9 +238,16 @@
       }
     }
     if(!out.containerFrom||!out.containerTo)out=recoverContainerRange(text,items,out);
+
+    // V57.3: quantity is allowed only when it is tied to the quantity field
+    // with a reliable unit/format. Ambiguous OCR is cleared instead of guessed.
+    const sq=strictQty(text,items,out);
+    if(sq){out.displayQty=sq;if(!out.unit)out.unit='EA';}
+    else if(/수\s*량/.test(String(text||'')))delete out.displayQty;
+
     return out;
   };
 
-  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange};
-  console.info('[V55-WMS-PARSER-2.5] 관리번호 alias + damaged inbound repair + tolerant container-range recovery ready');
+  P._test={rows,isDate8,isQtyScaledArtifact,validInbound,recoverInbound,inboundYearPrefix,normalizeDamagedInbound,recoverContainerRange,strictQty,normalizeQtyToken};
+  console.info('[V57.3-WMS-PARSER-2.6] 관리번호 alias + damaged inbound repair + tolerant container-range recovery ready');
 })();
