@@ -337,6 +337,7 @@
     modalStatus('고해상도 사진 확보 중...');
     try{
       const full=await still();
+      try{window.dispatchEvent(new CustomEvent('v58:vendor-photo',{detail:{dataUrl:full}}));}catch(_){}
 
       // Shot completed: immediately stop the live camera so the worker knows
       // the photo was taken. Keep only the captured image on screen while OCR runs.
