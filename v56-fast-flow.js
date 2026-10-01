@@ -122,9 +122,24 @@
     if(!dataUrl||typeof apiPost!=='function')return '';
     try{
       let image=dataUrl;
-      if(typeof shrinkForUpload==='function')image=await shrinkForUpload(dataUrl,1280,.70);
-      const tag=[val('inboundNo'),val('containerFrom'),mode,Date.now()].filter(Boolean).join('_');
-      const res=await apiPost('uploadPhoto',{image,name:'fast_'+tag});
+      // Upload evidence is separate from OCR input, so use a slightly lighter file.
+      // This reduces save wait time without changing OCR quality.
+      if(typeof shrinkForUpload==='function')image=await shrinkForUpload(dataUrl,1200,.68);
+      const now=new Date();
+      const y=now.getFullYear(),m=String(now.getMonth()+1).padStart(2,'0'),d=String(now.getDate()).padStart(2,'0');
+      const day=''+y+m+d;
+      const inbound=val('inboundNo')||'NOINBOUND';
+      const pallet=val('containerFrom')||'NOPALLET';
+      const kind=mode==='vendor'?'VENDOR':'WMS';
+      const tag=[day,inbound,'P'+pallet,kind,Date.now()].join('_');
+      const res=await apiPost('uploadPhoto',{
+        image,
+        name:tag,
+        inboundNo:inbound,
+        palletNo:pallet,
+        photoType:kind,
+        dateKey:day
+      });
       if(res&&res.ok&&res.url){F.photoUrls[mode]=res.url;return res.url;}
     }catch(_){}
     return '';
