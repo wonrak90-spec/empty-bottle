@@ -9,10 +9,11 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-2.2',
+    VERSION:'V58-FIELD-SAFE-2.3',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
-    lastSaveMode:''
+    lastSaveMode:'',
+    saving:false
   };
   const $=id=>document.getElementById(id);
   const val=id=>$(id)?$(id).value.trim():'';
@@ -208,7 +209,10 @@
 
     const vr=S.validate();
     const b=$('v58Save');
-    if(b){b.disabled=!vr.ok;b.textContent=vr.ok?'3. 저장하기 ✓':'3. 사진 찍고 저장';}
+    if(b){
+      b.disabled=S.saving||!vr.ok;
+      b.textContent=S.saving?'저장 중...':(vr.ok?'3. 저장하기 ✓':'3. 사진 찍고 저장');
+    }
     const st=$('v58Status');
     if(st){
       if(vr.ok){
@@ -243,9 +247,11 @@
   }
 
   async function save(){
+    if(S.saving)return;
+    S.saving=true;
     S.lastError='';
     const r=S.prepareForSave();
-    if(!r.ok)return;
+    if(!r.ok){S.saving=false;render();return;}
     const b=$('v58Save');if(b){b.disabled=true;b.textContent='저장 중...';}
     try{
       window.__V58_SAVE_INTENT__=true;
@@ -255,6 +261,7 @@
       S.lastError='저장 오류 · '+String(e&&e.message?e.message:e);
     }finally{
       window.__V58_SAVE_INTENT__=false;
+      S.saving=false;
       setTimeout(render,100);
     }
   }
