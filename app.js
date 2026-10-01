@@ -1269,12 +1269,20 @@ function updateSingleQty() {
 /* ============ 저장 ============ */
 
 async function saveSingleRecord() {
+  const v58Active = !!(window.__V58_SAVE_INTENT__ && window.V58FieldSafe);
+  if (v58Active) {
+    const gate = V58FieldSafe.prepareForSave();
+    if (!gate || gate.ok === false) {
+      setStatus('saveSingleStatus', (gate && gate.message) || '사진과 필수정보를 확인하세요.', 'bad');
+      return;
+    }
+  }
   if (!window.__EMPTY_BOTTLE_BOOT_READY__ || !window.V55WmsQuality || !window.V55InboundProgress) {
     setStatus('saveSingleStatus', '프로그램 안전검사 모듈을 아직 불러오는 중입니다. 잠시 후 다시 저장하세요.', 'bad');
     return;
   }
   compareLabels();
-  if (singleMatchOk === false) {
+  if (!v58Active && singleMatchOk === false) {
     const go = window.confirm(
       '두 라벨 내용이 다릅니다.\n' +
       document.getElementById('matchResult').textContent + '\n\n' +
@@ -1288,7 +1296,7 @@ async function saveSingleRecord() {
     if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
       await V56FastFlow.waitForUploads();
       // Background vendor OCR may finish while photos upload; never save stale evidence.
-      if (document.body.classList.contains('v56-fast') &&
+      if (!v58Active && document.body.classList.contains('v56-fast') &&
           window.V56VendorDistance &&
           (!V56VendorDistance.evidenceReady() || V56VendorDistance.hasMismatch())) {
         setStatus('saveSingleStatus', '업체라벨 확인이 완료되지 않았거나 불일치가 감지되었습니다. 저장을 중단합니다.', 'bad');
@@ -1325,9 +1333,12 @@ async function saveSingleRecord() {
     labelMatch: singleMatchOk === true ? '일치' : (singleMatchOk === false ? '불일치' : '미대조'),
     itemPhotos: itemPhotos.single
   };
+  if (v58Active && window.V58FieldSafe && typeof V58FieldSafe.decoratePayload === 'function') {
+    V58FieldSafe.decoratePayload(payload);
+  }
 
   try {
-    if (window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
+    if (!v58Active && window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
       const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
       if (qualityCheck && qualityCheck.ok === false) {
         setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
@@ -1378,6 +1389,9 @@ async function saveSingleRecord() {
       } catch (_) {}
       try {
         if (window.V56FastFlow && typeof V56FastFlow.onSaved === 'function') V56FastFlow.onSaved(payload, res);
+      } catch (_) {}
+      try {
+        if (v58Active && window.V58FieldSafe && typeof V58FieldSafe.onSaved === 'function') V58FieldSafe.onSaved(payload, res);
       } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {
