@@ -8,11 +8,12 @@
   window.__V56_FAST_FLOW__=true;
 
   const F=window.V56FastFlow={
-    VERSION:'V56-FAST-FLOW-1.2',
+    VERSION:'V57.2-FAST-FLOW-1.3',
     continuous:false,
     busy:false,
     photoUrls:{wms:'',vendor:''},
-    uploads:{wms:null,vendor:null}
+    uploads:{wms:null,vendor:null},
+    cycleStarted:0,lastCycleMs:0
   };
   const $=id=>document.getElementById(id);
   const val=id=>$(id)?$(id).value.trim():'';
@@ -121,7 +122,7 @@
     if(!dataUrl||typeof apiPost!=='function')return '';
     try{
       let image=dataUrl;
-      if(typeof shrinkForUpload==='function')image=await shrinkForUpload(dataUrl,1400,.72);
+      if(typeof shrinkForUpload==='function')image=await shrinkForUpload(dataUrl,1280,.70);
       const tag=[val('inboundNo'),val('containerFrom'),mode,Date.now()].filter(Boolean).join('_');
       const res=await apiPost('uploadPhoto',{image,name:'fast_'+tag});
       if(res&&res.ok&&res.url){F.photoUrls[mode]=res.url;return res.url;}
@@ -142,6 +143,7 @@
 
   function startLive(mode){
     try{
+      if(mode==='wms'&&!F.cycleStarted)F.cycleStarted=performance.now();
       if(window.V22&&typeof V22.startLive==='function')V22.startLive(mode);
       else throw new Error('실시간 OCR이 준비되지 않았습니다.');
     }catch(e){setFastStatus('카메라 시작 실패 · '+String(e&&e.message?e.message:e),'bad');}
@@ -192,6 +194,11 @@
   }
 
   F.onSaved=function(){
+    if(F.cycleStarted){
+      F.lastCycleMs=Math.round(performance.now()-F.cycleStarted);
+      setFastStatus('저장 완료 · 총 '+(F.lastCycleMs/1000).toFixed(1)+'초'+(F.lastCycleMs<=15000?' · 15초 목표 달성':' · 15초 초과'),'ok');
+    }
+    F.cycleStarted=0;
     F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};
     try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
     if(F.continuous){
