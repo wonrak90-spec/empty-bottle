@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-2.3',
+    VERSION:'V58-FIELD-SAFE-2.4',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:'',
@@ -206,6 +206,11 @@
     if($('v58Qty'))$('v58Qty').textContent=summaryValue(qty)+(qty?' EA':'');
     if($('v58Pallet'))$('v58Pallet').textContent=(p.current||'—')+' / '+(p.total||(lock&&lock.containerTo)||'—');
     if($('v58Vendor'))$('v58Vendor').textContent=summaryValue(vendorProduct)+(vendorQty?' · '+vendorQty+' EA':'');
+    try{
+      const ib=$('v58ItemPhoto');
+      const n=(typeof itemPhotos!=='undefined'&&itemPhotos.single&&itemPhotos.single.length)||0;
+      if(ib)ib.textContent=n?('✓ 실물사진 '+n+'장 추가됨'):'📷 실물사진 추가(선택)';
+    }catch(_){};
 
     const vr=S.validate();
     const b=$('v58Save');
@@ -414,6 +419,7 @@
         <div class="v58-row"><b>업체라벨</b><span id="v58Vendor">—</span></div>
       </div>
       <div id="v58Status" class="status warn">1번 WMS 라벨 사진을 먼저 찍어주세요.</div>
+      <button type="button" class="btn outline" id="v58ItemPhoto">📷 실물사진 추가(선택)</button>
       <button type="button" class="btn outline" id="v58Edit">정보 수정</button>
       <button type="button" class="btn ghost" id="v58NewInbound">새 입고 시작</button>
       <button type="button" class="btn ghost" id="v58LegacyFallback">기존 화면으로 전환</button>
@@ -436,6 +442,12 @@
     $('v58WmsPhoto').onclick=wmsPhoto;
     $('v58VendorPhoto').onclick=vendorPhoto;
     $('v58Save').onclick=save;
+    const itemPhotoBtn=$('v58ItemPhoto');
+    if(itemPhotoBtn)itemPhotoBtn.onclick=()=>{
+      const inp=$('singleItemPhotoInput');
+      if(inp)inp.click();
+      else{S.lastError='실물사진 촬영 기능을 찾지 못했습니다.';render();}
+    };
     $('v58Edit').onclick=()=>{syncEditFromForm();showEdit(true);};
     $('v58EditApply').onclick=applyEdit;
     $('v58NewInbound').onclick=()=>{
