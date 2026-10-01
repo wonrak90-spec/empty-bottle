@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.5',
+    VERSION:'V58-FIELD-SAFE-1.6',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -255,7 +255,20 @@
   }
 
   S.handleOcrApplied=function(detail){
-    const d=detail||{},lock=loadLock();
+    const d=detail||{};
+    let lock=loadLock();
+
+    // Auto-reset LOCK when a different WMS inbound number is detected.
+    // This prevents previous-inbound fixed values from leaking into a new receipt
+    // even when the worker forgets to press "새 입고 시작".
+    if(lock&&d.mode==='wms'){
+      const detectedInbound=String(d.parsed&&d.parsed.inboundNo||'').trim();
+      if(detectedInbound&&lock.inboundNo&&detectedInbound!==String(lock.inboundNo).trim()){
+        clearLock();
+        lock=null;
+      }
+    }
+
     if(lock&&d.mode==='vendor'&&!isLast()){
       set('vProduct',lock.vendorProduct||'');
       set('vQty',lock.vendorQty||'');
