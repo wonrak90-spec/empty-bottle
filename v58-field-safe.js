@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.9',
+    VERSION:'V58-FIELD-SAFE-2.0',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -116,7 +116,12 @@
   }
 
   S.validate=function(){
-    const lock=loadLock();
+    let lock=loadLock();
+    const currentInbound=val('inboundNo');
+    if(lock&&currentInbound&&lock.inboundNo&&String(currentInbound).trim()!==String(lock.inboundNo).trim()){
+      clearLock();
+      lock=null;
+    }
     if(lock)applyLock(lock);
     if(!photoReady('wms'))return {ok:false,code:'wms_photo',message:'1번 WMS 라벨 사진을 먼저 찍어주세요.'};
     if(!photoReady('vendor'))return {ok:false,code:'vendor_photo',message:'2번 업체 라벨 사진을 먼저 찍어주세요.'};
