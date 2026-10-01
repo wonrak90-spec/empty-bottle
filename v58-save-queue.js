@@ -11,8 +11,9 @@
   const DB_VERSION=1;
   const STORE='saveQueue';
   const Q=window.V58SaveQueue={
-    VERSION:'V58-SAVE-QUEUE-1.1',
+    VERSION:'V58-SAVE-QUEUE-1.2',
     autoRetryEnabled:false,
+    serverCapabilities:{},
     lastError:''
   };
 
@@ -135,8 +136,20 @@
     });
   };
 
+  Q.detectCapabilities=async function(){
+    try{
+      if(typeof apiGet!=='function')return Q.serverCapabilities;
+      const res=await apiGet('backendCapabilities',{});
+      if(res&&res.ok)Q.serverCapabilities=res;
+    }catch(_){}
+    return Q.serverCapabilities;
+  };
+
   Q.canAutoRetry=function(){
-    try{return typeof CONFIG!=='undefined'&&CONFIG.V58_IDEMPOTENCY===true;}catch(_){return false;}
+    try{
+      if(typeof CONFIG!=='undefined'&&CONFIG.V58_IDEMPOTENCY===true)return true;
+      return !!(Q.serverCapabilities&&Q.serverCapabilities.idempotency===true);
+    }catch(_){return false;}
   };
 
   Q.retryAll=async function(){
@@ -168,11 +181,17 @@
   function bindNetwork(){
     window.addEventListener('online',()=>{
       Q.renderStatus();
-      if(Q.canAutoRetry())setTimeout(()=>Q.retryAll().catch(()=>{}),500);
+      setTimeout(async()=>{
+        try{await Q.detectCapabilities();}catch(_){}
+        if(Q.canAutoRetry())Q.retryAll().catch(()=>{});
+      },500);
     });
     window.addEventListener('offline',Q.renderStatus);
   }
 
   bindNetwork();
-  setTimeout(Q.renderStatus,500);
+  setTimeout(async()=>{
+    try{await Q.detectCapabilities();}catch(_){}
+    Q.renderStatus();
+  },500);
 })();
