@@ -13,6 +13,7 @@ const CONFIG = {
   window.__EMPTY_BOTTLE_BOOT__=true;
 
   const RELEASE='20261001-v58-field-safe-dev10';
+  window.__EMPTY_BOTTLE_RELEASE__=RELEASE;
 
   const styles=[
     'v22.css',
