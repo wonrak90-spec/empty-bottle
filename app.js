@@ -1367,6 +1367,33 @@ async function saveSingleRecord() {
     V58FieldSafe.decoratePayload(payload);
   }
 
+
+
+  try {
+    if (!v58Active && window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
+      const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
+      if (qualityCheck && qualityCheck.ok === false) {
+        setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
+  try {
+    if (window.V55InboundProgress && typeof V55InboundProgress.validateBeforeSave === 'function') {
+      const check = V55InboundProgress.validateBeforeSave(payload);
+      if (check && check.ok === false) {
+        setStatus('saveSingleStatus', check.message || '이미 처리된 WMS Pallet입니다.', 'bad');
+        return;
+      }
+    }
+  } catch (_) {}
+
+  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
+    setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
+    return;
+  }
+
   if (v58Active && window.V58SaveQueue) {
     try {
       // Queue fallback photos are evidence only; keep OCR source untouched.
@@ -1393,31 +1420,6 @@ async function saveSingleRecord() {
       setStatus('saveSingleStatus', '안전 저장 준비 실패 · 서버 전송을 중단합니다. · ' + String(e && e.message ? e.message : e), 'bad');
       return;
     }
-  }
-
-  try {
-    if (!v58Active && window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
-      const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
-      if (qualityCheck && qualityCheck.ok === false) {
-        setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
-        return;
-      }
-    }
-  } catch (_) {}
-
-  try {
-    if (window.V55InboundProgress && typeof V55InboundProgress.validateBeforeSave === 'function') {
-      const check = V55InboundProgress.validateBeforeSave(payload);
-      if (check && check.ok === false) {
-        setStatus('saveSingleStatus', check.message || '이미 처리된 WMS Pallet입니다.', 'bad');
-        return;
-      }
-    }
-  } catch (_) {}
-
-  if (!CONFIG.API_URL || CONFIG.API_URL.indexOf('PUT_YOUR') === 0) {
-    setStatus('saveSingleStatus', 'config.js에 Apps Script 배포 URL을 먼저 넣어주세요.', 'bad');
-    return;
   }
 
   setStatus('saveSingleStatus', '저장 중...', 'warn');
