@@ -46,6 +46,7 @@ const CONFIG = {
     'v56-fast-flow.js',
     'v56-vendor-distance.js',
     'v57-1-ui-recovery.js',
+    'v58-save-queue.js',
     'v58-field-safe.js',
     'v26-stability.js'
   ];
