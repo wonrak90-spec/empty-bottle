@@ -1,4 +1,4 @@
-const CACHE = '공병입고-ocr-runtime6-20260930';
+const CACHE = '공병입고-20261002-v58-field-safe-r1';
 const SHELL = [
   './',
   './index.html',
@@ -19,6 +19,15 @@ const SHELL = [
   './ocr-runtime.js',
   './v26-production-wms.js',
   './v55-ocr-learning.js',
+  './v55-wms-inbound-progress.js',
+  './v55-wms-quality.js',
+  './v55-capture-assist.js',
+  './v56-fast-flow.js',
+  './v56-vendor-distance.js',
+  './v57-1-ui-recovery.js',
+  './v58-save-queue.js',
+  './v58-field-safe.js',
+  './v58-report-manager.js',
   './v26-stability.js',
   './manifest.json',
   './icon-192.png',
@@ -39,12 +48,25 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))));
-  self.clients.claim();
+  e.waitUntil((async()=>{
+    const keys=await caches.keys();
+    await Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
+
+function sameOriginFallbackRequest(req){
+  try{
+    const u=new URL(req.url);
+    if(u.origin!==self.location.origin)return null;
+    return u.pathname.replace(self.location.pathname.replace(/sw\.js$/,''),'./').replace(/^\//,'/');
+  }catch(_){return null;}
+}
 
 self.addEventListener('fetch', e => {
   const url=e.request.url;
+  if(e.request.method!=='GET')return;
+
   if(url.includes('unpkg.com/tesseract.js')){
     e.respondWith(new Response('',{headers:{'Content-Type':'application/javascript; charset=utf-8','Cache-Control':'no-store'}}));
     return;
@@ -52,17 +74,28 @@ self.addEventListener('fetch', e => {
   if(url.includes('script.google.com')||url.includes('unpkg.com')||url.includes('cdn.jsdelivr.net')||url.includes('paddle-model-ecology.bj.bcebos.com'))return;
 
   e.respondWith((async()=>{
+    const cache=await caches.open(CACHE);
     try{
-      const fresh=await fetch(e.request);
+      const fresh=await fetch(e.request,{cache:'no-store'});
       if(fresh&&fresh.ok){
-        const c=await caches.open(CACHE);
-        c.put(e.request,fresh.clone());
+        try{await cache.put(e.request,fresh.clone());}catch(_){}
         return fresh;
       }
       throw new Error('bad response');
     }catch(err){
-      const cached=await caches.match(e.request);
-      if(cached)return cached;
+      const exact=await cache.match(e.request);
+      if(exact)return exact;
+
+      // If a versioned URL is unavailable, fall back only to the CURRENT
+      // release shell asset from the current cache. Old caches are removed at activate.
+      try{
+        const u=new URL(e.request.url);
+        if(u.origin===self.location.origin){
+          const noQuery=u.pathname.split('/').pop();
+          const shell=await cache.match('./'+noQuery);
+          if(shell)return shell;
+        }
+      }catch(_){}
       throw err;
     }
   })());

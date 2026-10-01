@@ -202,7 +202,10 @@
       if(!$('v56VendorZoomWrap').classList.contains('show'))
         modalStatus('라벨 전체를 프레임 안에 맞춘 뒤 촬영하세요. 이 기기는 웹 줌 제어를 제공하지 않아 가능한 한 카메라를 라벨 방향으로 가까이 맞춰주세요.');
     }catch(e){
-      modalStatus('웹 카메라 시작 실패 · 기본 카메라 버튼을 사용하세요. · '+String(e&&e.message?e.message:e));
+      stop();
+      modalStatus('웹 카메라 시작 실패 · 기본 카메라 촬영을 사용하세요. · '+String(e&&e.message?e.message:e));
+      setVendorStatus('카메라 실행 실패 · 다시 촬영하세요.','bad');
+      if(window.V58FieldSafe)setTimeout(()=>D.close(),120);
     }
   };
 
@@ -337,6 +340,7 @@
     modalStatus('고해상도 사진 확보 중...');
     try{
       const full=await still();
+      try{window.dispatchEvent(new CustomEvent('v58:vendor-photo',{detail:{dataUrl:full}}));}catch(_){}
 
       // Shot completed: immediately stop the live camera so the worker knows
       // the photo was taken. Keep only the captured image on screen while OCR runs.
@@ -355,6 +359,9 @@
         if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;}
         const pv=$('vendorPreview');if(pv){pv.src=full;pv.classList.remove('hidden');}
       }catch(_){}
+      // Field-safe UX: return to the simple screen as soon as the photo is secured.
+      // OCR continues below; the worker does not wait on the camera screen.
+      if(window.V58FieldSafe)setTimeout(()=>D.close(),80);
       const k=key();D.currentKey=k;
       const lock=getLock(k),pm=palletMeta();
       if(lock&&pm.isLast){
@@ -396,12 +403,21 @@
       }
       try{if(window.V56FastFlow&&typeof V56FastFlow.refresh==='function')V56FastFlow.refresh();}catch(_){}
     }catch(e){
+      stop();
       modalStatus('촬영 실패 · '+String(e&&e.message?e.message:e));
-      setVendorStatus('업체라벨 원거리 촬영 실패 · 기본 카메라 촬영을 사용하세요.','bad');
+      setVendorStatus('업체라벨 촬영 실패 · 다시 촬영하세요.','bad');
+      if(window.V58FieldSafe)setTimeout(()=>D.close(),120);
     }finally{
       D.busy=false;if(btn)btn.disabled=false;
     }
   };
+
+  try{
+    document.addEventListener('visibilitychange',()=>{
+      if(document.hidden&&D.stream)D.close();
+    });
+    window.addEventListener('pagehide',()=>{if(D.stream)D.close();});
+  }catch(_){}
 
   D.resetForNext=function(){
     D.generation++;D.evidence=false;D.mismatch=false;D.currentKey='';

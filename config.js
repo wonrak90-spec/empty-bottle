@@ -2,7 +2,9 @@
 // Individual employee + PIN session auth. No static API token.
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbwaq4JxAp_JCHam-SERSdyif5PEF092zCaOVQWoVsPLrL7vmAY1mhf6h0QNWwQzZaGSKA/exec',
-  API_TOKEN: ''
+  API_TOKEN: '',
+  // Keep false until the production GAS Request-ID idempotency patch is deployed.
+  V58_IDEMPOTENCY: false
 };
 
 (function bootExtensions(){
@@ -10,7 +12,8 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v57-3-field-flow';
+  const RELEASE='20261002-v58-field-safe-r1';
+  window.__EMPTY_BOTTLE_RELEASE__=RELEASE;
 
   const styles=[
     'v22.css',
@@ -46,6 +49,9 @@ const CONFIG = {
     'v56-fast-flow.js',
     'v56-vendor-distance.js',
     'v57-1-ui-recovery.js',
+    'v58-save-queue.js',
+    'v58-field-safe.js',
+    'v58-report-manager.js',
     'v26-stability.js'
   ];
 

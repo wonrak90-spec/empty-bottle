@@ -117,6 +117,27 @@ async function apiPost(action, payload) {
   return readJson(res);
 }
 
+async function v58ApiPostWithTimeout(action, payload, timeoutMs) {
+  const ms = Math.max(5000, Number(timeoutMs) || 20000);
+  if (typeof AbortController === 'undefined') return apiPost(action, payload);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, payload, token: CONFIG.API_TOKEN }),
+      signal: controller.signal
+    });
+    return await readJson(res);
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('서버 응답시간 초과 · 저장상태 확인 필요');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function lookupMaster(key) {
   try {
     return await apiGet('lookup', { key });
@@ -341,6 +362,15 @@ async function labelPhotoSelected(event, mode) {
     const msg = applyOcrToMode(mode, parsed);
     setStatus(ui.status, msg, 'ok');
     if (parsed && parsed.itemCode) loadItemInfo(parsed.itemCode);
+    // V58 still-photo path uses the same post-OCR event as the live runtime.
+    // This lets the field-safe layer restore LOCK values and handle the last pallet.
+    if (window.V58FieldSafe) {
+      try {
+        window.dispatchEvent(new CustomEvent('v55:ocr-applied', {
+          detail: { mode: mode, parsed: parsed, raw: raw, dataUrl: dataUrl, label: '사진 OCR', fieldCount: Object.keys(parsed || {}).filter(k => parsed[k]).length }
+        }));
+      } catch (_) {}
+    }
   } catch (e) {
     setStatus(ui.status, '자동인식 실패: ' + e + ' (필드에 직접 입력해주세요)', 'bad');
   }
@@ -1269,12 +1299,20 @@ function updateSingleQty() {
 /* ============ 저장 ============ */
 
 async function saveSingleRecord() {
+  const v58Active = !!(window.__V58_SAVE_INTENT__ && window.V58FieldSafe);
+  if (v58Active) {
+    const gate = V58FieldSafe.prepareForSave();
+    if (!gate || gate.ok === false) {
+      setStatus('saveSingleStatus', (gate && gate.message) || '사진과 필수정보를 확인하세요.', 'bad');
+      return;
+    }
+  }
   if (!window.__EMPTY_BOTTLE_BOOT_READY__ || !window.V55WmsQuality || !window.V55InboundProgress) {
     setStatus('saveSingleStatus', '프로그램 안전검사 모듈을 아직 불러오는 중입니다. 잠시 후 다시 저장하세요.', 'bad');
     return;
   }
   compareLabels();
-  if (singleMatchOk === false) {
+  if (!v58Active && singleMatchOk === false) {
     const go = window.confirm(
       '두 라벨 내용이 다릅니다.\n' +
       document.getElementById('matchResult').textContent + '\n\n' +
@@ -1288,7 +1326,7 @@ async function saveSingleRecord() {
     if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
       await V56FastFlow.waitForUploads();
       // Background vendor OCR may finish while photos upload; never save stale evidence.
-      if (document.body.classList.contains('v56-fast') &&
+      if (!v58Active && document.body.classList.contains('v56-fast') &&
           window.V56VendorDistance &&
           (!V56VendorDistance.evidenceReady() || V56VendorDistance.hasMismatch())) {
         setStatus('saveSingleStatus', '업체라벨 확인이 완료되지 않았거나 불일치가 감지되었습니다. 저장을 중단합니다.', 'bad');
@@ -1325,9 +1363,14 @@ async function saveSingleRecord() {
     labelMatch: singleMatchOk === true ? '일치' : (singleMatchOk === false ? '불일치' : '미대조'),
     itemPhotos: itemPhotos.single
   };
+  if (v58Active && window.V58FieldSafe && typeof V58FieldSafe.decoratePayload === 'function') {
+    V58FieldSafe.decoratePayload(payload);
+  }
+
+
 
   try {
-    if (window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
+    if (!v58Active && window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
       const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
       if (qualityCheck && qualityCheck.ok === false) {
         setStatus('saveSingleStatus', qualityCheck.message || 'WMS OCR 결과를 다시 확인하세요.', 'bad');
@@ -1351,11 +1394,50 @@ async function saveSingleRecord() {
     return;
   }
 
+  if (v58Active && window.V58SaveQueue) {
+    try {
+      // Queue fallback photos are evidence only; keep OCR source untouched.
+      // Compress raw fallback copies so prolonged offline use does not exhaust mobile storage.
+      if (payload.photo && typeof shrinkForUpload === 'function') {
+        try { payload.photo = await shrinkForUpload(payload.photo, 1400, 0.72); } catch (_) {}
+      }
+      if (payload.vendorPhoto && typeof shrinkForUpload === 'function') {
+        try { payload.vendorPhoto = await shrinkForUpload(payload.vendorPhoto, 1400, 0.72); } catch (_) {}
+      }
+      if (Array.isArray(payload.itemPhotos) && payload.itemPhotos.length && typeof shrinkForUpload === 'function') {
+        const qPhotos=[];
+        for (const ph of payload.itemPhotos.slice(0,6)) {
+          try { qPhotos.push(await shrinkForUpload(ph, 1200, 0.68)); } catch (_) { qPhotos.push(ph); }
+        }
+        payload.itemPhotos=qPhotos;
+      }
+      payload.requestId = window.__V58_CURRENT_REQUEST_ID__ ||
+        (typeof V58SaveQueue.makeRequestId === 'function' ? V58SaveQueue.makeRequestId(payload) : '');
+      if (!payload.requestId) throw new Error('저장 요청 ID를 만들지 못했습니다.');
+      window.__V58_CURRENT_REQUEST_ID__ = payload.requestId;
+      await V58SaveQueue.stage(payload);
+    } catch (e) {
+      setStatus('saveSingleStatus', '안전 저장 준비 실패 · 서버 전송을 중단합니다. · ' + String(e && e.message ? e.message : e), 'bad');
+      return;
+    }
+  }
+
   setStatus('saveSingleStatus', '저장 중...', 'warn');
   try {
-    const res = await apiPost('saveSingle', payload);
+    if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markSending === 'function') {
+      try { await V58SaveQueue.markSending(payload.requestId); } catch (_) {}
+    }
+    window.__V58_SAVE_PHASE__ = v58Active ? 'server_wait' : '';
+    const res = v58Active
+      ? await v58ApiPostWithTimeout('saveSingle', payload, 20000)
+      : await apiPost('saveSingle', payload);
     if (res.ok) {
-      setStatus('saveSingleStatus', '저장 완료 (ID: ' + res.id + ')', 'ok');
+      if (v58Active) window.__V58_SAVE_PHASE__ = 'server_confirmed';
+      if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.confirm === 'function') {
+        try { await V58SaveQueue.confirm(payload.requestId, res); } catch (_) {}
+      }
+      window.__V58_CURRENT_REQUEST_ID__ = '';
+      setStatus('saveSingleStatus', '서버 저장 확인 완료 · 다음 Pallet 준비 중...', 'ok');
       lastSavedRecord.single = {
         record: {
           id: res.id, regDate: new Date().toLocaleString('ko-KR'), mode: '단건',
@@ -1379,12 +1461,31 @@ async function saveSingleRecord() {
       try {
         if (window.V56FastFlow && typeof V56FastFlow.onSaved === 'function') V56FastFlow.onSaved(payload, res);
       } catch (_) {}
-      prepareNextSingleAfterSave(res.id);
+      try {
+        if (v58Active && window.V58FieldSafe && typeof V58FieldSafe.onSaved === 'function') V58FieldSafe.onSaved(payload, res);
+      } catch (_) {}
+      if (v58Active) window.__V58_SAVE_PHASE__ = 'ui_reset';
+      const resetOk = safePrepareNextSingleAfterSave(res.id);
+      if (v58Active) {
+        window.__V58_SAVE_PHASE__ = resetOk ? 'done' : 'reset_failed';
+        if (!resetOk) setStatus('saveSingleStatus','서버 저장은 완료됐지만 화면 초기화에 실패했습니다 · 기존 화면 전환 후 다음 Pallet을 진행하세요.','bad');
+      }
     } else {
-      setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
+      if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
+        try { await V58SaveQueue.markPending(payload.requestId, res.message || '서버 저장 실패'); } catch (_) {}
+        setStatus('saveSingleStatus', '서버 저장 실패 · 단말에 보관 중 · ' + (res.message || ''), 'warn');
+      } else {
+        setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
+      }
     }
   } catch (e) {
-    setStatus('saveSingleStatus', '저장 실패: ' + e, 'bad');
+    if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
+      try { await V58SaveQueue.markPending(payload.requestId, String(e && e.message ? e.message : e)); } catch (_) {}
+      window.__V58_SAVE_PHASE__ = 'pending_confirmation';
+      setStatus('saveSingleStatus', '서버 연결 오류 · 저장 요청은 단말에 보관됨 · 서버 확인 후 재전송 필요', 'warn');
+    } else {
+      setStatus('saveSingleStatus', '저장 실패: ' + e, 'bad');
+    }
   }
 }
 
@@ -1486,6 +1587,53 @@ function clearSingle() {
   setStatus('saveSingleStatus', '저장 전 자동입력 내용을 확인하세요.', '');
 }
 
+
+function forcePrepareNextSingleAfterSave(savedId) {
+  const inspector = (() => {
+    try { return getRememberedInspector() || (document.getElementById('inspector') ? document.getElementById('inspector').value.trim() : ''); }
+    catch (_) { return ''; }
+  })();
+
+  try { stopLiveOcr('single'); } catch (_) {}
+  try { if (window.V22 && V22.stopLive) { V22.stopLive('wms', false); V22.stopLive('vendor', false); } } catch (_) {}
+  try { if (window.V56VendorDistance && typeof V56VendorDistance.close === 'function') V56VendorDistance.close(); } catch (_) {}
+  try { document.body.style.overflow=''; } catch (_) {}
+
+  const clearValueIds=['vProduct','vQty','vProdDate','vProdTime','vLotNo','vPalletNo','vLine','inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty','expiryDate','containerFrom','containerTo','codeRaw','actualQty','note'];
+  clearValueIds.forEach(id=>{try{const el=document.getElementById(id);if(el)el.value='';}catch(_){}});
+  try{const unit=document.getElementById('unit');if(unit)unit.value='EA';}catch(_){}
+  ['matchYes','matchNo','mixYes','mixNo'].forEach(id=>{try{const el=document.getElementById(id);if(el)el.classList.remove('sel-ok','sel-bad');}catch(_){}});
+  ['wmsPreview','vendorPreview'].forEach(id=>{try{const el=document.getElementById(id);if(el){el.classList.add('hidden');el.removeAttribute('src');}}catch(_){}});
+  ['ocrBoxWms','ocrBoxVendor','ocrRawWms','ocrRawVendor'].forEach(id=>{try{const el=document.getElementById(id);if(el)el.classList.add('hidden');}catch(_){}});
+  try{lastPhotoDataUrl.wms='';lastPhotoDataUrl.vendor='';lastPhotoDataUrl.single='';}catch(_){}
+  try{lastOcrText.wms='';lastOcrText.vendor='';lastOcrText.single='';}catch(_){}
+  try{itemPhotos.single=[];renderItemPhotos('single');}catch(_){}
+  try{singleMatchOk=null;currentItemInfo=null;renderItemInfo();}catch(_){}
+  try{const ins=document.getElementById('inspector');if(ins)ins.value=inspector;}catch(_){}
+
+  try{setStatus('wmsStatus','다음 입고 건을 스캔하거나 WMS 라벨을 촬영하세요.','');}catch(_){}
+  try{setStatus('vendorStatus','업체 라벨을 촬영하면 자동으로 대조합니다.','');}catch(_){}
+  try{setStatus('matchResult','두 라벨을 모두 입력하면 자동으로 대조합니다.','');}catch(_){}
+  try{setStatus('qtyStatus','수량을 입력하면 일치 여부를 계산합니다.','');}catch(_){}
+  try{setStatus('saveSingleStatus','저장 완료'+(savedId?' (ID: '+savedId+')':'')+' · 다음 Pallet 준비 완료','ok');}catch(_){}
+  try{const p=document.getElementById('btnPrintSingle');if(p)p.classList.remove('hidden');}catch(_){}
+  try{window.__V58_CURRENT_REQUEST_ID__='';}catch(_){}
+  try{if(window.V56FastFlow){V56FastFlow.photoUrls.wms='';V56FastFlow.photoUrls.vendor='';}}catch(_){}
+}
+
+function safePrepareNextSingleAfterSave(savedId) {
+  try {
+    prepareNextSingleAfterSave(savedId);
+    return true;
+  } catch (e) {
+    console.error('[V58] normal reset failed; forcing safe reset', e);
+    try { forcePrepareNextSingleAfterSave(savedId); return true; }
+    catch (fallbackError) {
+      console.error('[V58] forced reset failed', fallbackError);
+      return false;
+    }
+  }
+}
 
 // 저장 성공 후 다음 단건을 즉시 입력할 수 있게 준비한다.
 // 검수자와 방금 저장한 출력 대상은 유지한다.
@@ -2295,6 +2443,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260921-ocr-runtime5').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v='+encodeURIComponent(window.__EMPTY_BOTTLE_RELEASE__||'v58')).catch(() => {});
   });
 }
