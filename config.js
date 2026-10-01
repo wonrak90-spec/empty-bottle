@@ -12,7 +12,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v58-field-safe-dev7';
+  const RELEASE='20261001-v58-field-safe-dev8';
 
   const styles=[
     'v22.css',
