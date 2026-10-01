@@ -1369,6 +1369,21 @@ async function saveSingleRecord() {
 
   if (v58Active && window.V58SaveQueue) {
     try {
+      // Queue fallback photos are evidence only; keep OCR source untouched.
+      // Compress raw fallback copies so prolonged offline use does not exhaust mobile storage.
+      if (payload.photo && typeof shrinkForUpload === 'function') {
+        try { payload.photo = await shrinkForUpload(payload.photo, 1400, 0.72); } catch (_) {}
+      }
+      if (payload.vendorPhoto && typeof shrinkForUpload === 'function') {
+        try { payload.vendorPhoto = await shrinkForUpload(payload.vendorPhoto, 1400, 0.72); } catch (_) {}
+      }
+      if (Array.isArray(payload.itemPhotos) && payload.itemPhotos.length && typeof shrinkForUpload === 'function') {
+        const qPhotos=[];
+        for (const ph of payload.itemPhotos.slice(0,6)) {
+          try { qPhotos.push(await shrinkForUpload(ph, 1200, 0.68)); } catch (_) { qPhotos.push(ph); }
+        }
+        payload.itemPhotos=qPhotos;
+      }
       payload.requestId = window.__V58_CURRENT_REQUEST_ID__ ||
         (typeof V58SaveQueue.makeRequestId === 'function' ? V58SaveQueue.makeRequestId(payload) : '');
       if (!payload.requestId) throw new Error('저장 요청 ID를 만들지 못했습니다.');
