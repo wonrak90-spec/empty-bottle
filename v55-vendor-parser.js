@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V57.2-VENDOR-PARSER-3.7'};
+  const P=window.V55VendorParser={VERSION:'V57.2-VENDOR-PARSER-3.7.1'};
 
   function fixDigits(s){
     return String(s||'')
@@ -32,9 +32,21 @@
     }
     return out.filter(Boolean);
   }
-  function rejectInferredFormulaPallet(out,source){
+  function strongTimestampPallet(v,source){
+    const p=num(v);
+    if(!p)return false;
+    const s=fixDigits(String(source||''));
+    const escaped=p.replace(/[.*+?^$\\{}()|[\]\\]/g,'\\  function rejectInferredFormulaPallet(out,source){
     const p=num(out&&out.palletNo);
     if(p&&formulaFactors(source).includes(p))delete out.palletNo;
+  }');
+    const re1=new RegExp('(?:시|분)\\s*'+escaped+'\\s*(?=[xX×*])','i');
+    const re2=new RegExp('(?:년.*?월.*?일.*?)?(?:시|분)\\D{0,4}'+escaped+'\\s*(?:$|\\n)','im');
+    return re1.test(s)||re2.test(s);
+  }
+  function rejectInferredFormulaPallet(out,source){
+    const p=num(out&&out.palletNo);
+    if(p&&formulaFactors(source).includes(p)&&!strongTimestampPallet(p,source))delete out.palletNo;
   }
 
   function polyStats(poly){
@@ -515,6 +527,6 @@
     return recoverGenericCore(raw,items,out);
   };
 
-  P._test={detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
-  console.info('[V55-VENDOR-PARSER-3.6] pallet context recovery + volume-noise guard + Donga dotted-qty recovery ready');
+  P._test={strongTimestampPallet,detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
+  console.info('[V57.2-VENDOR-PARSER-3.7.1] timestamp-pallet guard + field recovery ready');
 })();
