@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.6',
+    VERSION:'V58-FIELD-SAFE-1.7',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -97,6 +97,10 @@
     if(!lock){
       if(!val('vProduct'))m.push('업체 품명');
       if(!val('vQty'))m.push('업체 수량');
+    }else if(isLast()&&!val('vQty')){
+      // Last pallet quantity may differ from the regular pallet quantity.
+      // Require an actual vendor-label quantity read or operator confirmation.
+      m.push('마지막 Pallet 업체 수량');
     }
     return m;
   }
