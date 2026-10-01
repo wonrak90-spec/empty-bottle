@@ -341,6 +341,15 @@ async function labelPhotoSelected(event, mode) {
     const msg = applyOcrToMode(mode, parsed);
     setStatus(ui.status, msg, 'ok');
     if (parsed && parsed.itemCode) loadItemInfo(parsed.itemCode);
+    // V58 still-photo path uses the same post-OCR event as the live runtime.
+    // This lets the field-safe layer restore LOCK values and handle the last pallet.
+    if (window.V58FieldSafe) {
+      try {
+        window.dispatchEvent(new CustomEvent('v55:ocr-applied', {
+          detail: { mode: mode, parsed: parsed, raw: raw, dataUrl: dataUrl, label: '사진 OCR', fieldCount: Object.keys(parsed || {}).filter(k => parsed[k]).length }
+        }));
+      } catch (_) {}
+    }
   } catch (e) {
     setStatus(ui.status, '자동인식 실패: ' + e + ' (필드에 직접 입력해주세요)', 'bad');
   }
