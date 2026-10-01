@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.4',
+    VERSION:'V58-FIELD-SAFE-1.5',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -64,8 +64,9 @@
       manufacturer:lock.manufacturer,supplier:lock.supplier,unit:lock.unit||'EA',
       containerTo:lock.containerTo
     };
-    // Regular pallet qty is stable. Last pallet keeps newly-read WMS qty if present.
-    if(!isLast()||!val('displayQty'))fixed.displayQty=lock.displayQty;
+    // Regular pallet qty is stable, but the last pallet may have a different quantity.
+    // Never restore the regular-pallet LOCK quantity on the last pallet.
+    if(!isLast())fixed.displayQty=lock.displayQty;
     Object.keys(fixed).forEach(id=>{if(fixed[id]&&!val(id))set(id,fixed[id]);});
     if(lock.vendorProduct&&!val('vProduct'))set('vProduct',lock.vendorProduct);
     if(lock.vendorQty&&!val('vQty')&&!isLast())set('vQty',lock.vendorQty);
