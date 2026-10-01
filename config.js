@@ -50,6 +50,7 @@ const CONFIG = {
     'v57-1-ui-recovery.js',
     'v58-save-queue.js',
     'v58-field-safe.js',
+    'v58-report-manager.js',
     'v26-stability.js'
   ];
 
