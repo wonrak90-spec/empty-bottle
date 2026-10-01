@@ -36,12 +36,9 @@
     const p=num(v);
     if(!p)return false;
     const s=fixDigits(String(source||''));
-    const escaped=p.replace(/[.*+?^$\\{}()|[\]\\]/g,'\\  function rejectInferredFormulaPallet(out,source){
-    const p=num(out&&out.palletNo);
-    if(p&&formulaFactors(source).includes(p))delete out.palletNo;
-  }');
-    const re1=new RegExp('(?:시|분)\\s*'+escaped+'\\s*(?=[xX×*])','i');
-    const re2=new RegExp('(?:년.*?월.*?일.*?)?(?:시|분)\\D{0,4}'+escaped+'\\s*(?:$|\\n)','im');
+    // p is digits-only from num(), so it is safe to inject into RegExp.
+    const re1=new RegExp('(?:시|분)\\s*'+p+'\\s*(?=[xX×*])','i');
+    const re2=new RegExp('(?:년.*?월.*?일.*?)?(?:시|분)\\D{0,4}'+p+'\\s*(?:$|\\n)','im');
     return re1.test(s)||re2.test(s);
   }
   function rejectInferredFormulaPallet(out,source){
