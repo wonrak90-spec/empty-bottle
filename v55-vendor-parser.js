@@ -9,7 +9,7 @@
   if(window.__V55_VENDOR_PARSER__)return;
   window.__V55_VENDOR_PARSER__=true;
 
-  const P=window.V55VendorParser={VERSION:'V55-VENDOR-PARSER-3.6'};
+  const P=window.V55VendorParser={VERSION:'V57.2-VENDOR-PARSER-3.7'};
 
   function fixDigits(s){
     return String(s||'')
@@ -462,16 +462,57 @@
     return '';
   };
 
+  function recoverGenericCore(raw,items,out){
+    out={...(out||{})};
+    const rows=rowsOf(raw,items);
+    const src=fixDigits(rows.join('\n')+'\n'+String(raw||'')).replace(/，/g,',');
+
+    // Product recovery must not depend on vendor-template detection.
+    // In field photos the maker/header is often missed while the product row is readable.
+    if(!out.product){
+      const known=canonicalKnownProduct(rows);
+      const best=known||bestProduct(rows);
+      if(best)out.product=cleanProduct(best);
+    }
+
+    // Strongest quantity evidence: printed total at the right side of '='.
+    // Example actually seen in field: 40×41×13 = 21,320.
+    if(!out.qty){
+      const eq=src.match(/[=＝:]\s*([0-9]{1,3}(?:[,\.]\d{3})+|[0-9]{4,6})\s*(?:본|EA|개)?\b/i);
+      if(eq)out.qty=num(eq[1]);
+    }
+    // If '=' was missed by OCR, calculate from an explicit multiplication formula.
+    if(!out.qty){
+      const fm=src.replace(/,/g,'').match(/([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,4})\s*[xX×*]\s*([0-9]{1,3})/);
+      if(fm){
+        const calc=Number(fm[1])*Number(fm[2])*Number(fm[3]);
+        if(calc>=1000&&calc<=999999)out.qty=String(calc);
+      }
+    }
+    if(!out.qty){
+      const fm2=src.replace(/,/g,'').match(/([0-9]{2,4})\s*[xX×*]\s*([0-9]{1,4})\s*(?:본|EA|개)?\s*[xX×*]?\s*([0-9]{1,3})\s*단/);
+      if(fm2){
+        const calc=Number(fm2[1])*Number(fm2[2])*Number(fm2[3]);
+        if(calc>=1000&&calc<=999999)out.qty=String(calc);
+      }
+    }
+
+    // A formula factor must never be accepted as pallet number.
+    if(out.palletNo)rejectInferredFormulaPallet(out,src);
+    return out;
+  }
+
   P.parse=function(raw,items){
     const base=(window.V26VendorTemplates&&typeof V26VendorTemplates.parse==='function')
       ? V26VendorTemplates.parse(raw||'',items||[])
       : (typeof window.parseVendorLabel==='function'?window.parseVendorLabel(raw||''):{} )||{};
     const rows=rowsOf(raw,items);
-    if(detectSGC(raw,rows))return parseSGC(raw,items);
-    if(detectDonghwa(raw,rows,base))return parseDonghwa(raw,items,base);
-    if(detectDonga(raw,rows))return parseDonga(raw,items,base);
-    P.lastTemplate=(window.V26VendorTemplates&&V26VendorTemplates.lastTemplate)||'';
-    return base;
+    let out=base;
+    if(detectSGC(raw,rows))out=parseSGC(raw,items);
+    else if(detectDonghwa(raw,rows,base))out=parseDonghwa(raw,items,base);
+    else if(detectDonga(raw,rows))out=parseDonga(raw,items,base);
+    else P.lastTemplate=(window.V26VendorTemplates&&V26VendorTemplates.lastTemplate)||'';
+    return recoverGenericCore(raw,items,out);
   };
 
   P._test={detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
