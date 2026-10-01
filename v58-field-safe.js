@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.0',
+    VERSION:'V58-FIELD-SAFE-1.1',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -354,7 +354,26 @@
       .forEach(id=>{const e=$(id);if(e){e.addEventListener('input',render);e.addEventListener('change',render);}});
     const obs=new MutationObserver(()=>render());
     ['wmsPreview','vendorPreview'].forEach(id=>{const e=$(id);if(e)obs.observe(e,{attributes:true,attributeFilter:['src','class']});});
-    window.addEventListener('v55:ocr-applied',()=>setTimeout(render,0));
+    window.addEventListener('v55:ocr-applied',ev=>{
+      const d=ev&&ev.detail||{},lock=loadLock();
+      // After the first pallet, fixed values are authoritative.
+      // OCR may suggest an anomaly, but it must not overwrite the locked product/regular qty.
+      if(lock&&d.mode==='vendor'&&!isLast()){
+        set('vProduct',lock.vendorProduct||'');
+        set('vQty',lock.vendorQty||'');
+      }
+      if(lock&&d.mode==='wms'){
+        set('product',lock.product||'');
+        set('itemCode',lock.itemCode||'');
+        set('manufacturer',lock.manufacturer||'');
+        set('supplier',lock.supplier||'');
+        set('unit',lock.unit||'EA');
+        if(!isLast())set('displayQty',lock.displayQty||'');
+        if(!val('containerTo'))set('containerTo',lock.containerTo||'');
+        if(!val('actualQty')&&val('displayQty'))set('actualQty',val('displayQty'));
+      }
+      setTimeout(render,0);
+    });
     window.addEventListener('v58:vendor-photo',()=>setTimeout(render,0));
     applyLock(loadLock());
     render();
