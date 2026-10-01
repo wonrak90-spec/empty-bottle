@@ -1,4 +1,4 @@
-const CACHE = '공병입고-v58-dev10-coherent-cache';
+const CACHE = '공병입고-20261002-v58-field-safe-r1';
 const SHELL = [
   './',
   './index.html',
