@@ -27,7 +27,7 @@ vm.runInContext(code,ctx,{filename:'v55-vendor-parser.js'});
 
 const P=ctx.V55VendorParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V57.2-VENDOR-PARSER-3.7');
+assert.strictEqual(P.VERSION,'V57.2-VENDOR-PARSER-3.7.1');
 
 const donghwa=[
   '품명 판콜에이병 30ml',
