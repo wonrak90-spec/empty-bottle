@@ -8,7 +8,7 @@
   if(window.V58ReportManager)return;
 
   const R=window.V58ReportManager={
-    VERSION:'V58-REPORT-MANAGER-1.0',
+    VERSION:'V58-REPORT-MANAGER-1.1',
     selected:new Set(),
     capabilities:{edit:false,softDelete:false,restore:false,audit:false},
     initialized:false
@@ -123,7 +123,7 @@
 
   function updateCount(){
     const e=$('v58ReportCount');if(e)e.textContent=R.selected.size+'건 선택';
-    const all=Array.isArray(window.viewSearchResultsList)?viewSearchResultsList:[];
+    const all=typeof viewSearchResultsList!=='undefined'&&Array.isArray(viewSearchResultsList)?viewSearchResultsList:[];
     const b=$('v58SelectAllReports');if(b)b.textContent=all.length&&R.selected.size===all.length?'전체 해제':'전체 선택';
   }
 
@@ -133,7 +133,7 @@
   }
 
   function toggleAll(){
-    const list=Array.isArray(window.viewSearchResultsList)?viewSearchResultsList:[];
+    const list=typeof viewSearchResultsList!=='undefined'&&Array.isArray(viewSearchResultsList)?viewSearchResultsList:[];
     const select=R.selected.size!==list.length;
     R.selected.clear();
     if(select)list.forEach(x=>R.selected.add(String(x.id)));
@@ -246,7 +246,7 @@
   }
 
   function openEdit(){
-    if(!R.capabilities.edit||!window.currentViewRecord)return;
+    if(!R.capabilities.edit||typeof currentViewRecord==='undefined'||!currentViewRecord)return;
     const r=currentViewRecord.record||{};
     const set=(id,v)=>{const e=$(id);if(e)e.value=v==null?'':String(v);};
     set('v58rProduct',r.product);set('v58rItemCode',r.itemCode);set('v58rDisplayQty',r.displayQty);
@@ -256,7 +256,7 @@
   }
 
   async function applyEdit(){
-    if(!R.capabilities.edit||!currentViewRecord)return;
+    if(!R.capabilities.edit||typeof currentViewRecord==='undefined'||!currentViewRecord)return;
     const g=id=>($(id)&&$(id).value||'').trim();
     const reason=g('v58rReason');
     if(!reason){alert('수정 사유를 입력하세요.');return;}
@@ -296,7 +296,7 @@
     await softDelete(ids);
   }
   async function deleteCurrent(){
-    if(!currentViewRecord)return;
+    if(typeof currentViewRecord==='undefined'||!currentViewRecord)return;
     if(!confirm('현재 보고서를 삭제 처리할까요?'))return;
     await softDelete([currentViewRecord.record.id]);
   }
@@ -326,7 +326,7 @@
     try{
       const res=await apiGet('searchRecords',{keyword:kw});
       if(!res||!res.ok){setStatus('viewSearchStatus','검색 실패: '+((res&&res.message)||''),'bad');return;}
-      window.viewSearchResultsList=res.items||[];
+      viewSearchResultsList=res.items||[];
       R.selected.clear();
       if(!viewSearchResultsList.length){
         const box=$('viewSearchResults');if(box)box.innerHTML='';
