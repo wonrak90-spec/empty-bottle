@@ -1346,6 +1346,19 @@ async function saveSingleRecord() {
     V58FieldSafe.decoratePayload(payload);
   }
 
+  if (v58Active && window.V58SaveQueue) {
+    try {
+      payload.requestId = window.__V58_CURRENT_REQUEST_ID__ ||
+        (typeof V58SaveQueue.makeRequestId === 'function' ? V58SaveQueue.makeRequestId(payload) : '');
+      if (!payload.requestId) throw new Error('저장 요청 ID를 만들지 못했습니다.');
+      window.__V58_CURRENT_REQUEST_ID__ = payload.requestId;
+      await V58SaveQueue.stage(payload);
+    } catch (e) {
+      setStatus('saveSingleStatus', '안전 저장 준비 실패 · 서버 전송을 중단합니다. · ' + String(e && e.message ? e.message : e), 'bad');
+      return;
+    }
+  }
+
   try {
     if (!v58Active && window.V55WmsQuality && typeof V55WmsQuality.validateBeforeSave === 'function') {
       const qualityCheck = V55WmsQuality.validateBeforeSave(payload);
@@ -1373,8 +1386,15 @@ async function saveSingleRecord() {
 
   setStatus('saveSingleStatus', '저장 중...', 'warn');
   try {
+    if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markSending === 'function') {
+      try { await V58SaveQueue.markSending(payload.requestId); } catch (_) {}
+    }
     const res = await apiPost('saveSingle', payload);
     if (res.ok) {
+      if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.confirm === 'function') {
+        try { await V58SaveQueue.confirm(payload.requestId, res); } catch (_) {}
+      }
+      window.__V58_CURRENT_REQUEST_ID__ = '';
       setStatus('saveSingleStatus', '저장 완료 (ID: ' + res.id + ')', 'ok');
       lastSavedRecord.single = {
         record: {
@@ -1404,10 +1424,20 @@ async function saveSingleRecord() {
       } catch (_) {}
       prepareNextSingleAfterSave(res.id);
     } else {
-      setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
+      if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
+        try { await V58SaveQueue.markPending(payload.requestId, res.message || '서버 저장 실패'); } catch (_) {}
+        setStatus('saveSingleStatus', '서버 저장 실패 · 단말에 보관 중 · ' + (res.message || ''), 'warn');
+      } else {
+        setStatus('saveSingleStatus', '저장 실패: ' + res.message, 'bad');
+      }
     }
   } catch (e) {
-    setStatus('saveSingleStatus', '저장 실패: ' + e, 'bad');
+    if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
+      try { await V58SaveQueue.markPending(payload.requestId, String(e && e.message ? e.message : e)); } catch (_) {}
+      setStatus('saveSingleStatus', '네트워크/서버 오류 · 단말에 안전 보관 중', 'warn');
+    } else {
+      setStatus('saveSingleStatus', '저장 실패: ' + e, 'bad');
+    }
   }
 }
 
