@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v57-1-ui-recovery';
+  const RELEASE='20261001-v57-2-fast-vendor';
 
   const styles=[
     'v22.css',
