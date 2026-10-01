@@ -8,7 +8,7 @@
   if(window.V58ReportManager)return;
 
   const R=window.V58ReportManager={
-    VERSION:'V58-REPORT-MANAGER-1.1',
+    VERSION:'V58-REPORT-MANAGER-1.2',
     selected:new Set(),
     capabilities:{edit:false,softDelete:false,restore:false,audit:false},
     initialized:false
@@ -100,7 +100,22 @@
     return true;
   }
 
+  function localAdmin(){
+    try{
+      const s=window.V24&&V24.session;
+      return !!(s&&s.user&&s.user.role==='admin');
+    }catch(_){return false;}
+  }
+
   async function detectCapabilities(){
+    // UI may initialize before the capability request completes. The client-side
+    // admin state is only used to SHOW controls; the GAS server remains the
+    // authoritative permission check for every edit/delete/restore request.
+    const admin=localAdmin();
+    if(admin){
+      R.capabilities={edit:true,softDelete:true,restore:true,audit:true};
+      syncCapabilityUi();
+    }
     try{
       const res=await apiGet('reportCapabilities',{});
       if(res&&res.ok){
@@ -114,11 +129,12 @@
   }
 
   function syncCapabilityUi(){
+    const admin=localAdmin();
     const show=(id,on)=>{const e=$(id);if(e)e.classList.toggle('hidden',!on);};
-    show('v58DeleteSelectedReports',R.capabilities.softDelete);
-    show('v58DeletedReports',R.capabilities.restore);
-    show('v58EditCurrentReport',R.capabilities.edit);
-    show('v58DeleteCurrentReport',R.capabilities.softDelete);
+    show('v58DeleteSelectedReports',R.capabilities.softDelete||admin);
+    show('v58DeletedReports',R.capabilities.restore||admin);
+    show('v58EditCurrentReport',R.capabilities.edit||admin);
+    show('v58DeleteCurrentReport',R.capabilities.softDelete||admin);
   }
 
   function updateCount(){
@@ -319,6 +335,7 @@
 
   const legacySearch=window.searchViewRecords;
   window.searchViewRecords=async function(){
+    await detectCapabilities();
     const kw=$('viewSearchKw')?$('viewSearchKw').value.trim():'';
     if(!kw){setStatus('viewSearchStatus','검색어를 입력하세요.','bad');return;}
     setStatus('viewSearchStatus','검색 중...','warn');
@@ -340,7 +357,7 @@
   const legacyOpen=window.openRecordDetail;
   window.openRecordDetail=async function(index){
     if(typeof legacyOpen==='function')await legacyOpen(index);
-    ensureUi();syncCapabilityUi();
+    ensureUi();await detectCapabilities();syncCapabilityUi();
   };
 
   function init(){
