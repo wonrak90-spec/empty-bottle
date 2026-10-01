@@ -11,7 +11,7 @@
   const DB_VERSION=1;
   const STORE='saveQueue';
   const Q=window.V58SaveQueue={
-    VERSION:'V58-SAVE-QUEUE-1.0',
+    VERSION:'V58-SAVE-QUEUE-1.1',
     autoRetryEnabled:false,
     lastError:''
   };
@@ -136,7 +136,7 @@
   };
 
   Q.canAutoRetry=function(){
-    try{return !!(window.CONFIG&&CONFIG.V58_IDEMPOTENCY===true);}catch(_){return false;}
+    try{return typeof CONFIG!=='undefined'&&CONFIG.V58_IDEMPOTENCY===true;}catch(_){return false;}
   };
 
   Q.retryAll=async function(){
