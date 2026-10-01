@@ -2,7 +2,9 @@
 // Individual employee + PIN session auth. No static API token.
 const CONFIG = {
   API_URL: 'https://script.google.com/macros/s/AKfycbwaq4JxAp_JCHam-SERSdyif5PEF092zCaOVQWoVsPLrL7vmAY1mhf6h0QNWwQzZaGSKA/exec',
-  API_TOKEN: ''
+  API_TOKEN: '',
+  // Keep false until the production GAS Request-ID idempotency patch is deployed.
+  V58_IDEMPOTENCY: false
 };
 
 (function bootExtensions(){
