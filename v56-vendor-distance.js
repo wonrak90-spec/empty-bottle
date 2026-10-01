@@ -10,7 +10,7 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V57.2-VENDOR-DISTANCE-1.3',
+    VERSION:'V57.3-VENDOR-DISTANCE-1.4',
     stream:null,track:null,mode:'capture',busy:false,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
@@ -108,6 +108,7 @@
       </div>
       <div class="v56vd-stage">
         <video id="v56VendorVideo" autoplay muted playsinline></video>
+        <img id="v56VendorCaptured" style="display:none" alt="촬영된 업체라벨">
         <div class="v56vd-guide"></div>
       </div>
       <div class="v56vd-foot">
@@ -117,8 +118,8 @@
           <span>확대</span><input id="v56VendorZoom" type="range"><span id="v56VendorZoomValue"></span>
         </div>
         <div class="v56vd-actions">
-          <button type="button" id="v56VendorShot">📷 촬영 · 확인</button>
-          <button type="button" id="v56VendorNative">기본 카메라</button>
+          <button type="button" id="v56VendorShot">📷 촬영 · 인식</button>
+          <button type="button" id="v56VendorNative">보조 촬영</button>
         </div>
       </div>
     `;
@@ -175,6 +176,8 @@
     renderLock();
     try{if(window.OcrRuntime&&typeof OcrRuntime.stopAll==='function')OcrRuntime.stopAll(false);}catch(_){}
     const m=$('v56VendorDistanceModal');m.classList.add('open');document.body.style.overflow='hidden';
+    const cap=$('v56VendorCaptured');if(cap){cap.style.display='none';cap.removeAttribute('src');}
+    const video=$('v56VendorVideo');if(video)video.style.display='block';
     modalStatus('업체라벨 확대 사진촬영 · 실시간 OCR은 사용하지 않습니다. 라벨 전체를 흰 프레임 안에 크게 맞춘 뒤 촬영하세요.');
     try{
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('카메라를 사용할 수 없습니다.');
@@ -334,6 +337,17 @@
     modalStatus('고해상도 사진 확보 중...');
     try{
       const full=await still();
+
+      // Shot completed: immediately stop the live camera so the worker knows
+      // the photo was taken. Keep only the captured image on screen while OCR runs.
+      stop();
+      const live=$('v56VendorVideo');if(live)live.style.display='none';
+      const captured=$('v56VendorCaptured');
+      if(captured){captured.src=full;captured.style.display='block';}
+      const guide=$('v56VendorDistanceModal')&&$('v56VendorDistanceModal').querySelector('.v56vd-guide');
+      if(guide)guide.style.display='none';
+      modalStatus('사진 확보 완료 · 업체라벨 인식 중...');
+
       try{
         if(window.V56FastFlow&&typeof V56FastFlow.noteEvidence==='function')V56FastFlow.noteEvidence('vendor',full);
       }catch(_){}
@@ -356,13 +370,13 @@
         try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
         setVendorStatus(D.evidence?'마지막 Pallet · 실제 수량 확인 완료':'마지막 Pallet · 제품명/수량 확인 필요',D.evidence?'ok':'warn');
         setFast(D.evidence?'마지막 Pallet 판정 결과를 확인하세요.':'마지막 Pallet 판독 미완료 · 정상 저장 중단',D.evidence?'ok':'warn');
-        setTimeout(()=>D.close(),500);
+        setTimeout(()=>D.close(),220);
       }else if(lock&&lock.vendorQty){
         modalStatus('기준정보 재사용 · 사진 저장 후 백그라운드로 이상 여부를 확인합니다.');
         await laterCapture(full,lock);
         setVendorStatus('업체라벨 사진 확보 완료 · 기준 제품명/수량 재사용 · 백그라운드 확인 중','ok');
         setFast('업체라벨 사진 확보 완료 · 실물 이상이 없으면 정상 확인·저장하세요.','ok');
-        setTimeout(()=>D.close(),350);
+        setTimeout(()=>D.close(),180);
       }else{
         modalStatus('제품명/일반 Pallet 수량 OCR 후 기준정보를 확인합니다...');
         const out=await firstCapture(full,k,pm);
@@ -373,7 +387,7 @@
             setVendorStatus('업체라벨 확인 완료 · 제품명/일반 Pallet 수량 기준 LOCK','ok');
           }
           setFast(pm.isLast?'제품명 기준 유지 · 마지막 Pallet 수량은 별도 확인':'업체 기준정보 LOCK 완료 · 정상 확인·저장 가능합니다.','ok');
-          setTimeout(()=>D.close(),500);
+          setTimeout(()=>D.close(),220);
         }else{
           D.evidence=false;
           setVendorStatus('첫 업체라벨 OCR 결과가 WMS와 자동 일치하지 않습니다. 상세 확인 후 기준을 확정하세요.','warn');
@@ -399,7 +413,7 @@
     if(!card)return;
     const status=$('vendorStatus');
     const b=document.createElement('button');b.type='button';b.id='v56VendorDistanceBtn';b.className='btn primary';
-    b.textContent='📷 업체라벨 원거리 촬영 (권장)';
+    b.textContent='📷 업체라벨 확대 촬영 · 인식';
     b.onclick=D.open;
     if(status)card.insertBefore(b,status);else card.appendChild(b);
     const h=document.createElement('div');h.className='status';h.style.fontSize='.75rem';
