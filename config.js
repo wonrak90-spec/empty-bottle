@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v57-3-field-flow';
+  const RELEASE='20261001-v58-field-safe-dev1';
 
   const styles=[
     'v22.css',
@@ -46,6 +46,7 @@ const CONFIG = {
     'v56-fast-flow.js',
     'v56-vendor-distance.js',
     'v57-1-ui-recovery.js',
+    'v58-field-safe.js',
     'v26-stability.js'
   ];
 
