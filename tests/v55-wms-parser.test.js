@@ -24,7 +24,7 @@ vm.runInContext(code,ctx,{filename:'v55-wms-parser.js'});
 
 const P=ctx.V55WmsParser;
 assert.ok(P);
-assert.strictEqual(P.VERSION,'V55-WMS-PARSER-2.5');
+assert.strictEqual(P.VERSION,'V57.3-WMS-PARSER-2.6');
 
 const items=[
   {text:'입고번호',poly:[[10,20],[90,20],[90,40],[10,40]]},
