@@ -10,7 +10,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261001-v56-photo-controls-fix5';
+  const RELEASE='20261001-v57-1-ui-recovery';
 
   const styles=[
     'v22.css',
@@ -45,6 +45,7 @@ const CONFIG = {
     'v55-capture-assist.js',
     'v56-fast-flow.js',
     'v56-vendor-distance.js',
+    'v57-1-ui-recovery.js',
     'v26-stability.js'
   ];
 
