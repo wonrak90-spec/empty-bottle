@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.8',
+    VERSION:'V58-FIELD-SAFE-1.9',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -313,13 +313,13 @@
     if($('v58Style'))return;
     const s=document.createElement('style');s.id='v58Style';
     s.textContent=`
-      body.v58-simple #v56FastCard,
-      body.v58-simple #v56ManualVerdictCard,
-      body.v58-simple #v56WmsDetailCard,
-      body.v58-simple #v56ItemPhotoCard,
-      body.v58-simple #v58LegacyWmsCard,
-      body.v58-simple #v58LegacyVendorCard,
-      body.v58-simple #v58LegacySaveCard{display:none!important}
+      body.v58-simple.v58-ready #v56FastCard,
+      body.v58-simple.v58-ready #v56ManualVerdictCard,
+      body.v58-simple.v58-ready #v56WmsDetailCard,
+      body.v58-simple.v58-ready #v56ItemPhotoCard,
+      body.v58-simple.v58-ready #v58LegacyWmsCard,
+      body.v58-simple.v58-ready #v58LegacyVendorCard,
+      body.v58-simple.v58-ready #v58LegacySaveCard{display:none!important}
       #v58SimpleCard{border:3px solid var(--primary);padding:14px}
       .v58-title{font-weight:900;font-size:1.15rem;margin-bottom:4px}
       .v58-sub{font-size:.8rem;color:var(--muted);margin-bottom:12px}
@@ -350,11 +350,34 @@
     const sc=saveBtn&&saveBtn.closest('.card');if(sc)sc.id='v58LegacySaveCard';
   }
 
+  S.fallbackToLegacy=function(reason){
+    try{
+      document.body.classList.remove('v58-ready');
+      document.body.classList.remove('v58-simple');
+      const card=$('v58SimpleCard');if(card)card.style.display='none';
+      try{if(window.V56VendorDistance&&typeof V56VendorDistance.close==='function')V56VendorDistance.close();}catch(_){}
+      try{if(window.OcrRuntime&&typeof OcrRuntime.stopAll==='function')OcrRuntime.stopAll(false);}catch(_){}
+      try{if(window.V22&&typeof V22.stopLive==='function'){V22.stopLive('wms',false);V22.stopLive('vendor',false);}}catch(_){}
+      document.body.style.overflow='';
+      console.warn('[V58] legacy fallback',reason||'');
+    }catch(_){}
+  };
+
+  S.healthCheck=function(){
+    const required=['v58SimpleCard','v58WmsPhoto','v58VendorPhoto','v58Save','wmsPhoto','vendorPhoto','inboundNo','containerFrom'];
+    const missing=required.filter(id=>!$(id));
+    const funcs=[];
+    if(typeof saveSingleRecord!=='function')funcs.push('saveSingleRecord');
+    if(!window.V56VendorDistance||typeof V56VendorDistance.open!=='function')funcs.push('V56VendorDistance.open');
+    return {ok:missing.length===0&&funcs.length===0,missing,funcs};
+  };
+
   function inject(){
-    if($('v58SimpleCard'))return;
-    const panel=$('single');if(!panel)return setTimeout(inject,150);
-    addCss();tagLegacy();
-    const card=document.createElement('div');card.id='v58SimpleCard';card.className='card';
+    try{
+      if($('v58SimpleCard'))return;
+      const panel=$('single');if(!panel)return setTimeout(inject,150);
+      addCss();tagLegacy();
+      const card=document.createElement('div');card.id='v58SimpleCard';card.className='card';
     card.innerHTML=`
       <div class="v58-title">공병 입고 확인</div>
       <div class="v58-sub">사진 2장 찍고 저장하면 끝납니다.</div>
@@ -377,6 +400,7 @@
       <div id="v58Status" class="status warn">1번 WMS 라벨 사진을 먼저 찍어주세요.</div>
       <button type="button" class="btn outline" id="v58Edit">정보 수정</button>
       <button type="button" class="btn ghost" id="v58NewInbound">새 입고 시작</button>
+      <button type="button" class="btn ghost" id="v58LegacyFallback">기존 화면으로 전환</button>
       <div id="v58EditPanel" class="hidden">
         <div class="v58-edit-grid">
           <label>관리번호<input id="v58eInbound"></label>
@@ -393,7 +417,6 @@
       </div>
     `;
     panel.insertBefore(card,panel.firstChild);
-    document.body.classList.add('v58-simple');
     $('v58WmsPhoto').onclick=wmsPhoto;
     $('v58VendorPhoto').onclick=vendorPhoto;
     $('v58Save').onclick=save;
@@ -412,9 +435,31 @@
     ['wmsPreview','vendorPreview'].forEach(id=>{const e=$(id);if(e)obs.observe(e,{attributes:true,attributeFilter:['src','class']});});
     window.addEventListener('v55:ocr-applied',ev=>S.handleOcrApplied(ev&&ev.detail||{}));
     window.addEventListener('v58:vendor-photo',()=>setTimeout(render,0));
-    applyLock(loadLock());
-    render();
-    setInterval(render,1000);
+      applyLock(loadLock());
+      render();
+
+      const health=S.healthCheck();
+      if(!health.ok)throw new Error('V58 초기화 실패 · '+health.missing.concat(health.funcs).join(', '));
+
+      document.body.classList.add('v58-simple');
+      document.body.classList.add('v58-ready');
+
+      const fallback=$('v58LegacyFallback');
+      if(fallback)fallback.onclick=()=>S.fallbackToLegacy('작업자 수동 전환');
+
+      // Low-cost watchdog: if V58 controls disappear after refresh/mutation,
+      // immediately expose the legacy controls instead of leaving a broken screen.
+      setInterval(()=>{
+        try{
+          if(!document.body.classList.contains('v58-ready'))return;
+          const h=S.healthCheck();
+          if(!h.ok)S.fallbackToLegacy('런타임 자체진단 실패');
+        }catch(_){S.fallbackToLegacy('런타임 자체진단 오류');}
+      },3000);
+    }catch(e){
+      console.error('[V58] init failed',e);
+      S.fallbackToLegacy(e&&e.message?e.message:e);
+    }
   }
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(inject,120),{once:true});
