@@ -356,6 +356,9 @@
         if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;}
         const pv=$('vendorPreview');if(pv){pv.src=full;pv.classList.remove('hidden');}
       }catch(_){}
+      // Field-safe UX: return to the simple screen as soon as the photo is secured.
+      // OCR continues below; the worker does not wait on the camera screen.
+      if(window.V58FieldSafe)setTimeout(()=>D.close(),80);
       const k=key();D.currentKey=k;
       const lock=getLock(k),pm=palletMeta();
       if(lock&&pm.isLast){
