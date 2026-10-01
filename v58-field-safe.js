@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.1',
+    VERSION:'V58-FIELD-SAFE-1.2',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -368,9 +368,19 @@
         set('manufacturer',lock.manufacturer||'');
         set('supplier',lock.supplier||'');
         set('unit',lock.unit||'EA');
-        if(!isLast())set('displayQty',lock.displayQty||'');
         if(!val('containerTo'))set('containerTo',lock.containerTo||'');
-        if(!val('actualQty')&&val('displayQty'))set('actualQty',val('displayQty'));
+
+        if(isLast()){
+          // Last pallet can have a different quantity. Never reuse the regular-pallet qty.
+          const lastQty=d.parsed&&d.parsed.displayQty?String(d.parsed.displayQty):'';
+          set('displayQty',lastQty);
+          set('actualQty',lastQty);
+          set('vProduct',lock.vendorProduct||'');
+          set('vQty','');
+        }else{
+          set('displayQty',lock.displayQty||'');
+          if(!val('actualQty'))set('actualQty',lock.displayQty||'');
+        }
       }
       setTimeout(render,0);
     });
