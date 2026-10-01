@@ -2441,6 +2441,6 @@ window.addEventListener('DOMContentLoaded', () => {
 
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
-    navigator.serviceWorker.register('sw.js?v=20260921-ocr-runtime5').catch(() => {});
+    navigator.serviceWorker.register('sw.js?v='+encodeURIComponent(window.__EMPTY_BOTTLE_RELEASE__||'v58')).catch(() => {});
   });
 }
