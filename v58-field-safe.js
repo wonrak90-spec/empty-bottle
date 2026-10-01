@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-2.0',
+    VERSION:'V58-FIELD-SAFE-2.1',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -189,6 +189,7 @@
     const lock=loadLock();
     if(lock)applyLock(lock);
     const w=photoReady('wms'),v=photoReady('vendor');
+    try{if(window.V58SaveQueue&&typeof V58SaveQueue.renderStatus==='function')V58SaveQueue.renderStatus();}catch(_){}
     const p=currentPallet();
     const product=val('product')||(lock&&lock.product)||'';
     const qty=val('displayQty')||(lock&&lock.displayQty)||'';
@@ -374,6 +375,7 @@
     const funcs=[];
     if(typeof saveSingleRecord!=='function')funcs.push('saveSingleRecord');
     if(!window.V56VendorDistance||typeof V56VendorDistance.open!=='function')funcs.push('V56VendorDistance.open');
+    if(!window.V58SaveQueue||typeof V58SaveQueue.stage!=='function')funcs.push('V58SaveQueue.stage');
     return {ok:missing.length===0&&funcs.length===0,missing,funcs};
   };
 
@@ -395,6 +397,7 @@
         <span id="v58WmsState" class="v58-state">1. WMS 사진 필요</span>
         <span id="v58VendorState" class="v58-state">2. 업체 사진 필요</span>
         <span id="v58LockState" class="v58-state warn">첫 Pallet 기준설정</span>
+        <span id="v58QueueStatus" class="v58-state ok">저장 대기 0건</span>
       </div>
       <div class="v58-summary">
         <div class="v58-row"><b>품명</b><span id="v58Product">—</span></div>
