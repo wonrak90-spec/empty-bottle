@@ -36,7 +36,7 @@ vm.runInContext(code,ctx,{filename:'v56-vendor-distance.js'});
 
 const D=ctx.V56VendorDistance;
 assert.ok(D);
-assert.strictEqual(D.VERSION,'V56-VENDOR-DISTANCE-1.2');
+assert.strictEqual(D.VERSION,'V57.3-VENDOR-DISTANCE-1.4');
 assert.strictEqual(D._test.productSame('판콜-A','판콜 A'),true);
 assert.strictEqual(D._test.productSame('까스활명수큐병','판콜-A'),false);
 
@@ -47,4 +47,4 @@ assert.strictEqual(D.evidenceReady(),false,'lock must not substitute for current
 D._test.clearLock(k);
 assert.strictEqual(D._test.getLock(k),null);
 
-console.log('PASS V56 vendor distance: group lock + current-pallet evidence separation');
+console.log('PASS V57.3 vendor distance 1.4: group lock + current-pallet evidence separation');
