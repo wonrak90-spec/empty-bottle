@@ -946,6 +946,7 @@ const V58_REQUEST_INDEX_SHEET = 'SaveRequestIndex';
 const V58_PALLET_INDEX_SHEET = 'PalletSaveIndex';
 const V58_RECORD_AUDIT_SHEET = 'RecordAudit';
 const V58_DELETED_SHEET = 'SoftDeletedRecords';
+let V58_DELETED_MAP_MEM_ = null;
 
 function v58BackendCapabilities_(){
   return {
@@ -1136,14 +1137,32 @@ function v58Audit_(action,id,reason,beforeObj,afterObj,user){
   ]]);
 }
 
+function v58InvalidateDeletedCache_(){
+  V58_DELETED_MAP_MEM_=null;
+  try{CacheService.getScriptCache().remove('v58_deleted_map');}catch(_){}
+}
+
 function v58DeletedMap_(){
+  if(V58_DELETED_MAP_MEM_)return V58_DELETED_MAP_MEM_;
+  try{
+    const cached=CacheService.getScriptCache().get('v58_deleted_map');
+    if(cached){
+      V58_DELETED_MAP_MEM_=JSON.parse(cached);
+      return V58_DELETED_MAP_MEM_;
+    }
+  }catch(_){}
+
   const sh=v58EnsureReportSheets_().deleted;
-  const map={};if(sh.getLastRow()<2)return map;
-  const rows=sh.getRange(2,1,sh.getLastRow()-1,6).getValues();
-  rows.forEach(function(r){
-    const id=String(r[0]||'').trim();
-    if(id&&r[1]&&!r[4])map[id]={deletedAt:r[1],reason:r[2],user:r[3]};
-  });
+  const map={};
+  if(sh.getLastRow()>=2){
+    const rows=sh.getRange(2,1,sh.getLastRow()-1,6).getValues();
+    rows.forEach(function(r){
+      const id=String(r[0]||'').trim();
+      if(id&&r[1]&&!r[4])map[id]={deletedAt:String(r[1]||''),reason:String(r[2]||''),user:String(r[3]||'')};
+    });
+  }
+  V58_DELETED_MAP_MEM_=map;
+  try{CacheService.getScriptCache().put('v58_deleted_map',JSON.stringify(map),300);}catch(_){}
   return map;
 }
 
@@ -1195,6 +1214,7 @@ function v58SoftDeleteRecords_(p){
     v58Audit_('삭제',id,reason,v58RecordObject_(info),{},p.user||'');
   });
   if(rows.length)sh.getRange(sh.getLastRow()+1,1,rows.length,6).setValues(rows);
+  if(rows.length)v58InvalidateDeletedCache_();
   try{CacheService.getScriptCache().remove('v22_dashboard');}catch(_){}
   return {ok:true,count:rows.length};
 }
@@ -1215,6 +1235,7 @@ function v58RestoreRecords_(p){
     v58Audit_('복구',id,String(p.reason||'복구'),{},info?v58RecordObject_(info):{},p.user||'');
     count++;
   });
+  if(count)v58InvalidateDeletedCache_();
   try{CacheService.getScriptCache().remove('v22_dashboard');}catch(_){}
   return {ok:true,count:count};
 }
