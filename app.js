@@ -117,6 +117,27 @@ async function apiPost(action, payload) {
   return readJson(res);
 }
 
+async function v58ApiPostWithTimeout(action, payload, timeoutMs) {
+  const ms = Math.max(5000, Number(timeoutMs) || 20000);
+  if (typeof AbortController === 'undefined') return apiPost(action, payload);
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetch(CONFIG.API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action, payload, token: CONFIG.API_TOKEN }),
+      signal: controller.signal
+    });
+    return await readJson(res);
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('서버 응답시간 초과 · 저장상태 확인 필요');
+    throw e;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function lookupMaster(key) {
   try {
     return await apiGet('lookup', { key });
@@ -1389,13 +1410,17 @@ async function saveSingleRecord() {
     if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markSending === 'function') {
       try { await V58SaveQueue.markSending(payload.requestId); } catch (_) {}
     }
-    const res = await apiPost('saveSingle', payload);
+    window.__V58_SAVE_PHASE__ = v58Active ? 'server_wait' : '';
+    const res = v58Active
+      ? await v58ApiPostWithTimeout('saveSingle', payload, 20000)
+      : await apiPost('saveSingle', payload);
     if (res.ok) {
+      if (v58Active) window.__V58_SAVE_PHASE__ = 'server_confirmed';
       if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.confirm === 'function') {
         try { await V58SaveQueue.confirm(payload.requestId, res); } catch (_) {}
       }
       window.__V58_CURRENT_REQUEST_ID__ = '';
-      setStatus('saveSingleStatus', '저장 완료 (ID: ' + res.id + ')', 'ok');
+      setStatus('saveSingleStatus', '서버 저장 확인 완료 · 다음 Pallet 준비 중...', 'ok');
       lastSavedRecord.single = {
         record: {
           id: res.id, regDate: new Date().toLocaleString('ko-KR'), mode: '단건',
@@ -1422,7 +1447,12 @@ async function saveSingleRecord() {
       try {
         if (v58Active && window.V58FieldSafe && typeof V58FieldSafe.onSaved === 'function') V58FieldSafe.onSaved(payload, res);
       } catch (_) {}
-      prepareNextSingleAfterSave(res.id);
+      if (v58Active) window.__V58_SAVE_PHASE__ = 'ui_reset';
+      const resetOk = safePrepareNextSingleAfterSave(res.id);
+      if (v58Active) {
+        window.__V58_SAVE_PHASE__ = resetOk ? 'done' : 'reset_failed';
+        if (!resetOk) setStatus('saveSingleStatus','서버 저장은 완료됐지만 화면 초기화에 실패했습니다 · 기존 화면 전환 후 다음 Pallet을 진행하세요.','bad');
+      }
     } else {
       if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
         try { await V58SaveQueue.markPending(payload.requestId, res.message || '서버 저장 실패'); } catch (_) {}
@@ -1434,7 +1464,8 @@ async function saveSingleRecord() {
   } catch (e) {
     if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markPending === 'function') {
       try { await V58SaveQueue.markPending(payload.requestId, String(e && e.message ? e.message : e)); } catch (_) {}
-      setStatus('saveSingleStatus', '네트워크/서버 오류 · 단말에 안전 보관 중', 'warn');
+      window.__V58_SAVE_PHASE__ = 'pending_confirmation';
+      setStatus('saveSingleStatus', '서버 연결 오류 · 저장 요청은 단말에 보관됨 · 서버 확인 후 재전송 필요', 'warn');
     } else {
       setStatus('saveSingleStatus', '저장 실패: ' + e, 'bad');
     }
@@ -1539,6 +1570,53 @@ function clearSingle() {
   setStatus('saveSingleStatus', '저장 전 자동입력 내용을 확인하세요.', '');
 }
 
+
+function forcePrepareNextSingleAfterSave(savedId) {
+  const inspector = (() => {
+    try { return getRememberedInspector() || (document.getElementById('inspector') ? document.getElementById('inspector').value.trim() : ''); }
+    catch (_) { return ''; }
+  })();
+
+  try { stopLiveOcr('single'); } catch (_) {}
+  try { if (window.V22 && V22.stopLive) { V22.stopLive('wms', false); V22.stopLive('vendor', false); } } catch (_) {}
+  try { if (window.V56VendorDistance && typeof V56VendorDistance.close === 'function') V56VendorDistance.close(); } catch (_) {}
+  try { document.body.style.overflow=''; } catch (_) {}
+
+  const clearValueIds=['vProduct','vQty','vProdDate','vProdTime','vLotNo','vPalletNo','vLine','inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty','expiryDate','containerFrom','containerTo','codeRaw','actualQty','note'];
+  clearValueIds.forEach(id=>{try{const el=document.getElementById(id);if(el)el.value='';}catch(_){}});
+  try{const unit=document.getElementById('unit');if(unit)unit.value='EA';}catch(_){}
+  ['matchYes','matchNo','mixYes','mixNo'].forEach(id=>{try{const el=document.getElementById(id);if(el)el.classList.remove('sel-ok','sel-bad');}catch(_){}});
+  ['wmsPreview','vendorPreview'].forEach(id=>{try{const el=document.getElementById(id);if(el){el.classList.add('hidden');el.removeAttribute('src');}}catch(_){}});
+  ['ocrBoxWms','ocrBoxVendor','ocrRawWms','ocrRawVendor'].forEach(id=>{try{const el=document.getElementById(id);if(el)el.classList.add('hidden');}catch(_){}});
+  try{lastPhotoDataUrl.wms='';lastPhotoDataUrl.vendor='';lastPhotoDataUrl.single='';}catch(_){}
+  try{lastOcrText.wms='';lastOcrText.vendor='';lastOcrText.single='';}catch(_){}
+  try{itemPhotos.single=[];renderItemPhotos('single');}catch(_){}
+  try{singleMatchOk=null;currentItemInfo=null;renderItemInfo();}catch(_){}
+  try{const ins=document.getElementById('inspector');if(ins)ins.value=inspector;}catch(_){}
+
+  try{setStatus('wmsStatus','다음 입고 건을 스캔하거나 WMS 라벨을 촬영하세요.','');}catch(_){}
+  try{setStatus('vendorStatus','업체 라벨을 촬영하면 자동으로 대조합니다.','');}catch(_){}
+  try{setStatus('matchResult','두 라벨을 모두 입력하면 자동으로 대조합니다.','');}catch(_){}
+  try{setStatus('qtyStatus','수량을 입력하면 일치 여부를 계산합니다.','');}catch(_){}
+  try{setStatus('saveSingleStatus','저장 완료'+(savedId?' (ID: '+savedId+')':'')+' · 다음 Pallet 준비 완료','ok');}catch(_){}
+  try{const p=document.getElementById('btnPrintSingle');if(p)p.classList.remove('hidden');}catch(_){}
+  try{window.__V58_CURRENT_REQUEST_ID__='';}catch(_){}
+  try{if(window.V56FastFlow){V56FastFlow.photoUrls.wms='';V56FastFlow.photoUrls.vendor='';}}catch(_){}
+}
+
+function safePrepareNextSingleAfterSave(savedId) {
+  try {
+    prepareNextSingleAfterSave(savedId);
+    return true;
+  } catch (e) {
+    console.error('[V58] normal reset failed; forcing safe reset', e);
+    try { forcePrepareNextSingleAfterSave(savedId); return true; }
+    catch (fallbackError) {
+      console.error('[V58] forced reset failed', fallbackError);
+      return false;
+    }
+  }
+}
 
 // 저장 성공 후 다음 단건을 즉시 입력할 수 있게 준비한다.
 // 검수자와 방금 저장한 출력 대상은 유지한다.
