@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-1.7',
+    VERSION:'V58-FIELD-SAFE-1.8',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:''
@@ -122,6 +122,16 @@
     if(!photoReady('vendor'))return {ok:false,code:'vendor_photo',message:'2번 업체 라벨 사진을 먼저 찍어주세요.'};
     const missing=missingBase(lock);
     if(missing.length)return {ok:false,code:'fields',message:'확인이 필요한 정보: '+missing.join(', ')};
+
+    // First and last pallets establish/refresh the actual quantity.
+    // If both WMS and vendor quantities exist, they must agree before save.
+    if(!lock||isLast()){
+      const wq=digits(val('displayQty')),vq=digits(val('vQty'));
+      if(wq&&vq&&Number(wq)!==Number(vq)){
+        return {ok:false,code:'qty_mismatch',
+          message:'수량이 다릅니다 · WMS '+Number(wq).toLocaleString()+' / 업체 '+Number(vq).toLocaleString()+' · 정보 수정에서 확인하세요.'};
+      }
+    }
     return {ok:true,lock:!!lock,last:isLast()};
   };
 
