@@ -120,13 +120,26 @@ async function apiPost(action, payload) {
 async function v58ApiPostWithTimeout(action, payload, timeoutMs) {
   const ms = Math.max(5000, Number(timeoutMs) || 20000);
   if (typeof AbortController === 'undefined') return apiPost(action, payload);
+
+  // V24 individual login overrides apiPost/apiGet with session authentication.
+  // The previous V58 raw fetch omitted that session and caused authenticated
+  // operators' saveSingle requests to be rejected as AUTH_REQUIRED.
+  let session = '';
+  try {
+    session = String(window.V24 && V24.session && V24.session.session || '');
+  } catch (_) {}
+
+  // If V24 is active but the session is not ready, use the normal authenticated
+  // apiPost path instead of sending an anonymous raw request.
+  if (window.V24 && !session) return apiPost(action, payload);
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), ms);
   try {
     const res = await fetch(CONFIG.API_URL, {
       method: 'POST',
       headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, payload, token: CONFIG.API_TOKEN }),
+      body: JSON.stringify({ action, payload, session, token: CONFIG.API_TOKEN }),
       signal: controller.signal
     });
     return await readJson(res);
