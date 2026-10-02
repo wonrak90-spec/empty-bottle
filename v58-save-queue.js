@@ -11,7 +11,7 @@
   const DB_VERSION=1;
   const STORE='saveQueue';
   const Q=window.V58SaveQueue={
-    VERSION:'V58-SAVE-QUEUE-1.2',
+    VERSION:'V58-SAVE-QUEUE-1.3',
     autoRetryEnabled:false,
     serverCapabilities:{},
     lastError:''
@@ -153,6 +153,12 @@
   };
 
   Q.retryAll=async function(){
+    // Capability may have been checked before V24 login finished. Re-check at
+    // the moment the operator requests retry so a newly deployed backend is
+    // recognized without reloading the page.
+    if(!Q.canAutoRetry()){
+      try{await Q.detectCapabilities();}catch(_){}
+    }
     if(!Q.canAutoRetry())return {ok:false,message:'운영 서버의 중복저장 방지 패치가 아직 활성화되지 않아 자동 재전송을 잠가두었습니다.'};
     const rows=await Q.list();let ok=0,failed=0;
     for(const row of rows){
