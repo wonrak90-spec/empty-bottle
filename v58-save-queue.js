@@ -11,7 +11,7 @@
   const DB_VERSION=1;
   const STORE='saveQueue';
   const Q=window.V58SaveQueue={
-    VERSION:'V58-SAVE-QUEUE-1.3',
+    VERSION:'V58-SAVE-QUEUE-1.4',
     autoRetryEnabled:false,
     serverCapabilities:{},
     lastError:''
@@ -24,6 +24,23 @@
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g,c=>{
       const r=Math.random()*16|0,v=c==='x'?r:(r&0x3|0x8);return v.toString(16);
     });
+  }
+
+  function currentOwner(){
+    try{
+      const u=window.V24&&V24.session&&V24.session.user||null;
+      if(!u)return {key:'',name:''};
+      return {key:String(u.userId||u.employeeNo||'').trim(),name:String(u.name||'').replace(/\s+/g,'').trim()};
+    }catch(_){return {key:'',name:''};}
+  }
+  function inspectorName(row){
+    try{return String(row&&row.payload&&row.payload.inspector||'').replace(/\s+/g,'').trim();}catch(_){return '';}
+  }
+  function belongsToCurrent(row,owner){
+    owner=owner||currentOwner();
+    if(!owner.key)return false;
+    if(row&&row.ownerKey)return String(row.ownerKey)===owner.key;
+    return !!(owner.name&&inspectorName(row)&&owner.name===inspectorName(row));
   }
 
   Q.makeRequestId=function(payload){
@@ -69,8 +86,12 @@
   Q.stage=async function(payload){
     const p=JSON.parse(JSON.stringify(payload||{}));
     if(!p.requestId)p.requestId=Q.makeRequestId(p);
+    const owner=currentOwner();
+    if(!owner.key)throw new Error('로그인 작업자를 확인할 수 없어 안전 Queue 저장을 중단했습니다.');
     const row={
       requestId:p.requestId,
+      ownerKey:owner.key,
+      ownerName:owner.name,
       payload:p,
       status:'pending',
       createdAt:Date.now(),
@@ -116,7 +137,7 @@
     });
   };
 
-  Q.list=async function(){
+  Q.listAll=async function(){
     const db=await openDb();
     return await new Promise((resolve,reject)=>{
       const t=db.transaction(STORE,'readonly'),s=t.objectStore(STORE),r=s.getAll();
@@ -125,15 +146,14 @@
       t.oncomplete=()=>db.close();
     });
   };
-
-  Q.count=async function(){
-    const db=await openDb();
-    return await new Promise((resolve,reject)=>{
-      const t=db.transaction(STORE,'readonly'),s=t.objectStore(STORE),r=s.count();
-      r.onsuccess=()=>resolve(Number(r.result||0));
-      r.onerror=()=>reject(r.error||new Error('Queue 건수 확인 실패'));
-      t.oncomplete=()=>db.close();
-    });
+  Q.list=async function(){
+    const owner=currentOwner(),rows=await Q.listAll();
+    return rows.filter(row=>belongsToCurrent(row,owner));
+  };
+  Q.count=async function(){ return (await Q.list()).length; };
+  Q.countForeign=async function(){
+    const owner=currentOwner(),rows=await Q.listAll();
+    return rows.filter(row=>!belongsToCurrent(row,owner)).length;
   };
 
   Q.detectCapabilities=async function(){
@@ -160,9 +180,17 @@
       try{await Q.detectCapabilities();}catch(_){}
     }
     if(!Q.canAutoRetry())return {ok:false,message:'운영 서버의 중복저장 방지 패치가 아직 활성화되지 않아 자동 재전송을 잠가두었습니다.'};
-    const rows=await Q.list();let ok=0,failed=0;
+    const owner=currentOwner();
+    if(!owner.key)return {ok:false,message:'로그인 작업자를 확인할 수 없어 미전송 저장을 재전송하지 않습니다.'};
+    const all=await Q.listAll(),rows=all.filter(row=>belongsToCurrent(row,owner));
+    const foreign=all.length-rows.length;
+    let ok=0,failed=0;
     for(const row of rows){
       try{
+        if(!row.ownerKey){
+          row.ownerKey=owner.key;row.ownerName=owner.name;row.updatedAt=Date.now();
+          await tx('readwrite',s=>s.put(row));
+        }
         await Q.markSending(row.requestId);
         const res=await apiPost('saveSingle',row.payload);
         if(res&&res.ok){await Q.confirm(row.requestId,res);ok++;}
@@ -170,15 +198,17 @@
       }catch(e){await Q.markPending(row.requestId,String(e&&e.message?e.message:e));failed++;}
     }
     Q.renderStatus();
-    return {ok:failed===0,saved:ok,failed};
+    return {ok:failed===0,saved:ok,failed,foreign,
+      message:foreign?('다른 작업자 또는 소유자 확인이 필요한 미전송 저장 '+foreign+'건은 재전송하지 않았습니다.'):''
+    };
   };
 
   Q.renderStatus=async function(){
     const el=document.getElementById('v58QueueStatus');if(!el)return;
     try{
-      const n=await Q.count();
-      el.textContent=n?('미전송 저장 '+n+'건'):'저장 대기 0건';
-      el.className='v58-state '+(n?'warn':'ok');
+      const n=await Q.count(),foreign=await Q.countForeign();
+      el.textContent=n?('내 미전송 저장 '+n+'건'):(foreign?('확인필요 미전송 '+foreign+'건'):'저장 대기 0건');
+      el.className='v58-state '+((n||foreign)?'warn':'ok');
     }catch(_){
       el.textContent='저장 대기 확인 불가';el.className='v58-state warn';
     }

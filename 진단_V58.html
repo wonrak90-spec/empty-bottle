@@ -1,0 +1,523 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>공병 입고 진단 V58 FINAL R1</title>
+<style>
+  /* Layout: single column of test rows, each self-reporting. Instrument-panel feel. */
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --ink:#15181d; --muted:#616b7a;
+    --line:#dde1e7; --accent:#1d4ed8;
+    --ok:#067647; --ok-bg:#e8f6ee; --bad:#b42318; --bad-bg:#fdecea;
+    --warn:#8a5300; --warn-bg:#fff5e5;
+    --mono:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+    color-scheme:light;
+  }
+  @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){
+    --bg:#13161a; --panel:#1b1f25; --ink:#eef1f5; --muted:#9aa5b4;
+    --line:#2c333c; --accent:#7aa2ff;
+    --ok:#4ec98a; --ok-bg:#12301f; --bad:#ff8f84; --bad-bg:#3a1714;
+    --warn:#f0bf6a; --warn-bg:#352709;
+    color-scheme:dark;
+  }}
+  :root[data-theme="dark"]{
+    --bg:#13161a; --panel:#1b1f25; --ink:#eef1f5; --muted:#9aa5b4;
+    --line:#2c333c; --accent:#7aa2ff;
+    --ok:#4ec98a; --ok-bg:#12301f; --bad:#ff8f84; --bad-bg:#3a1714;
+    --warn:#f0bf6a; --warn-bg:#352709;
+    color-scheme:dark;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--bg); color:var(--ink);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Malgun Gothic",system-ui,sans-serif;
+  }
+  .wrap{max-width:720px; margin:0 auto; padding-block:20px 56px; padding-left:16px; padding-right:16px}
+  h1{font-size:1.45rem; line-height:1.25; margin:0 0 4px; text-wrap:balance}
+  .sub{color:var(--muted); font-size:.85rem; margin:0 0 20px}
+  .card{background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px}
+  .card h2{font-size:1rem; margin:0 0 10px; display:flex; align-items:center; gap:8px; flex-wrap:wrap}
+  label{display:block; font-size:.78rem; font-weight:700; color:var(--muted); letter-spacing:.03em; text-transform:uppercase; margin-bottom:5px}
+  input[type=text],input[type=password],input[type=url]{
+    width:100%; padding:11px 12px; font-size:1rem; font-family:var(--mono);
+    border:1px solid var(--line); border-radius:8px; background:var(--bg); color:var(--ink);
+  }
+  input[type=file]{width:100%; font-size:.9rem; color:var(--ink)}
+  .row{display:flex; gap:10px; flex-wrap:wrap; margin-bottom:12px}
+  .row > div{flex:1 1 150px; min-width:0}
+  button{
+    appearance:none; border:1px solid var(--accent); background:var(--accent); color:#fff;
+    font:700 1rem/1 inherit; padding:14px 16px; border-radius:9px; cursor:pointer; min-height:50px; width:100%;
+  }
+  button.ghost{background:transparent; color:var(--accent)}
+  button[disabled]{opacity:.5; cursor:not-allowed}
+  button:focus-visible,input:focus-visible{outline:2px solid var(--accent); outline-offset:2px}
+  .tests{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px}
+  .t{border:1px solid var(--line); border-radius:9px; padding:11px 12px; background:var(--bg)}
+  .t-top{display:flex; gap:10px; align-items:baseline; justify-content:space-between}
+  .t-name{font-weight:700; font-size:.94rem; min-width:0}
+  .badge{font-size:.72rem; font-weight:800; padding:4px 9px; border-radius:999px; white-space:nowrap;
+         background:var(--line); color:var(--muted); letter-spacing:.04em}
+  .badge.ok{background:var(--ok-bg); color:var(--ok)}
+  .badge.bad{background:var(--bad-bg); color:var(--bad)}
+  .badge.warn{background:var(--warn-bg); color:var(--warn)}
+  .t-detail{font-size:.82rem; color:var(--muted); margin-top:6px; word-break:break-word}
+  .t-detail code,.mono{font-family:var(--mono); font-size:.8rem}
+  .ms{font-family:var(--mono); font-variant-numeric:tabular-nums; font-size:.78rem; color:var(--muted)}
+  .verdict{border-left:4px solid var(--accent); padding:12px 14px; border-radius:0 9px 9px 0;
+           background:var(--bg); font-size:.9rem; line-height:1.6}
+  .verdict b{color:var(--ink)}
+  pre{background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:11px;
+      overflow-x:auto; font-family:var(--mono); font-size:.78rem; margin:8px 0 0; max-height:260px}
+  .hint{font-size:.78rem; color:var(--muted); margin-top:8px; line-height:1.5}
+  .note{background:var(--warn-bg); color:var(--warn); border-radius:8px; padding:10px 12px; font-size:.8rem; font-weight:600; line-height:1.5}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <h1>공병 입고 진단 <span class="mono">FINAL R1</span></h1>
+  <p class="sub">저장 실패와 OCR 실패의 원인을 분리해서 찾습니다. 반드시 <b>문제가 나는 그 기기·그 네트워크</b>에서 실행하세요.</p>
+
+  <div class="card">
+    <h2>1단계 · 백엔드 (로그인 불필요)</h2>
+    <label for="apiUrl">Apps Script 배포 URL</label>
+    <input id="apiUrl" type="url" spellcheck="false"
+      value="https://script.google.com/macros/s/AKfycbwaq4JxAp_JCHam-SERSdyif5PEF092zCaOVQWoVsPLrL7vmAY1mhf6h0QNWwQzZaGSKA/exec">
+    <div class="hint">repo의 config.js에 있는 값입니다. 바뀌었으면 수정하세요.</div>
+    <div style="height:12px"></div>
+    <button id="btn1">백엔드 확인</button>
+    <ul class="tests" id="out1" style="margin-top:12px"></ul>
+  </div>
+
+  <div class="card">
+    <h2>2단계 · 로그인 &amp; V58 기능</h2>
+    <div class="row">
+      <div><label for="emp">사번</label><input id="emp" type="text" inputmode="numeric" autocomplete="off" placeholder="사번"></div>
+      <div><label for="pin">PIN 6자리</label><input id="pin" type="password" inputmode="numeric" maxlength="6" autocomplete="off"></div>
+    </div>
+    <button id="btn2">로그인하고 기능 확인</button>
+    <ul class="tests" id="out2" style="margin-top:12px"></ul>
+  </div>
+
+  <div class="card">
+    <h2>3단계 · OCR 엔진 (원인 분리)</h2>
+    <p class="hint" style="margin-top:0">기기 OCR은 CDN에서 약 18MB 모델을 내려받습니다. 어느 단계에서 막히는지 하나씩 측정합니다.</p>
+    <button id="btn3">OCR 경로 측정</button>
+    <ul class="tests" id="out3" style="margin-top:12px"></ul>
+  </div>
+
+  <div class="card">
+    <h2>4단계 · 실제 라벨 사진으로 OCR</h2>
+    <label for="photo">WMS 라벨 또는 업체 라벨 사진</label>
+    <input id="photo" type="file" accept="image/*">
+    <div class="hint">2단계 로그인이 끝난 뒤에 실행하세요. 기기 OCR과 서버 OCR을 같은 사진으로 비교합니다.</div>
+    <div style="height:12px"></div>
+    <button id="btn4" disabled>사진으로 OCR 비교</button>
+    <ul class="tests" id="out4" style="margin-top:12px"></ul>
+    <pre id="ocrText" hidden></pre>
+  </div>
+
+  <div class="card">
+    <h2>5단계 · 저장 왕복시간</h2>
+    <p class="hint" style="margin-top:0">
+      앱은 저장 응답을 <b>20초</b>까지만 기다립니다. 사진 업로드가 그보다 오래 걸리면 저장이 실패로 보입니다.
+      이 테스트는 <b>기록을 만들지 않고</b> 사진 1장 업로드 시간만 재서 그 한계에 걸리는지 확인합니다.
+    </p>
+    <div class="note">실제 Drive에 테스트 사진 1장이 업로드됩니다. 확인 후 지우셔도 됩니다.</div>
+    <div style="height:12px"></div>
+    <button id="btn5" disabled>업로드 시간 측정</button>
+    <ul class="tests" id="out5" style="margin-top:12px"></ul>
+  </div>
+
+  <div class="card">
+    <h2>결과 요약</h2>
+    <div class="verdict" id="verdict">아직 실행하지 않았습니다. 1단계부터 순서대로 눌러주세요.</div>
+    <div style="height:12px"></div>
+    <button class="ghost" id="btnCopy">결과 복사</button>
+  </div>
+
+</div>
+
+<script>
+(function(){
+  'use strict';
+  var $ = function(id){ return document.getElementById(id); };
+  var S = { session:'', role:'', backendVersion:'', v58:null, log:[], photoDataUrl:'' };
+
+  function api(){ return String($('apiUrl').value || '').trim(); }
+
+  function row(listId, name){
+    var li = document.createElement('li');
+    li.className = 't';
+    li.innerHTML = '<div class="t-top"><span class="t-name"></span>'
+                 + '<span><span class="ms"></span> <span class="badge">실행 중</span></span></div>'
+                 + '<div class="t-detail"></div>';
+    li.querySelector('.t-name').textContent = name;
+    $(listId).appendChild(li);
+    var t0 = performance.now();
+    return {
+      done: function(kind, detail, ms){
+        var b = li.querySelector('.badge');
+        b.className = 'badge ' + (kind === 'pass' ? 'ok' : kind === 'fail' ? 'bad' : 'warn');
+        b.textContent = kind === 'pass' ? '정상' : kind === 'fail' ? '실패' : '주의';
+        li.querySelector('.t-detail').textContent = detail || '';
+        var took = Math.round(ms == null ? performance.now() - t0 : ms);
+        li.querySelector('.ms').textContent = took + 'ms';
+        S.log.push([kind.toUpperCase(), name, took + 'ms', detail || ''].join(' | '));
+      }
+    };
+  }
+
+  function clear(id){ $(id).innerHTML = ''; }
+
+  // Apps Script: text/plain avoids a CORS preflight.
+  function post(action, payload, timeoutMs){
+    var ctl = ('AbortController' in window) ? new AbortController() : null;
+    var timer = ctl ? setTimeout(function(){ ctl.abort(); }, timeoutMs || 60000) : null;
+    return fetch(api(), {
+      method:'POST',
+      headers:{ 'Content-Type':'text/plain;charset=utf-8' },
+      body: JSON.stringify({ action:action, payload:payload||{}, session:S.session }),
+      signal: ctl ? ctl.signal : undefined
+    }).then(function(r){ return r.text(); }).then(function(t){
+      if (timer) clearTimeout(timer);
+      try { return JSON.parse(t); }
+      catch(e){ throw new Error('JSON이 아닌 응답 · ' + t.slice(0,120)); }
+    }, function(e){
+      if (timer) clearTimeout(timer);
+      throw (e && e.name === 'AbortError') ? new Error('응답시간 초과') : e;
+    });
+  }
+
+  function get(action, params){
+    var q = new URLSearchParams(Object.assign({ action:action, session:S.session }, params||{}));
+    return fetch(api() + '?' + q.toString()).then(function(r){ return r.text(); }).then(function(t){
+      try { return JSON.parse(t); }
+      catch(e){ throw new Error('JSON이 아닌 응답 · ' + t.slice(0,120)); }
+    });
+  }
+
+  /* ---------- 1단계 ---------- */
+  $('btn1').onclick = async function(){
+    clear('out1'); this.disabled = true;
+    var r = row('out1', '백엔드 응답');
+    try {
+      var info = await get('securityInfo');
+      if (!info || !info.ok) { r.done('fail', '응답이 ok가 아닙니다 · ' + JSON.stringify(info).slice(0,160)); }
+      else {
+        S.backendVersion = String(info.backendVersion || '');
+        r.done('pass', '연결됨 · backendVersion=' + S.backendVersion + ' · schema=' + (info.schemaVersion||'?'));
+
+        var rv = row('out1', 'V58 배포 여부');
+        if (S.backendVersion.indexOf('V58') >= 0) {
+          rv.done('pass', S.backendVersion + ' — V58 백엔드가 배포되어 있습니다.', 0);
+        } else {
+          rv.done('fail', '현재 ' + S.backendVersion + ' 입니다. V58 프론트와 맞는 백엔드는 "V22.8-V58"입니다. '
+            + 'Apps Script 편집기의 최신 코드와 실제 웹앱 배포 버전이 다를 수 있습니다. '
+            + '[배포 관리 → 편집 → 버전: 새 버전 → 배포] 여부를 확인하세요. '
+            + '이 불일치는 저장 실패의 중요한 원인 후보지만, 업로드 지연·세션 문제도 함께 확인해야 합니다.', 0);
+        }
+
+        var rs = row('out1', '보안 초기화');
+        if (info.securityEnabled) rs.done('pass', '개인 사번+PIN 인증 활성', 0);
+        else rs.done('fail', 'setupSecurityV24()를 1회 실행해야 합니다.', 0);
+      }
+    } catch(e){
+      r.done('fail', String(e && e.message ? e.message : e)
+        + ' · URL이 맞는지, 배포 접근권한이 "모든 사용자"인지 확인하세요.');
+    }
+    this.disabled = false; summarize();
+  };
+
+  /* ---------- 2단계 ---------- */
+  $('btn2').onclick = async function(){
+    clear('out2'); this.disabled = true;
+    var r = row('out2', '로그인');
+    try {
+      var res = await post('authLogin', { employeeNo: $('emp').value.trim(), pin: $('pin').value.trim() }, 30000);
+      if (!res || !res.ok) { r.done('fail', (res && (res.code ? res.code + ' · ' : '') + (res.message||'')) || '실패'); }
+      else {
+        S.session = res.session; S.role = (res.user && res.user.role) || '';
+        r.done('pass', (res.user && res.user.name || '') + ' · ' + (S.role === 'admin' ? '관리자' : '작업자'));
+        $('btn4').disabled = false; $('btn5').disabled = false;
+
+        var rc = row('out2', 'V58 기능 (backendCapabilities)');
+        try {
+          var cap = await get('backendCapabilities');
+          if (cap && cap.ok) {
+            S.v58 = cap;
+            rc.done('pass', 'version=' + (cap.version||'?')
+              + ' · 중복방지(idempotency)=' + (cap.idempotency ? 'ON' : 'OFF')
+              + ' · V58초기화=' + (cap.backendReady === false ? '미완료' : '확인')
+              + ' · PalletIndex=' + (cap.palletIndex ? '준비됨' : '아직 미구축'), 0);
+            if (!cap.palletIndex) {
+              row('out2','PalletIndex').done('warn',
+                'PalletIndex가 준비되지 않았습니다. 이 상태에서는 중복검사가 느려지거나 '
+                + 'legacy 검사로 폴백할 수 있어 저장시간이 증가할 수 있습니다. '
+                + 'Apps Script에서 v58InitializeBackend()를 1회 실행하세요.', 0);
+            }
+          } else {
+            rc.done('fail', (cap && cap.message) || '응답 없음', 0);
+          }
+        } catch(e2){ rc.done('fail', String(e2 && e2.message ? e2.message : e2), 0); }
+
+        if (S.v58 && S.v58.idempotency && S.v58.palletIndex) {
+          row('out2','미전송 Queue 안전조건').done('pass',
+            'requestId 중복방지와 PalletIndex가 모두 확인됐습니다. 기존 미전송 건은 원본 기록 존재 여부를 확인한 뒤 재전송하세요.', 0);
+        } else {
+          row('out2','미전송 Queue 안전조건').done('warn',
+            '중복방지 또는 PalletIndex 준비가 확인되지 않았습니다. 기존 미전송 Queue를 임의 재전송·삭제하지 마세요.', 0);
+        }
+
+        var rd = row('out2', '조회 (dashboard)');
+        try {
+          var d = await get('dashboard');
+          rd.done(d && d.ok ? 'pass' : 'fail', d && d.ok ? ('총 ' + (d.total!=null?d.total:'?') + '건') : ((d&&d.message)||'실패'), 0);
+        } catch(e3){ rd.done('fail', String(e3 && e3.message ? e3.message : e3), 0); }
+      }
+    } catch(e){ r.done('fail', String(e && e.message ? e.message : e)); }
+    this.disabled = false; summarize();
+  };
+
+  /* ---------- 3단계 : OCR 의존성 체인 ---------- */
+  var SDK  = 'https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/+esm';
+  var BASE = 'https://paddle-model-ecology.bj.bcebos.com/paddlex/official_inference_model/paddle3.0.0/';
+  var DET  = BASE + 'PP-OCRv5_mobile_det_onnx_infer.tar';
+  var REC  = BASE + 'korean_PP-OCRv5_mobile_rec_onnx_infer.tar';
+  var engine = null;
+
+  function reach(url, label, listId){
+    var r = row(listId, label);
+    var t0 = performance.now();
+    // no-cors: an opaque success still proves the host is reachable from this network.
+    return fetch(url, { mode:'no-cors', cache:'no-store' }).then(function(){
+      r.done('pass', '도달 가능', performance.now() - t0); return true;
+    }, function(e){
+      r.done('fail', '차단되거나 도달 불가 · ' + String(e && e.message ? e.message : e)
+        + ' · 사내망/모바일망에서 이 호스트가 막혀 있으면 기기 OCR은 절대 동작하지 않습니다.',
+        performance.now() - t0);
+      return false;
+    });
+  }
+
+  $('btn3').onclick = async function(){
+    clear('out3'); this.disabled = true;
+
+    // PaddleOCR refuses to fetch model assets from a file:// page, so a local
+    // copy always "fails" here for a reason that has nothing to do with the app.
+    var ro = row('out3', '실행 위치');
+    if (location.protocol !== 'http:' && location.protocol !== 'https:') {
+      ro.done('fail', '이 페이지를 로컬 파일(' + location.protocol + ')로 열었습니다. '
+        + 'PaddleOCR은 http(s)에서만 모델을 내려받으므로 아래 기기 OCR 결과는 무의미합니다. '
+        + '저장소에 올린 뒤 https://wonrak90-spec.github.io/empty-bottle/진단_V58.html 로 다시 여세요.', 0);
+      this.disabled = false; summarize(); return;
+    }
+    ro.done('pass', location.origin + ' — 실제 앱과 같은 조건입니다.', 0);
+
+    await reach('https://cdn.jsdelivr.net/npm/@paddleocr/paddleocr-js@0.4.2/package.json', 'jsDelivr (SDK 호스트)', 'out3');
+    await reach(BASE, 'bcebos (모델 호스트, 중국 바이두)', 'out3');
+
+    var rs = row('out3', 'SDK 로드 (import)');
+    var t0 = performance.now();
+    var mod = null;
+    try {
+      mod = await import(/* webpackIgnore: true */ SDK);
+      if (!mod || !mod.PaddleOCR) throw new Error('PaddleOCR export 없음');
+      rs.done('pass', 'PaddleOCR 모듈 로드 완료', performance.now() - t0);
+    } catch(e){
+      rs.done('fail', String(e && e.message ? e.message : e), performance.now() - t0);
+      this.disabled = false; summarize(); return;
+    }
+
+    var rm = row('out3', '모델 다운로드 + 엔진 초기화 (약 18MB)');
+    var t1 = performance.now();
+    try {
+      engine = await mod.PaddleOCR.create({
+        textDetectionModelName:'PP-OCRv5_mobile_det',
+        textDetectionModelAsset:{ url: DET },
+        textRecognitionModelName:'korean_PP-OCRv5_mobile_rec',
+        textRecognitionModelAsset:{ url: REC },
+        textDetectionBatchSize:1,
+        textRecognitionBatchSize:6,
+        ortOptions:{ backend:'wasm', numThreads:1, simd:true, proxy:false }
+      });
+      var ms = performance.now() - t1;
+      rm.done(ms > 60000 ? 'warn' : 'pass',
+        '엔진 준비 완료' + (ms > 60000 ? ' — 다만 1분 이상 걸렸습니다. 현장에서는 사실상 사용이 어렵습니다.' : ''), ms);
+      try {
+        var sum = engine.getInitializationSummary && engine.getInitializationSummary();
+        if (sum) row('out3','실행 백엔드').done('pass','backend=' + (sum.backend||'?') + ' · det=' + (sum.detProvider||'?') + ' · rec=' + (sum.recProvider||'?'), 0);
+      } catch(_){}
+    } catch(e){
+      rm.done('fail', String(e && e.message ? e.message : e)
+        + ' · 이것이 "자동인식 안 됨"의 직접 원인입니다.', performance.now() - t1);
+    }
+    this.disabled = false; summarize();
+  };
+
+  /* ---------- 4단계 : 같은 사진으로 기기 OCR vs 서버 OCR ---------- */
+  $('photo').onchange = function(e){
+    var f = e.target.files && e.target.files[0]; if (!f) return;
+    var fr = new FileReader();
+    fr.onload = function(){ S.photoDataUrl = String(fr.result || ''); };
+    fr.readAsDataURL(f);
+  };
+
+  function shrink(dataUrl, maxSide, q){
+    return new Promise(function(resolve){
+      var img = new Image();
+      img.onload = function(){
+        var long = Math.max(img.naturalWidth, img.naturalHeight);
+        var s = Math.min(1, (maxSide||2000) / Math.max(1, long));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * s); c.height = Math.round(img.naturalHeight * s);
+        var x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0,0,c.width,c.height);
+        x.drawImage(img, 0, 0, c.width, c.height);
+        resolve(c.toDataURL('image/jpeg', q || 0.82));
+      };
+      img.onerror = function(){ resolve(dataUrl); };
+      img.src = dataUrl;
+    });
+  }
+
+  $('btn4').onclick = async function(){
+    if (!S.photoDataUrl) { alert('먼저 라벨 사진을 선택하세요.'); return; }
+    clear('out4'); $('ocrText').hidden = true; this.disabled = true;
+
+    var rl = row('out4', '기기 OCR (PP-OCRv5)');
+    if (!engine) {
+      rl.done('warn', '3단계에서 엔진이 준비되지 않았습니다. 3단계를 먼저 실행하세요.', 0);
+    } else {
+      var t0 = performance.now();
+      try {
+        var canvasUrl = await shrink(S.photoDataUrl, 2300, 0.9);
+        var img = new Image(); img.src = canvasUrl;
+        await new Promise(function(res,rej){ img.onload = res; img.onerror = rej; });
+        var cv = document.createElement('canvas');
+        cv.width = img.naturalWidth; cv.height = img.naturalHeight;
+        cv.getContext('2d').drawImage(img, 0, 0);
+        var out = await engine.predict(cv, { textDetThresh:0.25, textDetBoxThresh:0.45, textRecScoreThresh:0.30 });
+        var items = (out && out[0] && out[0].items) || [];
+        var txt = items.map(function(i){ return i.text; }).filter(Boolean).join(' ');
+        rl.done(txt.trim() ? 'pass' : 'fail',
+          txt.trim() ? (items.length + '개 영역 인식') : '글자를 찾지 못했습니다.', performance.now() - t0);
+        if (txt.trim()) { $('ocrText').hidden = false; $('ocrText').textContent = '[기기 OCR]\n' + txt; }
+      } catch(e){ rl.done('fail', String(e && e.message ? e.message : e), performance.now() - t0); }
+    }
+
+    var rs = row('out4', '서버 OCR (구글 Drive OCR · 폴백)');
+    if (!S.session) { rs.done('warn', '2단계 로그인이 필요합니다.', 0); }
+    else {
+      var t1 = performance.now();
+      try {
+        var sending = await shrink(S.photoDataUrl, 2000, 0.82);
+        var res = await post('ocr', { image: sending }, 90000);
+        var ok = res && res.ok && String(res.text||'').trim();
+        rs.done(ok ? 'pass' : 'fail',
+          ok ? ('인식 성공 · ' + String(res.text).trim().length + '자')
+             : ((res && res.message) || '글자를 읽지 못했습니다.'), performance.now() - t1);
+        if (ok) {
+          $('ocrText').hidden = false;
+          $('ocrText').textContent += (($('ocrText').textContent ? '\n\n' : '') + '[서버 OCR]\n' + String(res.text).trim());
+        }
+      } catch(e){ rs.done('fail', String(e && e.message ? e.message : e), performance.now() - t1); }
+    }
+    this.disabled = false; summarize();
+  };
+
+  /* ---------- 5단계 : 업로드 왕복시간 ---------- */
+  $('btn5').onclick = async function(){
+    if (!S.photoDataUrl) { alert('4단계의 사진 선택을 먼저 해주세요.'); return; }
+    if (!S.session) { alert('2단계 로그인을 먼저 해주세요.'); return; }
+    clear('out5'); this.disabled = true;
+
+    var r = row('out5', '사진 1장 업로드 왕복');
+    var t0 = performance.now();
+    try {
+      var sending = await shrink(S.photoDataUrl, 1600, 0.78);
+      var kb = Math.round(sending.length * 0.75 / 1024);
+      var res = await post('uploadPhoto', { image: sending, name: '진단테스트_' + Date.now() }, 120000);
+      var ms = performance.now() - t0;
+      if (res && res.ok) {
+        var kind = ms > 20000 ? 'fail' : ms > 9000 ? 'warn' : 'pass';
+        var msg = '약 ' + kb + 'KB 업로드 완료.';
+        if (kind === 'fail') msg += ' 20초를 넘겼습니다 — 앱의 20초 저장 대기시간과 충돌할 가능성이 매우 높습니다. 서버에는 처리가 계속될 수 있으므로 Queue를 임의 삭제하지 마세요.';
+        else if (kind === 'warn') msg += ' 사진 1장부터 지연이 큽니다. 실제 저장 시 추가 Drive/Sheets 처리가 겹치면 20초 제한에 접근할 위험이 있습니다.';
+        else msg += ' 사진 1장 업로드는 여유가 있습니다. 저장 실패가 계속되면 백엔드 버전·세션·DB 처리시간을 함께 봐야 합니다.';
+        r.done(kind, msg, ms);
+      } else {
+        r.done('fail', (res && res.message) || '업로드 실패', ms);
+      }
+    } catch(e){
+      r.done('fail', String(e && e.message ? e.message : e)
+        + ' · 이 시간이 20초를 넘으면 앱에서는 "서버 응답시간 초과"로 보입니다.', performance.now() - t0);
+    }
+    this.disabled = false; summarize();
+  };
+
+  /* ---------- 요약 ---------- */
+  function summarize(){
+    var L = S.log.join('\n');
+    var parts = [];
+
+    if (S.backendVersion && S.backendVersion.indexOf('V58') < 0) {
+      parts.push('<b>프론트–백엔드 버전 불일치가 확인됐습니다.</b> 현재 백엔드는 <span class="mono">'
+        + S.backendVersion + '</span>입니다. V58 프론트와 함께 쓰려면 V22.8-V58 배포 여부를 확인해야 합니다. '
+        + '이 상태는 저장 실패의 중요한 원인 후보입니다. 다만 업로드 시간·세션 결과도 함께 보고 최종 판정하세요.');
+    } else if (S.backendVersion) {
+      parts.push('백엔드는 <span class="mono">' + S.backendVersion + '</span>로 최신입니다.');
+    }
+
+    if (/FAIL \| 실행 위치/.test(L)) {
+      parts.push('<b>이 페이지를 로컬 파일로 열었습니다.</b> 기기 OCR 판정은 무시하세요. '
+        + '저장소에 올린 뒤 GitHub Pages 주소로 다시 실행해야 실제 앱과 같은 조건이 됩니다.');
+    } else if (/FAIL \| bcebos/.test(L) || /FAIL \| 모델 다운로드/.test(L)) {
+      parts.push('<b>OCR 실패 원인이 확인됐습니다.</b> 기기 OCR 모델(약 18MB)을 내려받지 못합니다. '
+        + '모델 호스트가 중국 바이두(bcebos.com)라서 사내망·모바일망에서 막히는 경우가 많습니다. '
+        + '이 경우 기기 OCR은 포기하고 서버 OCR로 전환하는 것이 맞습니다.');
+    } else if (/PASS \| 모델 다운로드/.test(L)) {
+      parts.push('기기 OCR 엔진은 이 네트워크에서 준비됩니다.');
+    }
+
+    if (/FAIL \| 사진 1장 업로드/.test(L)) {
+      parts.push('사진 업로드가 20초를 넘겼습니다. 앱의 저장 대기시간과 충돌할 가능성이 매우 높습니다. '
+        + '<b>서버 처리는 이미 시작됐을 수 있으니</b> 미전송 Queue를 임의 삭제하지 마세요.');
+    }
+
+    if (/FAIL \| 서버 OCR/.test(L) && /FAIL \| 기기 OCR/.test(L)) {
+      parts.push('기기 OCR과 서버 OCR이 <b>둘 다</b> 실패했습니다. 직접입력으로만 작업이 가능한 상태입니다.');
+    }
+
+    $('verdict').innerHTML = parts.length
+      ? parts.map(function(p){ return '<p style="margin:0 0 10px">' + p + '</p>'; }).join('')
+      : '아직 판정할 정보가 부족합니다. 1~5단계를 실행해주세요.';
+  }
+
+  $('btnCopy').onclick = function(){
+    var txt = '공병 입고 진단 결과\n'
+      + new Date().toLocaleString('ko-KR') + '\n'
+      + 'UA: ' + navigator.userAgent + '\n'
+      + 'backendVersion: ' + (S.backendVersion || '-') + '\n'
+      + '---\n' + S.log.join('\n');
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(txt).then(function(){
+        $('btnCopy').textContent = '복사됨';
+        setTimeout(function(){ $('btnCopy').textContent = '결과 복사'; }, 1600);
+      }, fallback);
+    } else fallback();
+    function fallback(){
+      var p = document.createElement('pre');
+      p.textContent = txt;
+      $('verdict').parentNode.appendChild(p);
+      var rng = document.createRange(); rng.selectNodeContents(p);
+      var sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(rng);
+      $('btnCopy').textContent = '아래 글자를 직접 복사하세요';
+    }
+  };
+})();
+</script>
+</body>
+</html>

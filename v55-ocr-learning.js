@@ -221,18 +221,20 @@
     KO.recognize=async function(data,fast,statusEl){const r=await prev(data,fast,statusEl);L.cache[cacheMode(statusEl)]={text:r&&r.text||'',items:r&&r.items||[],ts:Date.now()};return r;};
     KO.__learningWrapped=true;
   }
+  L.captureSuccessfulSave=function(action,payload,r){
+    try{
+      if(!r||!r.ok)return;
+      if(action==='saveSingle')enqueue(singleEntries(payload||{},r));
+      else if(action==='saveMulti')enqueue(multiEntries(payload||{},r));
+      else if(action==='addProductionPallet')enqueue(productionEntries(payload||{}));
+    }catch(e){console.warn('[OCR Learning] capture skipped',e);}
+  };
   function wrapApi(){
     if(L.wrapped||typeof window.apiPost!=='function')return;
     L.nativePost=window.apiPost;
     window.apiPost=async function(action,payload){
       const r=await L.nativePost(action,payload);
-      try{
-        if(r&&r.ok){
-          if(action==='saveSingle')enqueue(singleEntries(payload||{},r));
-          else if(action==='saveMulti')enqueue(multiEntries(payload||{},r));
-          else if(action==='addProductionPallet')enqueue(productionEntries(payload||{}));
-        }
-      }catch(e){console.warn('[OCR Learning] capture skipped',e);}
+      L.captureSuccessfulSave(action,payload,r);
       return r;
     };
     L.wrapped=true;
