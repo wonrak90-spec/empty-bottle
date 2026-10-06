@@ -10,8 +10,8 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V57.3-VENDOR-DISTANCE-1.6',
-    stream:null,track:null,mode:'capture',busy:false,zoomMode:'none',softwareZoom:2.5,
+    VERSION:'V57.3-VENDOR-DISTANCE-1.7',
+    stream:null,track:null,mode:'capture',busy:false,zoomMode:'none',softwareZoom:3,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
   const $=id=>document.getElementById(id);
@@ -81,8 +81,8 @@
       .v56vd-close{background:transparent;color:#fff;border:1px solid #666;border-radius:9px;padding:8px 12px;font-weight:700}
       .v56vd-stage{position:relative;flex:1;min-height:0;background:#000;overflow:hidden}
       .v56vd-stage video,.v56vd-stage img{width:100%;height:100%;object-fit:contain;display:block}
-      .v56vd-guide{position:absolute;left:12%;right:12%;top:16%;bottom:16%;border:3px solid rgba(255,255,255,.95);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.18);pointer-events:none}
-      .v56vd-guide:before{content:'A4 라벨이 이 프레임의 60~80%를 채우게 맞춰주세요';position:absolute;top:-31px;left:0;right:0;text-align:center;font:800 13px/1.2 system-ui;text-shadow:0 1px 3px #000}
+      .v56vd-guide{position:absolute;left:17%;right:17%;top:14%;bottom:14%;border:3px solid rgba(255,255,255,.95);border-radius:14px;box-shadow:0 0 0 9999px rgba(0,0,0,.18);pointer-events:none}
+      .v56vd-guide:before{content:'A4 절반 크기 라벨이 이 프레임의 60~80%를 채우게 맞춰주세요';position:absolute;top:-31px;left:0;right:0;text-align:center;font:800 13px/1.2 system-ui;text-shadow:0 1px 3px #000}
       .v56vd-foot{background:#111;padding:10px 14px calc(12px + env(safe-area-inset-bottom))}
       .v56vd-lock{padding:8px 10px;border-radius:8px;background:#202020;font-size:.78rem;line-height:1.4;margin-bottom:8px}
       .v56vd-status{font-size:.8rem;line-height:1.45;margin-bottom:10px}
@@ -165,14 +165,14 @@
   async function setupZoom(track){
     const wrap=$('v56VendorZoomWrap'),range=$('v56VendorZoom'),out=$('v56VendorZoomValue');
     wrap.classList.remove('show');
-    D.zoomMode='none';D.softwareZoom=2.5;
+    D.zoomMode='none';D.softwareZoom=3;
     try{
       const caps=track&&track.getCapabilities?track.getCapabilities():{};
       const z=caps&&caps.zoom;
       if(z&&Number.isFinite(z.min)&&Number.isFinite(z.max)&&z.max>z.min){
         D.zoomMode='hardware';D.softwareZoom=1;
         range.min=z.min;range.max=z.max;range.step=z.step||0.1;
-        const start=Math.max(z.min,Math.min(z.max,3));
+        const start=Math.max(z.min,Math.min(z.max,4));
         try{await track.applyConstraints({advanced:[{zoom:start}]});}catch(_){}
         range.value=start;out.textContent=Number(start).toFixed(1)+'×';
         range.oninput=async()=>{
@@ -187,11 +187,11 @@
 
     // iPhone/Safari 등 track zoom capability를 노출하지 않는 기기 fallback.
     // 화면과 실제 저장 사진 모두 중앙부를 디지털 확대해 기본 2× 상태를 유지한다.
-    D.zoomMode='software';D.softwareZoom=2.5;
-    range.min=1;range.max=4;range.step=0.1;range.value=2.5;
-    out.textContent='2.5×';
+    D.zoomMode='software';D.softwareZoom=3;
+    range.min=1;range.max=5;range.step=0.1;range.value=3;
+    out.textContent='3.0×';
     range.oninput=()=>{
-      D.softwareZoom=Math.max(1,Math.min(4,Number(range.value)||2.5));
+      D.softwareZoom=Math.max(1,Math.min(5,Number(range.value)||3));
       out.textContent=D.softwareZoom.toFixed(1)+'×';
       applyPreviewZoom();
     };
@@ -229,8 +229,8 @@
       }catch(_){}
       await setupZoom(D.track);
       modalStatus(D.zoomMode==='hardware'
-        ? '기본 3.0× 확대 적용 · A4 라벨이 화면의 60~80% 정도 차도록 맞춘 뒤 촬영하세요.'
-        : '기본 2.5× 디지털 확대 적용 · A4 라벨이 화면의 60~80% 정도 차도록 맞춘 뒤 촬영하세요.');
+        ? '기본 4.0× 확대 적용 · A4 절반 크기 라벨이 화면의 60~80% 정도 차도록 맞춘 뒤 촬영하세요.'
+        : '기본 3.0× 디지털 확대 적용 · A4 절반 크기 라벨이 화면의 60~80% 정도 차도록 맞춘 뒤 촬영하세요.');
     }catch(e){
       stop();
       modalStatus('웹 카메라 시작 실패 · 기본 카메라 촬영을 사용하세요. · '+String(e&&e.message?e.message:e));
@@ -273,11 +273,11 @@
     return await new Promise(resolve=>{
       const img=new Image();
       img.onload=()=>{
-        // 업체 라벨은 보통 2~3m 높이의 A4 크기라 원본 전체를 OCR에 넣으면 글자가 너무 작다.
+        // 업체 라벨은 보통 2~3m 높이의 A4 절반 크기라 원본 전체를 OCR에 넣으면 글자가 매우 작다.
         // 촬영 가이드와 동일한 중앙 영역을 우선 잘라낸 뒤 긴 변 기준 약 3200px까지 확대한다.
-        const sx=Math.round(img.width*.12),sy=Math.round(img.height*.16);
-        const sw=Math.max(1,Math.round(img.width*.76)),sh=Math.max(1,Math.round(img.height*.68));
-        const scale=Math.min(4,3200/Math.max(1,sw));
+        const sx=Math.round(img.width*.17),sy=Math.round(img.height*.14);
+        const sw=Math.max(1,Math.round(img.width*.66)),sh=Math.max(1,Math.round(img.height*.72));
+        const scale=Math.min(5,3600/Math.max(1,sw));
         const c=document.createElement('canvas');
         c.width=Math.max(1,Math.round(sw*scale));c.height=Math.max(1,Math.round(sh*scale));
         const x=c.getContext('2d',{alpha:false});
