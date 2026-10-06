@@ -142,7 +142,14 @@ async function v58ApiPostWithTimeout(action, payload, timeoutMs) {
       body: JSON.stringify({ action, payload, session, token: CONFIG.API_TOKEN }),
       signal: controller.signal
     });
-    return await readJson(res);
+    const json = await readJson(res);
+    try {
+      if (json && json.ok && window.V55OcrLearning &&
+          typeof V55OcrLearning.captureSuccessfulSave === 'function') {
+        V55OcrLearning.captureSuccessfulSave(action, payload || {}, json);
+      }
+    } catch (_) {}
+    return json;
   } catch (e) {
     if (e && e.name === 'AbortError') throw new Error('서버 응답시간 초과 · 저장상태 확인 필요');
     throw e;
@@ -1442,7 +1449,12 @@ async function saveSingleRecord() {
     }
     window.__V58_SAVE_PHASE__ = v58Active ? 'server_wait' : '';
     const res = v58Active
-      ? await v58ApiPostWithTimeout('saveSingle', payload, 20000)
+      // 20초는 너무 짧았다. 사내망 실측에서 169KB 사진 1장 왕복이 11초였고,
+      // 실제 저장은 WMS+업체+실물 여러 장을 함께 보낸다. 20초에서 끊기면
+      // 서버는 저장에 성공했는데 화면만 실패로 보이는 상태가 된다.
+      // V58의 requestId 중복방지가 켜져 있어 재전송해도 중복 저장되지 않으므로
+      // 넉넉히 기다리는 쪽이 안전하다. (Apps Script 자체 상한은 6분)
+      ? await v58ApiPostWithTimeout('saveSingle', payload, 60000)
       : await apiPost('saveSingle', payload);
     if (res.ok) {
       if (v58Active) window.__V58_SAVE_PHASE__ = 'server_confirmed';
@@ -1576,6 +1588,8 @@ async function saveMultiRecord() {
 }
 
 function clearSingle() {
+  // Pending/ambiguous saves stay in V58SaveQueue, but the next pallet must get a fresh requestId.
+  try { window.__V58_CURRENT_REQUEST_ID__ = ''; } catch (_) {}
   stopLiveOcr('single');
   document.getElementById('btnPrintSingle').classList.add('hidden');
   lastSavedRecord.single = null;
