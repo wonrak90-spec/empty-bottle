@@ -10,8 +10,8 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V57.3-VENDOR-DISTANCE-1.4',
-    stream:null,track:null,mode:'capture',busy:false,
+    VERSION:'V57.3-VENDOR-DISTANCE-1.5',
+    stream:null,track:null,mode:'capture',busy:false,zoomMode:'none',softwareZoom:2,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
   const $=id=>document.getElementById(id);
@@ -151,23 +151,52 @@
     document.body.style.overflow='';
   };
 
+  function applyPreviewZoom(){
+    const video=$('v56VendorVideo');if(!video)return;
+    if(D.zoomMode==='software'&&D.softwareZoom>1){
+      video.style.transform='scale('+D.softwareZoom+')';
+      video.style.transformOrigin='50% 50%';
+    }else{
+      video.style.transform='';
+      video.style.transformOrigin='';
+    }
+  }
+
   async function setupZoom(track){
     const wrap=$('v56VendorZoomWrap'),range=$('v56VendorZoom'),out=$('v56VendorZoomValue');
     wrap.classList.remove('show');
+    D.zoomMode='none';D.softwareZoom=2;
     try{
       const caps=track&&track.getCapabilities?track.getCapabilities():{};
       const z=caps&&caps.zoom;
-      if(!z||!Number.isFinite(z.min)||!Number.isFinite(z.max)||z.max<=z.min)return;
-      range.min=z.min;range.max=z.max;range.step=z.step||0.1;
-      let start=Math.max(z.min,Math.min(z.max,2));
-      try{await track.applyConstraints({advanced:[{zoom:start}]});}catch(_){}
-      range.value=start;out.textContent=Number(start).toFixed(1)+'×';
-      range.oninput=async()=>{
-        const n=Number(range.value);out.textContent=n.toFixed(1)+'×';
-        try{await track.applyConstraints({advanced:[{zoom:n}]});}catch(_){}
-      };
-      wrap.classList.add('show');
+      if(z&&Number.isFinite(z.min)&&Number.isFinite(z.max)&&z.max>z.min){
+        D.zoomMode='hardware';D.softwareZoom=1;
+        range.min=z.min;range.max=z.max;range.step=z.step||0.1;
+        const start=Math.max(z.min,Math.min(z.max,2));
+        try{await track.applyConstraints({advanced:[{zoom:start}]});}catch(_){}
+        range.value=start;out.textContent=Number(start).toFixed(1)+'×';
+        range.oninput=async()=>{
+          const n=Number(range.value);out.textContent=n.toFixed(1)+'×';
+          try{await track.applyConstraints({advanced:[{zoom:n}]});}catch(_){}
+        };
+        applyPreviewZoom();
+        wrap.classList.add('show');
+        return;
+      }
     }catch(_){}
+
+    // iPhone/Safari 등 track zoom capability를 노출하지 않는 기기 fallback.
+    // 화면과 실제 저장 사진 모두 중앙부를 디지털 확대해 기본 2× 상태를 유지한다.
+    D.zoomMode='software';D.softwareZoom=2;
+    range.min=1;range.max=3;range.step=0.1;range.value=2;
+    out.textContent='2.0×';
+    range.oninput=()=>{
+      D.softwareZoom=Math.max(1,Math.min(3,Number(range.value)||2));
+      out.textContent=D.softwareZoom.toFixed(1)+'×';
+      applyPreviewZoom();
+    };
+    applyPreviewZoom();
+    wrap.classList.add('show');
   }
 
   D.open=async function(){
@@ -199,8 +228,9 @@
         if(Object.keys(adv).length)await D.track.applyConstraints({advanced:[adv]});
       }catch(_){}
       await setupZoom(D.track);
-      if(!$('v56VendorZoomWrap').classList.contains('show'))
-        modalStatus('라벨 전체를 프레임 안에 맞춘 뒤 촬영하세요. 이 기기는 웹 줌 제어를 제공하지 않아 가능한 한 카메라를 라벨 방향으로 가까이 맞춰주세요.');
+      modalStatus(D.zoomMode==='hardware'
+        ? '기본 2.0× 확대 적용 · 라벨 전체를 흰 프레임 안에 맞춘 뒤 촬영하세요.'
+        : '기본 2.0× 디지털 확대 적용 · 라벨 전체를 흰 프레임 안에 맞춘 뒤 촬영하세요.');
     }catch(e){
       stop();
       modalStatus('웹 카메라 시작 실패 · 기본 카메라 촬영을 사용하세요. · '+String(e&&e.message?e.message:e));
@@ -215,7 +245,8 @@
     });
   }
   async function still(){
-    if(D.track&&typeof ImageCapture!=='undefined'){
+    // 하드웨어 줌은 카메라 자체에 적용되므로 ImageCapture를 우선 사용한다.
+    if(D.zoomMode!=='software'&&D.track&&typeof ImageCapture!=='undefined'){
       try{
         const ic=new ImageCapture(D.track);
         if(ic&&typeof ic.takePhoto==='function'){
@@ -226,7 +257,15 @@
     }
     const v=$('v56VendorVideo');if(!v||!v.videoWidth)throw new Error('카메라 화면이 준비되지 않았습니다.');
     const c=document.createElement('canvas');c.width=v.videoWidth;c.height=v.videoHeight;
-    c.getContext('2d',{alpha:false}).drawImage(v,0,0,c.width,c.height);
+    const x=c.getContext('2d',{alpha:false});
+    if(D.zoomMode==='software'&&D.softwareZoom>1){
+      const z=Math.max(1,D.softwareZoom||2);
+      const sw=v.videoWidth/z,sh=v.videoHeight/z;
+      const sx=(v.videoWidth-sw)/2,sy=(v.videoHeight-sh)/2;
+      x.drawImage(v,sx,sy,sw,sh,0,0,c.width,c.height);
+    }else{
+      x.drawImage(v,0,0,c.width,c.height);
+    }
     return c.toDataURL('image/jpeg',.96);
   }
 
