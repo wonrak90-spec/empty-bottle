@@ -36,7 +36,7 @@ vm.runInContext(code,ctx,{filename:'v56-vendor-distance.js'});
 
 const D=ctx.V56VendorDistance;
 assert.ok(D);
-assert.strictEqual(D.VERSION,'V57.3-VENDOR-DISTANCE-1.4');
+assert.strictEqual(D.VERSION,'V57.3-VENDOR-DISTANCE-1.8');
 assert.strictEqual(D._test.productSame('판콜-A','판콜 A'),true);
 assert.strictEqual(D._test.productSame('까스활명수큐병','판콜-A'),false);
 
@@ -47,4 +47,8 @@ assert.strictEqual(D.evidenceReady(),false,'lock must not substitute for current
 D._test.clearLock(k);
 assert.strictEqual(D._test.getLock(k),null);
 
-console.log('PASS V57.3 vendor distance 1.4: group lock + current-pallet evidence separation');
+assert.ok(code.includes("rectifyUpwardPerspective"),'upward perspective correction must exist');
+assert.ok(code.includes("vendorAngleVariants"),'angle-aware OCR variants must exist');
+assert.ok(code.includes("Math.min(z.max,4)"),'hardware default zoom must target 4x when available');
+assert.ok(code.includes("range.max=5"),'software zoom slider must allow up to 5x');
+console.log('PASS V57.3 vendor distance 1.8: lock/evidence + half-A4 4x zoom + upward-angle correction');
