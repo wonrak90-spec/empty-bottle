@@ -1,0 +1,19 @@
+name: Temporary Full Repository Backup
+on:
+  push:
+    branches:
+      - backup/export-main-20261006
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Upload full repository snapshot
+        uses: actions/upload-artifact@v4
+        with:
+          name: empty-bottle-main-1375431e
+          path: .
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 1
