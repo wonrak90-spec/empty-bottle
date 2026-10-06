@@ -10,7 +10,7 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V57.3-VENDOR-DISTANCE-1.7',
+    VERSION:'V57.3-VENDOR-DISTANCE-1.8',
     stream:null,track:null,mode:'capture',busy:false,zoomMode:'none',softwareZoom:3,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
@@ -186,7 +186,7 @@
     }catch(_){}
 
     // iPhone/Safari 등 track zoom capability를 노출하지 않는 기기 fallback.
-    // 화면과 실제 저장 사진 모두 중앙부를 디지털 확대해 기본 2× 상태를 유지한다.
+    // 화면과 실제 저장 사진 모두 중앙부를 디지털 확대해 기본 3× 상태를 유지한다.
     D.zoomMode='software';D.softwareZoom=3;
     range.min=1;range.max=5;range.step=0.1;range.value=3;
     out.textContent='3.0×';
@@ -207,7 +207,7 @@
     const m=$('v56VendorDistanceModal');m.classList.add('open');document.body.style.overflow='hidden';
     const cap=$('v56VendorCaptured');if(cap){cap.style.display='none';cap.removeAttribute('src');}
     const video=$('v56VendorVideo');if(video)video.style.display='block';
-    modalStatus('업체라벨 확대 사진촬영 · 실시간 OCR은 사용하지 않습니다. 라벨 전체를 흰 프레임 안에 크게 맞춘 뒤 촬영하세요.');
+    modalStatus('업체라벨 확대 촬영 · 아래에서 위로 찍어도 자동 원근 보정합니다. 라벨 전체를 흰 프레임 안에 크게 맞춰주세요.');
     try{
       if(!navigator.mediaDevices||!navigator.mediaDevices.getUserMedia)throw new Error('카메라를 사용할 수 없습니다.');
       const tries=[
@@ -290,6 +290,83 @@
     });
   }
 
+  async function rectifyUpwardPerspective(dataUrl,strength){
+    strength=Math.max(0,Math.min(.28,Number(strength)||.14));
+    return await new Promise(resolve=>{
+      const img=new Image();
+      img.onload=()=>{
+        const w=img.width,h=img.height;
+        if(!w||!h)return resolve(dataUrl);
+        const c=document.createElement('canvas');c.width=w;c.height=h;
+        const x=c.getContext('2d',{alpha:false});
+        x.fillStyle='#fff';x.fillRect(0,0,w,h);
+        x.imageSmoothingEnabled=true;x.imageSmoothingQuality='high';
+
+        // 아래에서 위로 찍으면 라벨 상단이 멀어져 위쪽 폭이 좁아지는 사다리꼴이 된다.
+        // 수평 strip 단위로 상단을 더 많이 확대해 사각형에 가깝게 펴 준다.
+        const strips=Math.min(180,Math.max(60,Math.round(h/18)));
+        for(let i=0;i<strips;i++){
+          const y0=Math.round(i*h/strips),y1=Math.round((i+1)*h/strips);
+          const yy=(i+.5)/strips;
+          const inset=w*strength*(1-yy);
+          const sx=Math.max(0,Math.round(inset));
+          const sw=Math.max(2,Math.round(w-inset*2));
+          x.drawImage(img,sx,y0,sw,Math.max(1,y1-y0),0,y0,w,Math.max(1,y1-y0));
+        }
+        resolve(c.toDataURL('image/jpeg',.97));
+      };
+      img.onerror=()=>resolve(dataUrl);img.src=dataUrl;
+    });
+  }
+
+  async function vendorAngleVariants(dataUrl){
+    // 현장 기본: 2~3m 높이의 A4 절반 라벨을 아래에서 위로 촬영.
+    // mild 보정을 우선하고, 원본도 반드시 남겨 과보정으로 인한 인식 저하를 방지한다.
+    const mild=await rectifyUpwardPerspective(dataUrl,.14);
+    return [
+      {name:'upward14',dataUrl:mild},
+      {name:'original',dataUrl:dataUrl}
+    ];
+  }
+
+  async function recognizeVendorAngleAware(dataUrl,statusId){
+    if(!window.OcrRuntime)throw new Error('OCR 엔진이 준비되지 않았습니다.');
+    const t0=performance.now(),variants=await vendorAngleVariants(dataUrl);
+    let best=null;
+
+    // Fast OCR: 보정본 -> 원본 순으로 확인. 제품명+수량이 확보되면 즉시 종료.
+    if(typeof OcrRuntime.recognizeFast==='function'){
+      for(const v of variants){
+        try{
+          const r=await OcrRuntime.recognizeFast(v.dataUrl,'vendor',statusId||'vendorStatus');
+          const p=r&&r.parsed||{};
+          if(!best||((p.product?1:0)+(digits(p.qty)?1:0))>((best.parsed&&best.parsed.product?1:0)+(best.parsed&&digits(best.parsed.qty)?1:0))){
+            best=r;best.angleMethod=v.name;
+          }
+          if(p.product&&digits(p.qty)){
+            r.fastPath=true;r.angleMethod=v.name;r.elapsedMs=Math.round(performance.now()-t0);
+            return r;
+          }
+        }catch(_){}
+      }
+    }
+
+    // Fast 결과가 불완전할 때만 정밀 OCR. 먼저 원근 보정본을 사용하고,
+    // 그래도 핵심값이 없으면 원본을 한 번 더 확인한다.
+    if(typeof OcrRuntime.recognize!=='function')throw new Error('정밀 OCR을 사용할 수 없습니다.');
+    for(const v of variants){
+      try{
+        const r=await OcrRuntime.recognize(v.dataUrl,'vendor',statusId||'vendorStatus');
+        const p=r&&r.parsed||{};
+        r.fastPath=false;r.angleMethod=v.name;r.elapsedMs=Math.round(performance.now()-t0);
+        if(p.product&&digits(p.qty))return r;
+        if(!best||((p.product?1:0)+(digits(p.qty)?1:0))>((best.parsed&&best.parsed.product?1:0)+(best.parsed&&digits(best.parsed.qty)?1:0)))best=r;
+      }catch(_){}
+    }
+    if(best){best.fastPath=false;best.elapsedMs=Math.round(performance.now()-t0);return best;}
+    throw new Error('업체라벨 각도 보정 OCR 실패');
+  }
+
   function applyLocked(lock){
     if(!lock)return;
     const p=$('vProduct'),q=$('vQty');
@@ -299,31 +376,15 @@
   }
 
   async function recognizeVendorFastFirst(dataUrl,statusId){
-    if(!window.OcrRuntime)throw new Error('OCR 엔진이 준비되지 않았습니다.');
-    const t0=performance.now();
-    let fast=null;
-    if(typeof OcrRuntime.recognizeFast==='function'){
-      try{fast=await OcrRuntime.recognizeFast(dataUrl,'vendor',statusId||'vendorStatus');}catch(_){}
-    }
-    const fp=fast&&fast.parsed||{};
-    if(fp.product&&digits(fp.qty)){
-      fast.fastPath=true;
-      fast.elapsedMs=Math.round(performance.now()-t0);
-      return fast;
-    }
-    if(typeof OcrRuntime.recognize!=='function')throw new Error('정밀 OCR을 사용할 수 없습니다.');
-    const precise=await OcrRuntime.recognize(dataUrl,'vendor',statusId||'vendorStatus');
-    precise.fastPath=false;
-    precise.elapsedMs=Math.round(performance.now()-t0);
-    return precise;
+    return await recognizeVendorAngleAware(dataUrl,statusId);
   }
 
   async function firstCapture(full,k,pm){
     const crop=await cropForOcr(full);
     if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
-    const r=await recognizeVendorFastFirst(crop,'vendorStatus');
+    const r=await recognizeVendorAngleAware(crop,'vendorStatus');
     // Normal pallets use one fast OCR pass; precision retry is exception-only.
-    await OcrRuntime.apply('vendor',r,full,(r.fastPath?'업체라벨 Fast OCR 완료':'업체라벨 정밀 OCR 완료'));
+    await OcrRuntime.apply('vendor',r,full,(r.fastPath?'업체라벨 Fast OCR 완료 · 각도보정 '+(r.angleMethod||''):'업체라벨 정밀 OCR 완료 · 각도보정 '+(r.angleMethod||'')));
     try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
     let ok=false;
     try{ok=(typeof singleMatchOk!=='undefined'&&singleMatchOk===true);}catch(_){}
@@ -355,7 +416,7 @@
       try{
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진 미준비');
         const crop=await cropForOcr(full);
-        const r=await recognizeVendorFastFirst(crop,'');
+        const r=await recognizeVendorAngleAware(crop,'');
         const p=r&&r.parsed||{};
         if(!p.product||!p.qty)throw new Error('Incomplete vendor label');
         if(generation!==D.generation||captureKey!==D.currentKey)return;
@@ -411,8 +472,8 @@
         modalStatus('마지막 Pallet · 업체라벨 수량을 실제값으로 다시 확인합니다...');
         const crop=await cropForOcr(full);
         if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진이 준비되지 않았습니다.');
-        const r=await recognizeVendorFastFirst(crop,'vendorStatus');
-        await OcrRuntime.apply('vendor',r,full,(r.fastPath?'마지막 Pallet Fast OCR 완료':'마지막 Pallet 정밀 OCR 완료'));
+        const r=await recognizeVendorAngleAware(crop,'vendorStatus');
+        await OcrRuntime.apply('vendor',r,full,(r.fastPath?'마지막 Pallet Fast OCR 완료 · 각도보정 '+(r.angleMethod||''):'마지막 Pallet 정밀 OCR 완료 · 각도보정 '+(r.angleMethod||'')));
         const parsed=r&&r.parsed||{};
         const observed=parsed.product||'';
         D.mismatch=!observed||!productSame(observed,lock.vendorProduct)||!digits(parsed.qty);
