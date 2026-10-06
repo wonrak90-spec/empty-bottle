@@ -453,6 +453,7 @@
     $('v58NewInbound').onclick=()=>{
       if(!window.confirm('현재 기준정보를 지우고 새 입고를 시작할까요?'))return;
       clearLock();
+      try{window.__V58_CURRENT_REQUEST_ID__='';}catch(_){}
       try{if(typeof clearSingle==='function')clearSingle();}catch(_){}
       S.lastError='';render();
     };
