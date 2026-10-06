@@ -1647,4 +1647,3 @@ function resetInitialAdminPinV24() {
     pin: newPin
   };
 }
-}
