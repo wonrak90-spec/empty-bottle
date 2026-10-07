@@ -97,6 +97,7 @@ function setupSystem() {
   ensureSheet_(ss, 'SoftDeletedRecords', V58_SOFT_DELETED_HEADERS);
   ensureSheet_(ss, 'Users', USER_HEADERS);
   ensureSheet_(ss, 'Sessions', SESSION_HEADERS);
+  ensureSheet_(ss, 'SaveTiming', ['일시','Record ID','Request ID','입고번호','Pallet','총저장ms','사진대기ms','서버응답ms','작업자','Backend Version']);
   props.setProperty('SCHEMA_VERSION', SCHEMA_VERSION);
 
   let folderId = props.getProperty('PHOTO_FOLDER_ID');
@@ -250,6 +251,7 @@ function doPost(e) {
       });
       return jsonOut_({ ok:!!url, url:url });
     }
+    if (action === 'saveTiming') return jsonOut_(saveTimingV58_(body.payload || {}, auth));
     if (action === 'addItemAlias') return jsonOut_(addItemAlias_(body.payload || {}));
     if (action === 'importMaster') return jsonOut_(importMaster_((body.payload || {}).rows || []));
     if (action === 'batchGetRecords') return jsonOut_(batchGetRecords_((body.payload || {}).ids || []));
@@ -276,6 +278,29 @@ function doPost(e) {
     return jsonOut_({ ok:false, message:'알 수 없는 action: ' + action });
   } catch (err) {
     return jsonOut_({ ok:false, message:String(err.message || err) });
+  }
+}
+
+function saveTimingV58_(p,auth){
+  try{
+    const ss=getSs_();
+    let sh=ss.getSheetByName('SaveTiming');
+    if(!sh) sh=ensureSheet_(ss,'SaveTiming',['일시','Record ID','Request ID','입고번호','Pallet','총저장ms','사진대기ms','서버응답ms','작업자','Backend Version']);
+    sh.appendRow([
+      new Date(),
+      String(p.recordId||''),
+      String(p.requestId||''),
+      String(p.inboundNo||''),
+      String(p.palletNo||''),
+      Number(p.totalMs)||0,
+      Number(p.uploadWaitMs)||0,
+      Number(p.serverWaitMs)||0,
+      auth&&auth.name||'',
+      BACKEND_VERSION
+    ]);
+    return {ok:true};
+  }catch(e){
+    return {ok:false,message:String(e&&e.message?e.message:e)};
   }
 }
 
