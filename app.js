@@ -1449,6 +1449,19 @@ async function saveSingleRecord() {
       window.__V58_CURRENT_REQUEST_ID__ = '';
       const __totalSaveMs = Math.round(performance.now() - __saveT0);
       window.__V58_LAST_SAVE_TIMING__ = {totalMs:__totalSaveMs,uploadWaitMs:__uploadWaitMs,serverWaitMs:__serverWaitMs,at:Date.now()};
+      try {
+        // 운영 작업 흐름을 늦추지 않도록 저장 완료 후 비동기로 성능 로그만 남긴다.
+        // 실패해도 본 저장 결과에는 영향을 주지 않는다.
+        apiPost('saveTiming', {
+          recordId: res.id || '',
+          requestId: payload.requestId || '',
+          inboundNo: payload.inboundNo || '',
+          palletNo: payload.containerFrom || '',
+          totalMs: __totalSaveMs,
+          uploadWaitMs: __uploadWaitMs,
+          serverWaitMs: __serverWaitMs
+        }).catch(()=>{});
+      } catch (_) {}
       setStatus('saveSingleStatus',
         '서버 저장 확인 완료 · '+(__totalSaveMs/1000).toFixed(1)+'초 (사진대기 '+(__uploadWaitMs/1000).toFixed(1)+' / 서버 '+(__serverWaitMs/1000).toFixed(1)+')',
         'ok');
