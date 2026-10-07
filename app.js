@@ -119,42 +119,21 @@ async function apiPost(action, payload) {
 
 async function v58ApiPostWithTimeout(action, payload, timeoutMs) {
   const ms = Math.max(5000, Number(timeoutMs) || 20000);
-  if (typeof AbortController === 'undefined') return apiPost(action, payload);
 
-  // V24 individual login overrides apiPost/apiGet with session authentication.
-  // The previous V58 raw fetch omitted that session and caused authenticated
-  // operators' saveSingle requests to be rejected as AUTH_REQUIRED.
-  let session = '';
+  // V58 저장도 반드시 V24가 감싼 apiPost를 통과한다.
+  // 직접 fetch로 세션을 조립하면 로그인 래퍼의 세션 갱신/만료 처리와
+  // 실제 저장 요청 경로가 갈라져 저장 시 AUTH_REQUIRED/재로그인 루프가 생길 수 있다.
+  //
+  // timeout은 UI 대기시간만 제한한다. 이미 전송된 Apps Script 요청을 강제 중단하지 않는다.
+  // 서버가 늦게 저장을 완료해도 requestId idempotency + Queue가 중복 저장을 막는다.
+  let timer = null;
+  const timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error('서버 응답시간 초과 · 저장상태 확인 필요')), ms);
+  });
   try {
-    session = String(window.V24 && V24.session && V24.session.session || '');
-  } catch (_) {}
-
-  // If V24 is active but the session is not ready, use the normal authenticated
-  // apiPost path instead of sending an anonymous raw request.
-  if (window.V24 && !session) return apiPost(action, payload);
-
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), ms);
-  try {
-    const res = await fetch(CONFIG.API_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
-      body: JSON.stringify({ action, payload, session, token: CONFIG.API_TOKEN }),
-      signal: controller.signal
-    });
-    const json = await readJson(res);
-    try {
-      if (json && json.ok && window.V55OcrLearning &&
-          typeof V55OcrLearning.captureSuccessfulSave === 'function') {
-        V55OcrLearning.captureSuccessfulSave(action, payload || {}, json);
-      }
-    } catch (_) {}
-    return json;
-  } catch (e) {
-    if (e && e.name === 'AbortError') throw new Error('서버 응답시간 초과 · 저장상태 확인 필요');
-    throw e;
+    return await Promise.race([apiPost(action, payload), timeout]);
   } finally {
-    clearTimeout(timer);
+    if (timer) clearTimeout(timer);
   }
 }
 
