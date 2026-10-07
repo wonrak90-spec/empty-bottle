@@ -13,6 +13,7 @@
     busy:false,
     photoUrls:{wms:'',vendor:''},
     uploads:{wms:null,vendor:null},
+    lastEvidence:{wms:'',vendor:''},
     cycleStarted:0,lastCycleMs:0
   };
   const $=id=>document.getElementById(id);
@@ -146,6 +147,11 @@
   }
   function startUpload(mode,dataUrl){
     if(!dataUrl)return;
+    // 같은 촬영본에 대해 vendor capture + OCR applied 이벤트가 연속으로 들어와
+    // 동일 사진을 두 번 업로드하는 경우가 있었다. 저장 버튼은 두 번째 업로드까지
+    // 기다리게 되어 현장에서 "저장" 시간이 길어졌다. 같은 dataUrl이면 재업로드 금지.
+    if(F.lastEvidence[mode]===dataUrl && (F.uploads[mode] || F.photoUrls[mode]))return;
+    F.lastEvidence[mode]=dataUrl;
     F.photoUrls[mode]='';
     const p=preUpload(mode,dataUrl).finally(()=>{if(F.uploads[mode]===p)F.uploads[mode]=null;});
     F.uploads[mode]=p;
@@ -214,7 +220,7 @@
       setFastStatus('저장 완료 · 총 '+(F.lastCycleMs/1000).toFixed(1)+'초'+(F.lastCycleMs<=15000?' · 15초 목표 달성':' · 15초 초과'),'ok');
     }
     F.cycleStarted=0;
-    F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};
+    F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};F.lastEvidence={wms:'',vendor:''};
     try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
     if(F.continuous){
       setTimeout(()=>{
