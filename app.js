@@ -1299,6 +1299,8 @@ function updateSingleQty() {
 
 async function saveSingleRecord() {
   const v58Active = !!(window.__V58_SAVE_INTENT__ && window.V58FieldSafe);
+  const __saveT0 = performance.now();
+  let __uploadWaitMs = 0, __serverWaitMs = 0;
   if (v58Active) {
     const gate = V58FieldSafe.prepareForSave();
     if (!gate || gate.ok === false) {
@@ -1323,7 +1325,9 @@ async function saveSingleRecord() {
   }
   try {
     if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
+      const __uw0 = performance.now();
       await V56FastFlow.waitForUploads();
+      __uploadWaitMs = Math.round(performance.now() - __uw0);
       // Background vendor OCR may finish while photos upload; never save stale evidence.
       if (!v58Active && document.body.classList.contains('v56-fast') &&
           window.V56VendorDistance &&
@@ -1427,6 +1431,7 @@ async function saveSingleRecord() {
       try { await V58SaveQueue.markSending(payload.requestId); } catch (_) {}
     }
     window.__V58_SAVE_PHASE__ = v58Active ? 'server_wait' : '';
+    const __sw0 = performance.now();
     const res = v58Active
       // 20초는 너무 짧았다. 사내망 실측에서 169KB 사진 1장 왕복이 11초였고,
       // 실제 저장은 WMS+업체+실물 여러 장을 함께 보낸다. 20초에서 끊기면
@@ -1435,13 +1440,18 @@ async function saveSingleRecord() {
       // 넉넉히 기다리는 쪽이 안전하다. (Apps Script 자체 상한은 6분)
       ? await v58ApiPostWithTimeout('saveSingle', payload, 60000)
       : await apiPost('saveSingle', payload);
+    __serverWaitMs = Math.round(performance.now() - __sw0);
     if (res.ok) {
       if (v58Active) window.__V58_SAVE_PHASE__ = 'server_confirmed';
       if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.confirm === 'function') {
         try { await V58SaveQueue.confirm(payload.requestId, res); } catch (_) {}
       }
       window.__V58_CURRENT_REQUEST_ID__ = '';
-      setStatus('saveSingleStatus', '서버 저장 확인 완료 · 다음 Pallet 준비 중...', 'ok');
+      const __totalSaveMs = Math.round(performance.now() - __saveT0);
+      window.__V58_LAST_SAVE_TIMING__ = {totalMs:__totalSaveMs,uploadWaitMs:__uploadWaitMs,serverWaitMs:__serverWaitMs,at:Date.now()};
+      setStatus('saveSingleStatus',
+        '서버 저장 확인 완료 · '+(__totalSaveMs/1000).toFixed(1)+'초 (사진대기 '+(__uploadWaitMs/1000).toFixed(1)+' / 서버 '+(__serverWaitMs/1000).toFixed(1)+')',
+        'ok');
       lastSavedRecord.single = {
         record: {
           id: res.id, regDate: new Date().toLocaleString('ko-KR'), mode: '단건',
