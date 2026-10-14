@@ -203,6 +203,29 @@
     };
   };
 
+  // R13: 여러 Pallet이 빠르게 Queue에 들어와도 서버 저장은 반드시 1개씩 직렬 처리한다.
+  // stage() 중 새 요청이 들어오면 현재 drain 종료 후 한 번 더 실행한다.
+  Q._kickPromise=null;
+  Q._kickAgain=false;
+  Q.kick=function(){
+    Q._kickAgain=true;
+    if(Q._kickPromise)return Q._kickPromise;
+    Q._kickPromise=(async()=>{
+      let result={ok:true,saved:0,failed:0};
+      while(Q._kickAgain){
+        Q._kickAgain=false;
+        result=await Q.retryAll();
+        // 서버 capability 없음/네트워크 실패 시 무한 재시도하지 않고 Queue에 남긴다.
+        if(!result||result.ok===false)break;
+      }
+      return result;
+    })().finally(()=>{
+      Q._kickPromise=null;
+      if(Q._kickAgain)setTimeout(()=>Q.kick().catch(()=>{}),0);
+    });
+    return Q._kickPromise;
+  };
+
   Q.renderStatus=async function(){
     const el=document.getElementById('v58QueueStatus');if(!el)return;
     try{
@@ -219,7 +242,7 @@
       Q.renderStatus();
       setTimeout(async()=>{
         try{await Q.detectCapabilities();}catch(_){}
-        if(Q.canAutoRetry())Q.retryAll().catch(()=>{});
+        if(Q.canAutoRetry())Q.kick().catch(()=>{});
       },500);
     });
     window.addEventListener('offline',Q.renderStatus);
