@@ -1425,6 +1425,64 @@ async function saveSingleRecord() {
     }
   }
 
+  // R13 고속 운영: 안전 Queue에 먼저 영구 보관한 뒤 작업자는 즉시 다음 Pallet로 이동한다.
+  // 서버 DB 저장은 V58SaveQueue.kick()이 한 번에 한 건씩 순차 처리한다.
+  // 사진 업로드는 위 waitForUploads()에서 해당 Pallet 증빙이 확정된 뒤에만 Queue에 들어온다.
+  if (v58Active && window.V58SaveQueue && payload.requestId &&
+      typeof V58SaveQueue.kick === 'function') {
+    let backgroundReady = false;
+    try {
+      backgroundReady = !!V58SaveQueue.canAutoRetry();
+      if (!backgroundReady && typeof V58SaveQueue.detectCapabilities === 'function') {
+        await V58SaveQueue.detectCapabilities();
+        backgroundReady = !!V58SaveQueue.canAutoRetry();
+      }
+    } catch (_) {}
+
+    if (backgroundReady) {
+      const queuedRequestId = payload.requestId;
+      try {
+        // 서버 응답 전이라도 이 Pallet은 IndexedDB Queue에 보관됐으므로
+        // 현장 진행률에서는 처리중으로 간주해 같은 Pallet을 다시 찍지 않게 한다.
+        if (window.V55InboundProgress && typeof V55InboundProgress.onSingleSaved === 'function') {
+          V55InboundProgress.onSingleSaved(payload, { queued: true });
+        }
+      } catch (_) {}
+      try {
+        if (window.V58FieldSafe && typeof V58FieldSafe.onSaved === 'function') {
+          V58FieldSafe.onSaved(payload, { queued: true });
+        }
+      } catch (_) {}
+      try {
+        if (window.V56FastFlow && typeof V56FastFlow.onSaved === 'function') {
+          V56FastFlow.onSaved(payload, { queued: true });
+        }
+      } catch (_) {}
+      rememberInspector(payload.inspector);
+
+      window.__V58_CURRENT_REQUEST_ID__ = '';
+      window.__V58_SAVE_PHASE__ = 'queued_background';
+
+      // 화면을 즉시 다음 Pallet 상태로 돌린다. 서버 4~10초 대기는 작업자 시간에 포함시키지 않는다.
+      const resetOk = safePrepareNextSingleAfterSave('');
+      try {
+        const printBtn = document.getElementById('btnPrintSingle');
+        if (printBtn) printBtn.classList.add('hidden'); // 서버 확정 전 출력 금지
+      } catch (_) {}
+      setStatus(
+        'saveSingleStatus',
+        resetOk
+          ? '단말 안전저장 완료 · 서버 전송 중 · 다음 Pallet 바로 진행하세요.'
+          : '단말 안전저장 완료 · 서버 전송 중 · 화면 초기화만 확인하세요.',
+        resetOk ? 'ok' : 'warn'
+      );
+
+      // await 하지 않는다. Queue 내부 single-flight drain이 서버 저장을 직렬 처리한다.
+      V58SaveQueue.kick().catch(()=>{});
+      return { ok:true, queued:true, requestId:queuedRequestId };
+    }
+  }
+
   setStatus('saveSingleStatus', '저장 중...', 'warn');
   try {
     if (v58Active && window.V58SaveQueue && payload.requestId && typeof V58SaveQueue.markSending === 'function') {
