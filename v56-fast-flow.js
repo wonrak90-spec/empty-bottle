@@ -214,10 +214,15 @@
     }
   }
 
-  F.onSaved=function(){
+  F.onSaved=function(payload,res){
+    const queued=!!(res&&res.queued);
     if(F.cycleStarted){
       F.lastCycleMs=Math.round(performance.now()-F.cycleStarted);
-      setFastStatus('저장 완료 · 총 '+(F.lastCycleMs/1000).toFixed(1)+'초'+(F.lastCycleMs<=15000?' · 15초 목표 달성':' · 15초 초과'),'ok');
+      setFastStatus(
+        (queued?'단말 안전저장 완료':'서버 저장 완료')+' · 작업자 사이클 '+(F.lastCycleMs/1000).toFixed(1)+'초'+
+        (F.lastCycleMs<=15000?' · 15초 목표 달성':' · 15초 초과'),
+        'ok'
+      );
     }
     F.cycleStarted=0;
     F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};F.lastEvidence={wms:'',vendor:''};
@@ -225,9 +230,9 @@
     if(F.continuous){
       setTimeout(()=>{
         if(!F.continuous)return;
-        setFastStatus('저장 완료 · 다음 Pallet WMS를 비춰주세요.','ok');
+        setFastStatus(queued?'서버 전송 중 · 다음 Pallet WMS를 비춰주세요.':'저장 완료 · 다음 Pallet WMS를 비춰주세요.','ok');
         startLive('wms');
-      },900);
+      },350);
     }
   };
 
