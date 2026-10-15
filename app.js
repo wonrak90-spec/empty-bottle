@@ -581,6 +581,20 @@ function normProductName(s) {
 }
 
 let currentItemInfo = null;   // 자재마스터에서 찾은 정식 자재 정보
+let currentItemInfoCode = '';
+let currentItemInfoRequestSeq = 0;
+
+// V58 첫 Pallet LOCK은 OCR 품명이 아니라 ItemMaster 정식 자재명을 기준으로 만든다.
+window.getCurrentItemInfo = function(){
+  return currentItemInfo;
+};
+window.ensureCurrentItemInfo = async function(code){
+  const c=String(code||'').trim();
+  if(!c)return null;
+  if(currentItemInfo && String(currentItemInfo.itemCode||'').trim()===c)return currentItemInfo;
+  await loadItemInfo(c);
+  return currentItemInfo && String(currentItemInfo.itemCode||'').trim()===c ? currentItemInfo : null;
+};
 
 // 업체명 비교용 정규화 ((주)/주식회사/공백 차이 무시)
 function normCompany(s) {
@@ -599,13 +613,29 @@ function volumeOf(s) {
 // 자재코드로 정식 자재 정보를 불러온다
 async function loadItemInfo(code) {
   const c = String(code || '').trim();
-  if (!c) { currentItemInfo = null; return; }
+  const seq=++currentItemInfoRequestSeq;
+  if (!c) {
+    currentItemInfo = null; currentItemInfoCode='';
+    renderItemInfo();
+    return null;
+  }
   try {
     const res = await apiGet('lookupItem', { code: c });
+    if(seq!==currentItemInfoRequestSeq)return currentItemInfo;
+    const liveCode=(document.getElementById('itemCode')&&document.getElementById('itemCode').value||'').trim();
     currentItemInfo = (res.ok && res.found) ? res.data : null;
-  } catch (e) { currentItemInfo = null; }
+    currentItemInfoCode = currentItemInfo ? c : '';
+    // OCR이 "10OML"처럼 잘못 읽어도 품목코드가 확정되면 정식 자재명으로 즉시 교정한다.
+    if(currentItemInfo && liveCode===c && currentItemInfo.itemName){
+      const p=document.getElementById('product');
+      if(p)p.value=String(currentItemInfo.itemName);
+    }
+  } catch (e) {
+    if(seq===currentItemInfoRequestSeq){currentItemInfo = null;currentItemInfoCode='';}
+  }
   renderItemInfo();
   compareLabels();
+  return currentItemInfo;
 }
 
 function renderItemInfo() {
@@ -723,12 +753,52 @@ async function registerAlias() {
 
 let singleMatchOk = null;
 
+function v58SwitchInboundFromParsedWms(p){
+  try{
+    if(!p||!p.inboundNo||!window.V58FieldSafe||typeof V58FieldSafe.getLock!=='function')return false;
+    const nextInbound=String(p.inboundNo||'').replace(/[^0-9]/g,'');
+    const nextItem=String(p.itemCode||'').trim();
+    const nextPallet=String(p.containerFrom||'').replace(/[^0-9]/g,'');
+    if(!/^\d{8}$/.test(nextInbound)||!nextItem||!nextPallet)return false;
+
+    const lock=V58FieldSafe.getLock();
+    if(!lock||!lock.inboundNo||String(lock.inboundNo).trim()===nextInbound)return false;
+
+    // 새 차량의 WMS가 충분히 구조화되어 확인된 경우에만 이전 LOCK을 폐기한다.
+    // 현재 WMS 사진은 OcrRuntime이 이미 저장했으므로 지우지 않고,
+    // 이전 업체사진/기준값만 제거해 새 사진 경로가 이전 입고번호로 잡히는 것을 막는다.
+    if(typeof V58FieldSafe.clearLock==='function')V58FieldSafe.clearLock();
+    try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
+    try{
+      if(window.V56FastFlow){
+        V56FastFlow.photoUrls={wms:'',vendor:''};
+        V56FastFlow.uploads={wms:null,vendor:null};
+        V56FastFlow.lastEvidence={wms:'',vendor:''};
+      }
+    }catch(_){}
+    try{
+      lastPhotoDataUrl.vendor='';
+      lastOcrText.vendor='';
+    }catch(_){}
+    ['vProduct','vQty','vProdDate','vProdTime','vLotNo','vPalletNo','vLine',
+     'inboundNo','inboundDate','product','itemCode','manufacturer','supplier','displayQty',
+     'expiryDate','containerFrom','containerTo','codeRaw','actualQty']
+      .forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+    currentItemInfo=null;currentItemInfoCode='';singleMatchOk=null;
+    try{renderItemInfo();}catch(_){}
+    return true;
+  }catch(_){return false;}
+}
+
 function applyParsed(p, force) {
   try {
     if (window.V55WmsQuality && typeof V55WmsQuality.sanitizeParsed === 'function') {
       p = V55WmsQuality.sanitizeParsed(p || {});
     }
   } catch (_) {}
+  // 이전 차량 LOCK이 남아 있어도 새 WMS 관리번호가 확인되면 먼저 상태를 갈아탄다.
+  // 이렇게 해야 이후 v55:ocr-applied에서 시작되는 사진 업로드도 새 입고번호 폴더를 사용한다.
+  try{v58SwitchInboundFromParsedWms(p);}catch(_){}
   const ids = ['inboundNo', 'inboundDate', 'product', 'itemCode', 'manufacturer', 'supplier', 'displayQty', 'unit', 'expiryDate', 'containerFrom', 'containerTo', 'codeRaw'];
   ids.forEach(id => {
     const el = document.getElementById(id);
@@ -1695,7 +1765,7 @@ function forcePrepareNextSingleAfterSave(savedId) {
   try{lastPhotoDataUrl.wms='';lastPhotoDataUrl.vendor='';lastPhotoDataUrl.single='';}catch(_){}
   try{lastOcrText.wms='';lastOcrText.vendor='';lastOcrText.single='';}catch(_){}
   try{itemPhotos.single=[];renderItemPhotos('single');}catch(_){}
-  try{singleMatchOk=null;currentItemInfo=null;renderItemInfo();}catch(_){}
+  try{singleMatchOk=null;currentItemInfo=null;currentItemInfoCode='';currentItemInfoRequestSeq++;renderItemInfo();}catch(_){}
   try{const ins=document.getElementById('inspector');if(ins)ins.value=inspector;}catch(_){}
 
   try{setStatus('wmsStatus','다음 입고 건을 스캔하거나 WMS 라벨을 촬영하세요.','');}catch(_){}
@@ -1736,7 +1806,7 @@ function prepareNextSingleAfterSave(savedId) {
   ['ocrBoxWms','ocrBoxVendor','ocrRawWms','ocrRawVendor'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.add('hidden');});
   lastPhotoDataUrl.wms=''; lastPhotoDataUrl.vendor=''; lastPhotoDataUrl.single='';
   lastOcrText.wms=''; lastOcrText.vendor=''; lastOcrText.single='';
-  itemPhotos.single=[]; renderItemPhotos('single'); singleMatchOk=null; currentItemInfo=null; try{renderItemInfo();}catch(_){}
+  itemPhotos.single=[]; renderItemPhotos('single'); singleMatchOk=null; currentItemInfo=null; currentItemInfoCode=''; currentItemInfoRequestSeq++; try{renderItemInfo();}catch(_){}
   const ins=document.getElementById('inspector'); if(ins) ins.value=inspector;
   setStatus('wmsStatus','다음 입고 건을 스캔하거나 WMS 라벨을 촬영하세요.','');
   setStatus('vendorStatus','업체 라벨을 촬영하면 자동으로 대조합니다.','');
