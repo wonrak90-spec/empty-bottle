@@ -1,4 +1,4 @@
-const CACHE = '공병입고-20261015-v58-fast-pipeline-r13';
+const CACHE = '공병입고-20261015-v58-field-fast-r14';
 const SHELL = [
   './',
   './index.html',
