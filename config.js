@@ -12,7 +12,7 @@ const CONFIG = {
   if(window.__EMPTY_BOTTLE_BOOT__)return;
   window.__EMPTY_BOTTLE_BOOT__=true;
 
-  const RELEASE='20261015-v58-fast-pipeline-r13';
+  const RELEASE='20261015-v58-field-fast-r14';
   window.__EMPTY_BOTTLE_RELEASE__=RELEASE;
 
   const styles=[
