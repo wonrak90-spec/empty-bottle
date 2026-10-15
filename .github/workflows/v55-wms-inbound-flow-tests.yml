@@ -60,3 +60,5 @@ jobs:
         run: node tests/v55-wms-parser.test.js
       - name: Adaptive OCR regression
         run: node tests/v55-adaptive-ocr.test.js
+      - name: R14 field fast safety regression
+        run: node tests/v58-field-fast-r14.test.js

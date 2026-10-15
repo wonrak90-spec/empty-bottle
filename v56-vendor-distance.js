@@ -399,43 +399,22 @@
   }
 
   async function laterCapture(full,lock){
-    // Speed path: evidence is available immediately and invariant values are reused.
-    try{
-      if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;}
-    }catch(_){}
+    // R14 중간 Pallet 고속경로:
+    // 사진 증빙은 즉시 확보하고 첫 Pallet 기준정보를 재사용한다.
+    // 중간 Pallet OCR은 저장을 막지 않으며 저장용 필드를 절대 수정하지 않는다.
+    try{if(typeof lastPhotoDataUrl!=='undefined'){lastPhotoDataUrl.vendor=full;lastOcrText.vendor='';}}catch(_){}
     applyLocked(lock);
-    D.evidence=false;D.mismatch=false;
+    D.evidence=true;D.mismatch=false;
+
     try{
       if(window.V56FastFlow&&typeof V56FastFlow.noteEvidence==='function')V56FastFlow.noteEvidence('vendor',full);
     }catch(_){}
-    try{window.dispatchEvent(new CustomEvent('v56:vendor-evidence',{detail:{key:D.currentKey,locked:true}}));}catch(_){}
+    try{window.dispatchEvent(new CustomEvent('v56:vendor-evidence',{detail:{key:D.currentKey,locked:true,ocrSkipped:true}}));}catch(_){}
+    try{if(window.V56FastFlow&&typeof V56FastFlow.refresh==='function')V56FastFlow.refresh();}catch(_){}
 
-    // Background OCR must finish before normal save is enabled.
-    const generation=D.generation,captureKey=D.currentKey;
-    (async()=>{
-      try{
-        if(!window.OcrRuntime||typeof OcrRuntime.recognize!=='function')throw new Error('OCR 엔진 미준비');
-        const crop=await cropForOcr(full);
-        const r=await recognizeVendorAngleAware(crop,'');
-        const p=r&&r.parsed||{};
-        if(!p.product||!p.qty)throw new Error('Incomplete vendor label');
-        if(generation!==D.generation||captureKey!==D.currentKey)return;
-        const qty=p.qty?digits(p.qty):'',expected=digits(lock.vendorQty);
-        const name=p.product||'';
-        const positiveMismatch=(qty&&expected&&qty!==expected)||(name&&!productSame(name,lock.vendorProduct));
-        if(positiveMismatch){
-          D.mismatch=true;
-          if(name&&$('vProduct'))$('vProduct').value=name;
-          if(qty&&$('vQty'))$('vQty').value=qty;
-          try{if(typeof compareLabels==='function')compareLabels();}catch(_){}
-          setVendorStatus('⚠ 업체라벨 배경확인에서 기준정보와 다른 값이 읽혔습니다. 상세 확인이 필요합니다.','bad');
-          setFast('⚠ 업체라벨 기준 불일치 가능 · 정상 저장을 중단하고 상세 확인하세요.','bad');
-          try{window.dispatchEvent(new CustomEvent('v56:vendor-mismatch',{detail:{parsed:p,lock}}));}catch(_){}
-        }
-      }catch(_){if(generation===D.generation&&captureKey===D.currentKey){setVendorStatus('업체라벨 OCR 미확인 · 상세 확인 필요','warn');D.mismatch=true;}}
-      finally{if(generation===D.generation&&captureKey===D.currentKey){D.evidence=!D.mismatch;try{if(window.V56FastFlow)V56FastFlow.refresh();}catch(_){}}}
-    })();
-    return {ok:true,locked:true};
+    setVendorStatus('업체라벨 사진 확보 완료 · 기준 제품명/수량 사용 · 중간 Pallet OCR 생략','ok');
+    setFast('사진 확보 완료 · 바로 저장 후 다음 Pallet을 진행하세요.','ok');
+    return {ok:true,locked:true,ocrSkipped:true};
   }
 
   D.capture=async function(){
@@ -483,9 +462,9 @@
         setFast(D.evidence?'마지막 Pallet 판정 결과를 확인하세요.':'마지막 Pallet 판독 미완료 · 정상 저장 중단',D.evidence?'ok':'warn');
         setTimeout(()=>D.close(),220);
       }else if(lock&&lock.vendorQty){
-        modalStatus('기준정보 재사용 · 사진 저장 후 백그라운드로 이상 여부를 확인합니다.');
+        modalStatus('기준정보 재사용 · 사진 확보 즉시 저장 가능합니다.');
         await laterCapture(full,lock);
-        setVendorStatus('업체라벨 사진 확보 완료 · 기준 제품명/수량 재사용 · 백그라운드 확인 중','ok');
+        setVendorStatus('업체라벨 사진 확보 완료 · 기준 제품명/수량 재사용 · OCR 생략','ok');
         setFast('업체라벨 사진 확보 완료 · 실물 이상이 없으면 정상 확인·저장하세요.','ok');
         setTimeout(()=>D.close(),180);
       }else{
@@ -560,7 +539,7 @@
     ensureStyle();ensureModal();addButton();addReset();
     setTimeout(addButton,400);setTimeout(addReset,500);setTimeout(addButton,1500);
   }
-  D._test={digits,norm,productSame,getLock,setLock,clearLock};
+  D._test={digits,norm,productSame,getLock,setLock,clearLock,laterCaptureForTest:laterCapture};
 
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
 })();
