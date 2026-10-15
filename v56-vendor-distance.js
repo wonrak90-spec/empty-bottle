@@ -10,7 +10,7 @@
   window.__V56_VENDOR_DISTANCE__=true;
 
   const D=window.V56VendorDistance={
-    VERSION:'V57.3-VENDOR-DISTANCE-1.9-R14',
+    VERSION:'V57.3-VENDOR-DISTANCE-1.8',
     stream:null,track:null,mode:'capture',busy:false,zoomMode:'none',softwareZoom:3,
     evidence:false,mismatch:false,currentKey:'',generation:0
   };
