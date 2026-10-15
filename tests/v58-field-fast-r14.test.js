@@ -63,5 +63,51 @@ D.currentKey='26004733|2002867';
   assert.strictEqual(uploads,1);
   assert.strictEqual(ocrCalls,0);
   assert.strictEqual(els.vQty.value,'9072');
+
+  // 3) Execute FieldSafe: first lock uses ItemMaster product and middle payload cannot be polluted.
+  const fsStore={},fsEls={};
+  for(const id of ['inboundNo','itemCode','product','manufacturer','supplier','displayQty','unit','containerFrom','containerTo',
+                   'vProduct','vQty','actualQty','matchYes','matchNo','mixYes','mixNo','wmsPreview','vendorPreview'])
+    fsEls[id]=el(id);
+  fsEls.inboundNo.value='26004733';fsEls.itemCode.value='2002867';fsEls.product.value='10OML 유리병(각병)';
+  fsEls.manufacturer.value='동화지앤피';fsEls.supplier.value='동화지앤피(주)';fsEls.displayQty.value='9072';fsEls.unit.value='EA';
+  fsEls.containerFrom.value='29';fsEls.containerTo.value='42';fsEls.vProduct.value='유리병(각병) 100ml';fsEls.vQty.value='9072';
+  fsEls.actualQty.value='9072';
+  let nextWmsStarts=0;
+  const fsCtx={
+    console,window:null,
+    localStorage:{getItem:k=>fsStore[k]||null,setItem:(k,v)=>fsStore[k]=String(v),removeItem:k=>delete fsStore[k]},
+    document:{readyState:'loading',hidden:false,addEventListener(){},getElementById:id=>fsEls[id]||null,
+      createElement(){return el('x');},body:{classList:cls(),style:{}}},
+    setTimeout:(fn)=>{fn();return 1;},clearTimeout(){},setInterval(){},
+    addEventListener(){},MutationObserver:function(){this.observe=function(){};},
+    getCurrentItemInfo(){return {itemCode:'2002867',itemName:'100 mL 유리병(각병)'};},
+    updateSingleQty(){},setStatus(){},
+    V22:{startLive(mode){if(mode==='wms')nextWmsStarts++;}},
+    V56FastFlow:{continuous:false,photoUrls:{wms:'w',vendor:'v'}},
+    V58SaveQueue:{renderStatus(){}}
+  };
+  fsCtx.window=fsCtx;
+  vm.createContext(fsCtx);
+  vm.runInContext(field,fsCtx,{filename:'v58-field-safe.js'});
+  const S=fsCtx.V58FieldSafe;
+  S.onSaved({containerFrom:'29',containerTo:'42'},{queued:true});
+  const lk=JSON.parse(JSON.stringify(S.getLock()));
+  assert.strictEqual(lk.product,'100 mL 유리병(각병)','first LOCK must use ItemMaster canonical name');
+  assert.strictEqual(nextWmsStarts,1,'next WMS must auto-start after non-last save');
+
+  fsEls.containerFrom.value='31';fsEls.containerTo.value='42';
+  fsEls.vProduct.value='OCR garbage';fsEls.vQty.value='9972';
+  const payload={inboundNo:'26004733',itemCode:'2002867',product:'10OML 유리병(각병)',manufacturer:'',supplier:'',
+    displayQty:'9072',actualQty:'9072',unit:'EA',vendorProduct:'OCR garbage',vendorQty:'9972',
+    vendorOcrRaw:'bad raw',vendorProdDate:'x',vendorProdTime:'x',vendorLotNo:'x',vendorPalletNo:'x',vendorLine:'x',
+    labelMatch:'일치',note:''};
+  S.decoratePayload(payload);
+  assert.strictEqual(payload.product,'100 mL 유리병(각병)');
+  assert.strictEqual(payload.vendorProduct,'유리병(각병) 100ml');
+  assert.strictEqual(payload.vendorQty,'9072');
+  assert.strictEqual(payload.vendorOcrRaw,'');
+  assert.strictEqual(payload.labelMatch,'기준정보사용');
+
   console.log('PASS R14: master-safe lock + new-inbound guard + middle OCR skip + next-WMS pipeline');
 })().catch(e=>{console.error(e);process.exit(1);});
