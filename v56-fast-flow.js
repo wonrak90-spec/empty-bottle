@@ -8,7 +8,7 @@
   window.__V56_FAST_FLOW__=true;
 
   const F=window.V56FastFlow={
-    VERSION:'V57.2-FAST-FLOW-1.3',
+    VERSION:'V57.2-FAST-FLOW-1.4-R14',
     continuous:false,
     busy:false,
     photoUrls:{wms:'',vendor:''},
