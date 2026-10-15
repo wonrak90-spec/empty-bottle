@@ -9,7 +9,7 @@
   window.__V58_FIELD_SAFE__=true;
 
   const S=window.V58FieldSafe={
-    VERSION:'V58-FIELD-SAFE-2.4',
+    VERSION:'V58-FIELD-SAFE-2.5-R14',
     STORE:'v58.fieldSafe.activeLock.v1',
     lastError:'',
     lastSaveMode:'',
@@ -76,9 +76,24 @@
   }
   S.applyLock=applyLock;
 
+  function masterForCurrentItem(){
+    try{
+      const d=window.getCurrentItemInfo&&window.getCurrentItemInfo();
+      const code=val('itemCode');
+      return d&&String(d.itemCode||'').trim()===String(code||'').trim()?d:null;
+    }catch(_){return null;}
+  }
+
+  function canonicalizeMasterProduct(){
+    const d=masterForCurrentItem();
+    if(d&&d.itemName)set('product',d.itemName);
+    return d;
+  }
+
   function makeLock(){
+    const master=canonicalizeMasterProduct();
     return {
-      inboundNo:val('inboundNo'),itemCode:val('itemCode'),product:val('product'),
+      inboundNo:val('inboundNo'),itemCode:val('itemCode'),product:(master&&master.itemName)||val('product'),
       manufacturer:val('manufacturer'),supplier:val('supplier'),
       displayQty:val('displayQty'),unit:val('unit')||'EA',
       containerTo:val('containerTo'),
@@ -118,6 +133,7 @@
 
   S.validate=function(){
     let lock=loadLock();
+    if(!lock)canonicalizeMasterProduct();
     const currentInbound=val('inboundNo');
     if(lock&&currentInbound&&lock.inboundNo&&String(currentInbound).trim()!==String(lock.inboundNo).trim()){
       clearLock();
@@ -156,21 +172,47 @@
 
   S.decoratePayload=function(payload){
     const lock=loadLock();
+    const last=isLast();
     const tags=[];
     if(lock)tags.push('V58 기준정보 LOCK 재사용');
     else tags.push('V58 첫 Pallet 기준정보 확정');
     if(photoReady('wms'))tags.push('WMS 사진확보');
     if(photoReady('vendor'))tags.push('업체사진확보');
-    if(lock&&!val('vProduct'))payload.vendorProduct=lock.vendorProduct||'';
-    if(lock&&!val('vQty')&&!isLast())payload.vendorQty=lock.vendorQty||'';
-    payload.note=[payload.note,tags.join(' / ')].filter(Boolean).join(' / ');
-    if(lock && (!payload.vendorOcrRaw || !String(payload.vendorOcrRaw).trim())){
-      payload.labelMatch='기준정보사용';
+
+    if(lock){
+      // WMS 정식 품명/고정정보는 OCR 결과가 아니라 첫 Pallet LOCK을 authoritative 값으로 사용한다.
+      payload.inboundNo=lock.inboundNo||payload.inboundNo;
+      payload.itemCode=lock.itemCode||payload.itemCode;
+      payload.product=lock.product||payload.product;
+      payload.manufacturer=lock.manufacturer||payload.manufacturer;
+      payload.supplier=lock.supplier||payload.supplier;
+      payload.unit=lock.unit||payload.unit;
+
+      if(!last){
+        // 중간 Pallet은 업체라벨 "사진 증빙"만 필수.
+        // OCR은 실행/저장필드를 수정하지 않으며 첫 Pallet 기준값만 기록한다.
+        payload.displayQty=lock.displayQty||payload.displayQty;
+        payload.actualQty=lock.displayQty||payload.actualQty;
+        payload.qtyResult='일치';
+        payload.vendorProduct=lock.vendorProduct||'';
+        payload.vendorQty=lock.vendorQty||'';
+        payload.vendorOcrRaw='';
+        payload.vendorProdDate='';
+        payload.vendorProdTime='';
+        payload.vendorLotNo='';
+        payload.vendorPalletNo='';
+        payload.vendorLine='';
+        payload.labelMatch='기준정보사용';
+        tags.push('중간 Pallet 업체OCR 생략');
+      }else if(!payload.vendorProduct){
+        payload.vendorProduct=lock.vendorProduct||'';
+      }
     }
+    payload.note=[payload.note,tags.join(' / ')].filter(Boolean).join(' / ');
     return payload;
   };
 
-  S.onSaved=function(payload){
+  S.onSaved=function(payload,res){
     let lock=loadLock();
     if(!lock){
       const next=makeLock();
@@ -182,6 +224,21 @@
     // Restore only stable values after it finishes; the pallet number/photo remain blank.
     if(lock)setTimeout(()=>{applyLock(lock);render();},80);
     setTimeout(render,120);
+
+    // R14 연속 작업: 마지막 Pallet이 아니면 저장 대기시간 동안 다음 WMS 카메라를 바로 연다.
+    // V56 연속모드가 이미 켜져 있으면 그 모듈에 맡겨 중복 카메라 시작을 피한다.
+    const cur=Number(digits(payload&&payload.containerFrom)),tot=Number(digits(payload&&payload.containerTo));
+    const last=!!(cur&&tot&&cur===tot);
+    if(!last){
+      setTimeout(()=>{
+        try{
+          if(window.V56FastFlow&&V56FastFlow.continuous)return;
+          if(document.hidden)return;
+          if(window.OcrRuntime&&OcrRuntime.sessions&&OcrRuntime.sessions.wms)return;
+          if(window.V22&&typeof V22.startLive==='function')V22.startLive('wms');
+        }catch(_){}
+      },220);
+    }
   };
 
   function summaryValue(v,fallback){return v&&String(v).trim()?String(v).trim():(fallback||'—');}
@@ -255,6 +312,13 @@
     if(S.saving)return;
     S.saving=true;
     S.lastError='';
+    if(!loadLock()){
+      try{
+        const code=val('itemCode');
+        if(code&&window.ensureCurrentItemInfo)await window.ensureCurrentItemInfo(code);
+        canonicalizeMasterProduct();
+      }catch(_){}
+    }
     const r=S.prepareForSave();
     if(!r.ok){S.saving=false;render();return;}
     const b=$('v58Save');if(b){b.disabled=true;b.textContent='저장 중...';}
@@ -454,6 +518,7 @@
       if(!window.confirm('현재 기준정보를 지우고 새 입고를 시작할까요?'))return;
       clearLock();
       try{window.__V58_CURRENT_REQUEST_ID__='';}catch(_){}
+      try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
       try{if(typeof clearSingle==='function')clearSingle();}catch(_){}
       S.lastError='';render();
     };
