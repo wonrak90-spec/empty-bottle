@@ -1,0 +1,251 @@
+/* R15 생산 투입 탭
+ * 제조번호를 고르고(오늘 계획표에서 한 번 누름), 검수 끝난 가용 Pallet를 눌러 투입한다.
+ * 라벨 사진이나 바코드로도 찾을 수 있다. 투입은 대기열로 보내므로 신호가 약해도 계속 진행된다.
+ */
+(function () {
+  'use strict';
+  const R = window.R15, { $, esc, fmt, digits } = R.util;
+  const KEY = 'r15.lot';
+  const L = R.lot = { lot: null, stock: [], lots: null, detail: null, sel: new Map(), filter: '' };
+
+  function load() { try { L.lot = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { L.lot = null; } }
+  function persist() { try { localStorage.setItem(KEY, JSON.stringify(L.lot)); } catch (_) {} }
+  const pk = (inb, p) => digits(inb) + '|' + Number(digits(p));
+
+  async function refresh() {
+    if (!L.lot) { L.lots = await R.tryGet('r15Lots'); render(); return; }
+    const [d, s] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock', { days: 180 })]);
+    if (d) { L.detail = d; if (d.lot.status !== '진행중') R.toast('이 작업은 종료되었습니다', 'warn'); }
+    if (s) L.stock = s.groups || [];
+    render();
+  }
+
+  function render() {
+    const root = $('lotView'); if (!root) return;
+    scanStop(); // 다시 그리면 영상 칸이 사라진다: 카메라를 꺼서 화면 밖에서 계속 찍히지 않게 한다
+    if (!L.lot) { const keep = ['lpName', 'lpLot'].map((id) => $(id) ? $(id).value : ''); root.innerHTML = pickHtml(); bindPick(); ['lpName', 'lpLot'].forEach((id, i) => { if (keep[i]) $(id).value = keep[i]; }); return; } // 목록이 늦게 와도 입력값 유지
+    root.innerHTML = workHtml(); bindWork();
+  }
+
+  /* ---------- 작업 고르기 ---------- */
+  function pickHtml() {
+    const d = L.lots || { plan: [], lots: [], products: [] };
+    const open = (d.lots || []).filter((x) => x.status === '진행중');
+    return `<section>
+      <div class="shead"><h2>오늘 제조 계획</h2><span class="sub">${d.plan && d.plan.length ? '눌러서 바로 시작' : '계획표가 없으면 아래에 직접 입력'}</span></div>
+      <div class="chips">${(d.plan || []).map((p, i) => `<button type="button" class="chipbtn" data-plan="${i}"><b>${esc(p.productName)}</b> ${esc(p.lotNo)}<small>${esc(p.date.slice(5))}${p.line ? ' · ' + esc(p.line) : ''}</small></button>`).join('') || '<span class="muted">관리 탭에서 주간제조계획표 링크를 넣으면 여기에 나옵니다.</span>'}</div>
+    </section>
+    ${open.length ? `<section><div class="shead"><h2>진행 중인 작업</h2><span class="sub">다른 작업자와 같이 투입할 수 있습니다</span></div>
+      <div class="list">${open.map((x, i) => `<button type="button" class="row" data-open="${i}"><span><b>${esc(x.productName)}</b> ${esc(x.lotNo)}</span><span class="muted">${x.palletCount} Pallet · ${esc(x.workers || '')}</span></button>`).join('')}</div></section>` : ''}
+    <section><div class="shead"><h2>직접 입력</h2></div>
+      <div class="grid g2"><label>제품명<input id="lpName" list="lpNames" placeholder="예: 판콜에이"><datalist id="lpNames">${(d.products || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
+      <label>제조번호<input id="lpLot" placeholder="예: 2F205" autocapitalize="characters"></label></div>
+      <div><button type="button" class="btn" id="lpStart">작업 시작</button></div>
+    </section>`;
+  }
+  function bindPick() {
+    const d = L.lots || {};
+    document.querySelectorAll('[data-plan]').forEach((b) => { b.onclick = () => { const p = d.plan[Number(b.dataset.plan)]; start(p.productName, p.lotNo, b); }; });
+    document.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => { const p = d.lots.filter((x) => x.status === '진행중')[Number(b.dataset.open)]; start(p.productName, p.lotNo, b); }; });
+    $('lpStart').onclick = () => start($('lpName').value.trim(), $('lpLot').value.trim().toUpperCase(), $('lpStart'));
+  }
+  async function start(productName, lotNo, btn) {
+    if (!productName || !lotNo) return R.toast('제품명과 제조번호를 넣으세요', 'crit');
+    R.busy(btn, true, '시작 중…');
+    const r = await R.tryPost('r15LotStart', { productName, lotNo });
+    R.busy(btn, false);
+    if (!r || !r.ok) return;
+    L.lot = { id: r.id, productName, lotNo }; L.sel.clear(); persist();
+    R.toast(r.joined ? '진행 중인 작업에 참여했습니다' : '작업을 시작했습니다', 'ok');
+    refresh();
+  }
+
+  /* ---------- 투입 작업 ---------- */
+  function pendingItems() {
+    return R.queue.list((j) => j.type === 'lot' && j.payload.productionId === L.lot.id && j.state !== 'done')
+      .flatMap((j) => j.payload.items.map((it) => Object.assign({ state: j.state, error: j.lastError, jobId: j.id }, it)));
+  }
+  function workHtml() {
+    const d = L.detail, pend = pendingItems(), pendKeys = new Set(pend.map((x) => pk(x.inboundNo, x.pallet)));
+    const used = d ? d.pallets : [], usedKeys = new Set(used.map((x) => pk(x.inboundNo, x.pallet)));
+    const items = [...new Set(L.stock.map((g) => g.product))];
+    const groups = L.stock.filter((g) => !L.filter || g.product === L.filter);
+    const closed = d && d.lot.status !== '진행중';
+    return `<section class="veh">
+      <div class="shead"><div><div class="sub">제조번호</div><div class="big">${esc(L.lot.productName)} ${esc(L.lot.lotNo)}</div></div>
+        <div class="right"><button type="button" class="btn ghost sm" id="lotLeave">다른 작업</button></div></div>
+      <div class="vline">투입 <b>${used.length}</b> Pallet · ${fmt(d ? d.total : 0)} EA${pend.length ? ` · <span class="pill p-warn"><i></i>단말 보관 ${pend.length}</span>` : ''}${closed ? ' · <span class="pill p-idle"><i></i>종료됨</span>' : ''}</div>
+    </section>
+    ${closed ? '' : `<section>
+      <div class="shead"><h2>Pallet 찾기</h2></div>
+      <div class="steps"><label class="shot"><input type="file" accept="image/*" capture="environment" id="lotShot" hidden><span class="ic">📷</span><span>WMS 라벨 촬영</span></label>
+        ${'BarcodeDetector' in window ? '<button type="button" class="shot" id="lotScan"><span class="ic">▥</span><span>바코드 스캔</span></button>' : ''}</div>
+      <div class="grid g3"><label>입고번호<input id="lfIn" inputmode="numeric"></label><label>Pallet<input id="lfP" inputmode="numeric"></label><div><button type="button" class="btn ghost" id="lfAdd">추가</button></div></div>
+      <div class="sub" id="lotStatus"></div>
+      <div id="scanBox" hidden><video id="scanVideo" playsinline muted></video><button type="button" class="btn ghost sm" id="scanStop">스캔 닫기</button></div>
+    </section>
+    <section>
+      <div class="shead"><h2>가용 공병 (검수 완료 · 미투입)</h2>
+        <select id="lotFilter" style="width:auto"><option value="">전체 품목</option>${items.map((p) => `<option ${p === L.filter ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
+      ${groups.length ? groups.map((g) => `<div class="sg"><div class="sgh"><b>${esc(g.inboundNo)}</b> ${esc(g.product)} <span class="muted">${esc(g.supplier || '')} · ${esc(g.inboundDate || '')} · ${g.palletCount} Pallet</span>
+          <button type="button" class="btn ghost sm" data-all="${esc(g.inboundNo)}">모두</button></div>
+        <div class="pcs">${g.pallets.map((p) => { const k = pk(g.inboundNo, p.pallet), on = L.sel.has(k), dis = usedKeys.has(k) || pendKeys.has(k);
+          return `<button type="button" class="pc ${on ? 'sel' : ''} ${p.level === 'error' ? 'err' : p.level === 'warn' ? 'wrn' : ''}" data-k="${k}" ${dis ? 'disabled' : ''} title="${esc(p.finalResult)}">${p.pallet}</button>`; }).join('')}</div></div>`).join('')
+        : '<div class="muted">가용 Pallet가 없습니다.</div>'}
+      <div class="sub">빨간 테두리는 검수 기록에 확인할 점이 있는 Pallet입니다.</div>
+    </section>`}
+    <section>
+      <div class="shead"><h2>투입 내역</h2></div>
+      <div class="list">${pend.map((x) => `<div class="row"><span><b>${esc(x.inboundNo)}</b> P${esc(x.pallet)}</span><span>${R.pill(x.state === 'blocked' ? 'error' : 'warn', x.state === 'blocked' ? '확인 필요' : '단말 보관')} ${x.state === 'blocked' ? `<button type="button" class="btn ghost sm" data-job="${esc(x.jobId)}">처리</button>` : ''}</span></div>`).join('')}
+        ${used.slice().reverse().map((x) => `<div class="row"><span><b>${esc(x.inboundNo)}</b> P${esc(x.pallet)} <span class="muted">${esc(x.product || '')} · ${fmt(x.qty)}</span></span>
+          <span>${x.unverified ? R.pill('error', '미검수 투입') : R.pill('ok', '서버 완료')} <span class="muted">${esc((x.at || '').slice(11))}</span> ${closed ? '' : `<button type="button" class="btn ghost sm" data-rm="${esc(x.inboundNo)}|${esc(x.pallet)}" aria-label="투입 취소">취소</button>`}</span></div>`).join('') || (pend.length ? '' : '<div class="muted">아직 투입한 Pallet가 없습니다.</div>')}</div>
+    </section>
+    ${closed ? '' : `<div class="savebar"><button type="button" class="btn" id="lotAdd" ${L.sel.size ? '' : 'disabled'}>선택 ${L.sel.size}개 투입</button><button type="button" class="btn ghost sm" id="lotFinish">작업 종료</button></div>`}`;
+  }
+
+  function bindWork() {
+    $('lotLeave').onclick = () => { L.lot = null; L.detail = null; L.sel.clear(); persist(); refresh(); };
+    document.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => removePallet(b.dataset.rm); });
+    document.querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => { const j = R.queue.jobs.find((x) => x.id === b.dataset.job); if (j) R.showJob(j); }; });
+    if (!$('lotAdd')) return;
+    $('lotFilter').onchange = (e) => { L.filter = e.target.value; render(); };
+    document.querySelectorAll('[data-k]').forEach((b) => { b.onclick = () => toggle(b.dataset.k); });
+    document.querySelectorAll('[data-all]').forEach((b) => { b.onclick = () => { const g = L.stock.find((x) => x.inboundNo === b.dataset.all); g.pallets.forEach((p) => { const k = pk(g.inboundNo, p.pallet); const el = document.querySelector(`[data-k="${k}"]`); if (el && !el.disabled) L.sel.set(k, { inboundNo: g.inboundNo, pallet: p.pallet }); }); render(); }; });
+    $('lotAdd').onclick = submit;
+    $('lotFinish').onclick = finish;
+    $('lfAdd').onclick = () => findPallet(digits($('lfIn').value), digits($('lfP').value));
+    $('lotShot').onchange = shot;
+    if ($('lotScan')) { $('lotScan').onclick = scanStart; $('scanStop').onclick = scanStop; }
+  }
+  function toggle(k) {
+    if (L.sel.has(k)) L.sel.delete(k); else { const [inboundNo, pallet] = k.split('|'); L.sel.set(k, { inboundNo, pallet: Number(pallet) }); }
+    const el = document.querySelector(`[data-k="${k}"]`); if (el) el.classList.toggle('sel', L.sel.has(k));
+    const b = $('lotAdd'); b.disabled = !L.sel.size; b.textContent = `선택 ${L.sel.size}개 투입`;
+  }
+
+  async function submit() {
+    if (!L.sel.size) return;
+    const items = [...L.sel.values()];
+    // 서버는 한 번에 60개까지 처리한다. '모두'를 여러 번 누르면 넘을 수 있으므로 나눠서 넣는다.
+    for (let i = 0; i < items.length; i += 60) { const part = items.slice(i, i + 60); await R.queue.addLot(L.lot.id, part, { label: `${L.lot.lotNo} ${part.length} Pallet` }); }
+    L.sel.clear(); R.toast(`${items.length} Pallet 투입 · 서버로 보내는 중`, 'ok'); render();
+  }
+
+  // 사진·바코드·직접 입력으로 찾은 Pallet를 선택에 넣는다
+  async function findPallet(inboundNo, pallet, via) {
+    const st = $('lotStatus');
+    if (!inboundNo || !Number(pallet)) { st.textContent = '입고번호와 Pallet 번호가 필요합니다.'; return; }
+    const k = pk(inboundNo, pallet);
+    if ((L.detail && L.detail.pallets.some((x) => pk(x.inboundNo, x.pallet) === k)) || pendingItems().some((x) => pk(x.inboundNo, x.pallet) === k)) { st.textContent = `${inboundNo} P${Number(pallet)}는 이미 이 작업에 투입했습니다.`; return; }
+    const inStock = L.stock.some((g) => g.inboundNo === inboundNo && g.pallets.some((p) => p.pallet === Number(pallet)));
+    if (inStock) { if (!L.sel.has(k)) toggle(k); st.textContent = `${inboundNo} P${Number(pallet)} 선택됨 · 검수 기록 있음`; const el = document.querySelector(`[data-k="${k}"]`); if (el) el.scrollIntoView({ block: 'center', behavior: 'smooth' }); return; }
+    st.textContent = '서버에서 확인 중…';
+    const r = await R.tryGet('r15Pallet', { inboundNo, pallet });
+    if (!r) { st.textContent = '확인 실패'; return; }
+    if (r.usedIn && r.usedIn.length) { st.textContent = `${inboundNo} P${Number(pallet)}는 이미 ${r.usedIn[0].productName} ${r.usedIn[0].lotNo}에 투입되었습니다.`; R.toast(st.textContent, 'crit'); return; }
+    if (!r.found) {
+      // 바코드는 검사 숫자가 없어 한 자리가 잘못 읽혀도 값이 나온다. 모르는 입고번호면 한 번 눌러 넣지 않고 직접 확인하게 한다.
+      if (via === 'scan' && !L.stock.some((g) => g.inboundNo === inboundNo)) {
+        $('lfIn').value = inboundNo; $('lfP').value = Number(pallet);
+        st.textContent = `${inboundNo} P${Number(pallet)}: 검수 기록이 없는 입고번호입니다. 라벨 글자와 같은지 확인하고 "추가"를 누르세요.`; return;
+      }
+      if (!confirm(`${inboundNo} P${Number(pallet)}는 검수 기록이 없습니다.\n"미검수 투입"으로 기록할까요?`)) { st.textContent = '취소했습니다.'; return; }
+      L.sel.set(k, { inboundNo, pallet: Number(pallet) }); st.textContent = `${inboundNo} P${Number(pallet)} 미검수 투입으로 선택됨`;
+      const b = $('lotAdd'); b.disabled = false; b.textContent = `선택 ${L.sel.size}개 투입`; return;
+    }
+    L.sel.set(k, { inboundNo, pallet: Number(pallet) }); st.textContent = `${inboundNo} P${Number(pallet)} 선택됨 (180일 이전 검수)`;
+    const b = $('lotAdd'); b.disabled = false; b.textContent = `선택 ${L.sel.size}개 투입`;
+  }
+
+  async function shot(e) {
+    const file = e.target.files && e.target.files[0]; e.target.value = ''; if (!file) return;
+    const st = $('lotStatus'); st.textContent = '글자 읽는 중…';
+    try {
+      const img = await R.shrink(file, 2000, 0.85); if (!img) throw new Error('사진을 열지 못했습니다 · 다시 찍어 주세요');
+      const r = await R.ocr.read(img, 'wms', st), p = r.parsed || {};
+      const inb = digits(p.inboundNo), pal = digits(p.containerFrom);
+      $('lfIn').value = inb; $('lfP').value = pal ? Number(pal) : '';
+      if (inb && pal) findPallet(inb, pal); else st.textContent = '번호를 다 읽지 못했습니다. 입고번호·Pallet를 확인하고 추가를 누르세요.';
+    } catch (err) { st.textContent = err.message; }
+  }
+
+  /* ---------- 바코드 (지원하는 폰만) ---------- */
+  // WMS 라벨 바코드는 Code39 "입고번호 8자리 + Pallet 4자리"다 (예: 260047330030, 밑글자는 26004733-0030).
+  // 앞자리가 빠진 값(6004733-0030)은 가용 재고에 끝자리가 맞는 입고번호가 하나뿐일 때만 받는다.
+  // 품목 EAN-13·ITF 같은 다른 바코드와 일부만 읽힌 값은 버리고, 같은 값이 연속 2번 읽혀야 받는다.
+  const SCAN_FORMATS = ['code_39', 'code_128', 'qr_code'];
+  function parseLabelCode(raw, format) {
+    if (format && SCAN_FORMATS.indexOf(format) < 0) return null;
+    const s = String(raw == null ? '' : raw).replace(/^\][A-Za-z][0-9A-Za-z]/, '').replace(/[\s*\u0000-\u001f]/g, '');
+    const m = s.match(/^(\d{6,8})-?(\d{4})$/); if (!m || !Number(m[2])) return null;
+    let inb = m[1];
+    if (inb.length < 8) {
+      const hit = [...new Set(L.stock.map((g) => digits(g.inboundNo)))].filter((x) => x.length === 8 && x.endsWith(inb));
+      if (hit.length !== 1) return { partial: m[1] + '-' + m[2] };
+      inb = hit[0];
+    }
+    return { inboundNo: inb, pallet: String(Number(m[2])) };
+  }
+  R.lot.parseLabelCode = parseLabelCode;
+
+  let stream = null, scanning = false, det = null, gen = 0, opening = false;
+  async function scanStart() {
+    if (stream || opening) return; // 두 번 눌러도 카메라는 하나만
+    const my = ++gen, seen = new Set(); let last = '', lastN = 0;
+    opening = true;
+    try {
+      det = det || new BarcodeDetector({ formats: SCAN_FORMATS });
+      // 기본 640x480이면 라벨 바코드(약 190칸)가 화면 폭의 1/3 이상이어야 읽힌다: 해상도를 높여 달라고 한다
+      const s = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } } });
+      opening = false;
+      if (my !== gen) { s.getTracks().forEach((t) => t.stop()); return; } // 여는 사이에 닫기·탭 이동
+      stream = s;
+      const v = $('scanVideo'); v.srcObject = stream; await v.play(); $('scanBox').hidden = false; scanning = true;
+      const st = $('lotStatus'); st.textContent = 'WMS 라벨 바코드 하나만 화면에 비추세요.';
+      const tick = async () => {
+        if (my !== gen || !scanning) return;
+        if (document.hidden || document.body.dataset.tab !== 'lot' || !document.body.contains(v)) { scanStop(); return; }
+        let codes = []; try { codes = await det.detect(v); } catch (_) {}
+        if (my !== gen) return;
+        const found = new Map(); let partial = '';
+        for (const c of codes) { const p = parseLabelCode(c.rawValue, c.format); if (p && p.inboundNo) found.set(pk(p.inboundNo, p.pallet), p); else if (p) partial = p.partial; }
+        if (found.size > 1) { last = ''; st.textContent = `Pallet 바코드 ${found.size}개가 함께 보입니다. 투입할 라벨 하나만 비추세요.`; }
+        else if (found.size === 1) {
+          const [k, p] = [...found.entries()][0];
+          lastN = k === last ? lastN + 1 : 1; last = k;
+          if (lastN >= 2 && !seen.has(k)) { // 이번 스캔에서 이미 처리한 라벨은 다시 묻지 않는다
+            seen.add(k); scanning = false; if (navigator.vibrate) navigator.vibrate(80);
+            try { await findPallet(p.inboundNo, p.pallet, 'scan'); } finally { if (my === gen && stream) { scanning = true; setTimeout(tick, 800); } }
+            return;
+          }
+        } else if (partial) st.textContent = `바코드가 일부만 읽혔습니다 (${partial}). 가까이 대고 다시 비추세요.`;
+        setTimeout(tick, 250);
+      };
+      tick();
+    } catch (e) { R.toast('카메라를 열지 못했습니다: ' + e.message, 'crit'); scanStop(); }
+    finally { opening = false; }
+  }
+  function scanStop() { gen++; scanning = false; if (stream) stream.getTracks().forEach((t) => t.stop()); stream = null; const v = $('scanVideo'); if (v) v.srcObject = null; const b = $('scanBox'); if (b) b.hidden = true; }
+  document.addEventListener('visibilitychange', () => { if (document.hidden) scanStop(); });
+
+  async function removePallet(key) {
+    const [inboundNo, pallet] = key.split('|');
+    const reason = prompt(`${inboundNo} P${pallet} 투입을 취소합니다. 사유를 입력하세요.`); if (!reason) return;
+    const r = await R.tryPost('r15LotRemove', { productionId: L.lot.id, inboundNo, pallet, reason });
+    if (r && r.ok) { R.toast('투입을 취소했습니다', 'ok'); refresh(); }
+  }
+  async function finish() {
+    if (pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 종료하세요', 'warn');
+    if (!confirm(`${L.lot.productName} ${L.lot.lotNo} 작업을 종료할까요? 종료 후에는 관리자만 고칠 수 있습니다.`)) return;
+    const r = await R.tryPost('r15LotFinish', { productionId: L.lot.id });
+    if (r && r.ok) { R.toast('작업을 종료했습니다', 'ok'); L.lot = null; L.detail = null; persist(); refresh(); }
+  }
+
+  R.on('lotSaved', ({ res }) => {
+    if (res.rejected && res.rejected.length) R.toast('투입 안 됨: ' + res.rejected.map((x) => `${x.inboundNo} P${x.pallet} (${x.reason})`).join(', '), 'crit');
+    if (L.lot) refresh();
+  });
+  R.on('queue', () => { if (L.lot && !stream && document.body.dataset.tab === 'lot' && !document.activeElement.matches('input,select')) render(); });
+  R.lot.init = function () { load(); render(); };
+  R.lot.show = refresh;
+})();

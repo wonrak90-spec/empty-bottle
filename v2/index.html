@@ -1,0 +1,80 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#111418">
+<title>공병 입고 검수</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="../icon-192.png">
+<link rel="apple-touch-icon" href="../icon-192.png">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&display=swap" media="print" onload="this.media='all'">
+<link rel="stylesheet" href="app.css">
+</head>
+<body data-role="guest" data-tab="inspect">
+<div class="wrap">
+  <header class="top">
+    <div class="brandrow">
+      <svg viewBox="0 0 40 40" width="34" height="34" aria-hidden="true"><path d="M16 4h8v6l4 6v18a3 3 0 0 1-3 3H15a3 3 0 0 1-3-3V16l4-6z" fill="none" stroke="var(--brand)" stroke-width="2.5" stroke-linejoin="round"/><path d="M12 24h16v10a3 3 0 0 1-3 3H15a3 3 0 0 1-3-3z" fill="var(--brand)"/></svg>
+      <div><h1>공병 입고 검수</h1><div class="sub">입고 검수 · 생산 투입 · 추적 · 보고서</div></div>
+    </div>
+    <div class="topr">
+      <button type="button" class="qchip" id="qChip" aria-label="저장 대기열 보기">대기열</button>
+      <span class="fz" role="group" aria-label="글씨 크기"><button type="button" data-fz="-1" aria-label="글씨 작게">가−</button><button type="button" data-fz="0" aria-label="기본 크기">가</button><button type="button" data-fz="1" aria-label="글씨 크게">가+</button></span>
+      <span class="fz"><button type="button" id="thBtn">어두운 모드</button></span>
+      <button type="button" class="role" id="roleChip" title="눌러서 로그아웃">로그인 전</button>
+    </div>
+  </header>
+
+  <nav class="tabs nav" id="nav">
+    <button type="button" data-tab="inspect"><span class="l">1. 입고 검수</span><span class="s">검수</span></button>
+    <button type="button" data-tab="lot"><span class="l">2. 생산 투입</span><span class="s">투입</span></button>
+    <button type="button" data-tab="trace"><span class="l">3. 추적</span><span class="s">추적</span></button>
+    <button type="button" data-tab="report"><span class="l">4. 보고서</span><span class="s">보고서</span></button>
+    <button type="button" data-tab="admin" class="adm"><span class="l">5. 관리</span><span class="s">관리</span></button>
+  </nav>
+
+  <main>
+    <div class="page" data-page="inspect" id="inspectView"></div>
+    <div class="page" data-page="lot" id="lotView" hidden></div>
+    <div class="page" data-page="trace" id="traceView" hidden></div>
+    <div class="page" data-page="report" id="reportView" hidden></div>
+    <div class="page" data-page="admin" id="adminView" hidden></div>
+  </main>
+  <footer class="foot muted" id="foot"></footer>
+</div>
+
+<div class="overlay" id="login" hidden>
+  <div class="card">
+    <h2>공병 입고 검수</h2>
+    <div class="sub">개인 계정으로 로그인 (기존 화면과 같은 사번·PIN)</div>
+    <label>사번<input id="loginEmp" autocomplete="username" autocapitalize="characters"></label>
+    <label>PIN 6자리<input id="loginPin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label>
+    <button type="button" class="btn" id="loginBtn">로그인</button>
+    <div class="msg" id="loginMsg"></div>
+  </div>
+</div>
+<div class="overlay" id="dialog" hidden><div class="card wide" id="dialogBody"></div></div>
+<div class="overlay dark" id="viewer" hidden><figure><img id="viewerImg" alt=""><figcaption id="viewerCap"></figcaption></figure><button type="button" class="btn" id="viewerClose">닫기</button></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
+
+<script src="config.js"></script>
+<script src="core.js"></script>
+<script src="queue.js"></script>
+<script src="ocr/legacy-parsers.js"></script>
+<script src="ocr/v26-qty.js"></script>
+<script src="ocr/v26-korean-ocr.js"></script>
+<script src="ocr/v26-vendor-templates.js"></script>
+<script src="ocr/v55-vendor-parser.js"></script>
+<script src="ocr/v55-wms-parser.js"></script>
+<script src="ocr/v55-roi-preprocess.js"></script>
+<script src="ocr/v55-adaptive-ocr.js"></script>
+<script src="ocr/ocr.js"></script>
+<script src="inspect.js"></script>
+<script src="lot.js"></script>
+<script src="report.js"></script>
+<script src="admin.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
