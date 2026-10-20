@@ -64,3 +64,5 @@ jobs:
         run: node tests/v58-field-fast-r14.test.js
       - name: R14.1 queue resilience regression
         run: node tests/v58-save-queue-worker.test.js
+      - name: R14.2 upload isolation regression
+        run: node tests/v58-upload-isolation.test.js
