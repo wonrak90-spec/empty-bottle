@@ -1,0 +1,36 @@
+name: Export Full Project Backup
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/export-full-project-backup.yml'
+  workflow_dispatch:
+
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Build source archive and git history bundle
+        run: |
+          set -e
+          mkdir -p export
+          echo "repository=wonrak90-spec/empty-bottle" > export/BACKUP_METADATA.txt
+          echo "branch=$(git branch --show-current)" >> export/BACKUP_METADATA.txt
+          echo "head=$(git rev-parse HEAD)" >> export/BACKUP_METADATA.txt
+          echo "created_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> export/BACKUP_METADATA.txt
+          git log -1 --pretty=fuller >> export/BACKUP_METADATA.txt
+          git archive --format=zip --output=export/empty-bottle-main-source.zip HEAD
+          git bundle create export/empty-bottle-all-history.bundle --all
+          git branch -a > export/BRANCHES.txt
+          git tag -l > export/TAGS.txt
+      - uses: actions/upload-artifact@v4
+        with:
+          name: empty-bottle-full-project-backup
+          path: export/
+          if-no-files-found: error
+          retention-days: 7
