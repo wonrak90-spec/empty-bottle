@@ -11,7 +11,7 @@
   const DB_VERSION=1;
   const STORE='saveQueue';
   const Q=window.V58SaveQueue={
-    VERSION:'V58-SAVE-QUEUE-1.4',
+    VERSION:'V58-SAVE-QUEUE-1.5-R14.1',
     autoRetryEnabled:false,
     serverCapabilities:{},
     lastError:''
@@ -172,59 +172,131 @@
     }catch(_){return false;}
   };
 
-  Q.retryAll=async function(){
-    // Capability may have been checked before V24 login finished. Re-check at
-    // the moment the operator requests retry so a newly deployed backend is
-    // recognized without reloading the page.
+  // R14.1: 차량 12~14 Pallet 연속 작업용 단일 전송 Worker.
+  // 한 번의 실패가 발생해도 새 Pallet 저장 버튼은 로컬 Queue 적재만 수행하고 계속 진행한다.
+  // 실패 때마다 Queue 전체를 다시 훑어 재전송하던 R13 구조를 제거해 요청 폭주를 막는다.
+  Q._workerPromise=null;
+  Q._kickRequested=false;
+  Q._retryTimer=null;
+  Q._failStreak=0;
+  Q._nextRetryAt=0;
+
+  function backoffMs(streak){
+    const table=[0,2000,5000,12000,30000,60000];
+    return table[Math.min(Math.max(1,Number(streak)||1),table.length-1)];
+  }
+
+  async function ownedRows(){
+    const owner=currentOwner();
+    if(!owner.key)return {owner,rows:[],foreign:0};
+    const all=await Q.listAll();
+    return {
+      owner,
+      rows:all.filter(row=>belongsToCurrent(row,owner)),
+      foreign:all.filter(row=>!belongsToCurrent(row,owner)).length
+    };
+  }
+
+  async function sendOldestOne(){
     if(!Q.canAutoRetry()){
       try{await Q.detectCapabilities();}catch(_){}
     }
-    if(!Q.canAutoRetry())return {ok:false,message:'운영 서버의 중복저장 방지 패치가 아직 활성화되지 않아 자동 재전송을 잠가두었습니다.'};
-    const owner=currentOwner();
-    if(!owner.key)return {ok:false,message:'로그인 작업자를 확인할 수 없어 미전송 저장을 재전송하지 않습니다.'};
-    const all=await Q.listAll(),rows=all.filter(row=>belongsToCurrent(row,owner));
-    const foreign=all.length-rows.length;
-    let ok=0,failed=0;
-    for(const row of rows){
-      try{
-        if(!row.ownerKey){
-          row.ownerKey=owner.key;row.ownerName=owner.name;row.updatedAt=Date.now();
-          await tx('readwrite',s=>s.put(row));
-        }
-        await Q.markSending(row.requestId);
-        const res=await apiPost('saveSingle',row.payload);
-        if(res&&res.ok){await Q.confirm(row.requestId,res);ok++;}
-        else{await Q.markPending(row.requestId,res&&res.message||'서버 저장 실패');failed++;}
-      }catch(e){await Q.markPending(row.requestId,String(e&&e.message?e.message:e));failed++;}
+    if(!Q.canAutoRetry())
+      return {ok:false,paused:true,message:'운영 서버의 중복저장 방지 기능 확인 전이라 서버 전송만 대기합니다.'};
+
+    const bag=await ownedRows(),owner=bag.owner;
+    if(!owner.key)
+      return {ok:false,paused:true,message:'로그인 작업자를 확인할 수 없어 서버 전송만 대기합니다.'};
+
+    // sending 상태는 브라우저 중단 후 남을 수 있으므로 pending과 동일하게 재확인한다.
+    const rows=bag.rows.filter(row=>row&&row.status!=='blocked');
+    if(!rows.length)return {ok:true,empty:true,foreign:bag.foreign};
+
+    const row=rows[0];
+    try{
+      if(!row.ownerKey){
+        row.ownerKey=owner.key;row.ownerName=owner.name;row.updatedAt=Date.now();
+        await tx('readwrite',s=>s.put(row));
+      }
+      await Q.markSending(row.requestId);
+      const res=await apiPost('saveSingle',row.payload);
+      if(res&&res.ok){
+        await Q.confirm(row.requestId,res);
+        Q._failStreak=0;Q._nextRetryAt=0;
+        return {ok:true,saved:1,requestId:row.requestId,foreign:bag.foreign};
+      }
+      await Q.markPending(row.requestId,res&&res.message||'서버 저장 실패');
+      Q._failStreak=Math.min(10,(Q._failStreak||0)+1);
+      const delay=backoffMs(Q._failStreak);
+      Q._nextRetryAt=Date.now()+delay;
+      Q.lastError=String(res&&res.message||'서버 저장 실패');
+      return {ok:false,failed:1,retryInMs:delay,message:Q.lastError,requestId:row.requestId};
+    }catch(e){
+      try{await Q.markPending(row.requestId,String(e&&e.message?e.message:e));}catch(_){}
+      Q._failStreak=Math.min(10,(Q._failStreak||0)+1);
+      const delay=backoffMs(Q._failStreak);
+      Q._nextRetryAt=Date.now()+delay;
+      Q.lastError=String(e&&e.message?e.message:e);
+      return {ok:false,failed:1,retryInMs:delay,message:Q.lastError,requestId:row.requestId};
     }
-    Q.renderStatus();
-    return {ok:failed===0,saved:ok,failed,foreign,
-      message:foreign?('다른 작업자 또는 소유자 확인이 필요한 미전송 저장 '+foreign+'건은 재전송하지 않았습니다.'):''
-    };
+  }
+
+  function scheduleRetry(){
+    const wait=Math.max(250,(Q._nextRetryAt||0)-Date.now());
+    if(Q._retryTimer)return;
+    Q._retryTimer=setTimeout(()=>{
+      Q._retryTimer=null;
+      Q.kick().catch(()=>{});
+    },wait);
+  }
+
+  Q.kick=function(force){
+    Q._kickRequested=true;
+    if(Q._workerPromise)return Q._workerPromise;
+
+    if(!force && Q._nextRetryAt && Date.now()<Q._nextRetryAt){
+      scheduleRetry();
+      return Promise.resolve({ok:false,paused:true,retryInMs:Q._nextRetryAt-Date.now(),message:Q.lastError||'재전송 대기'});
+    }
+    if(force){Q._nextRetryAt=0;Q._failStreak=0;if(Q._retryTimer){clearTimeout(Q._retryTimer);Q._retryTimer=null;}}
+
+    Q._workerPromise=(async()=>{
+      let saved=0,last={ok:true};
+      // 한 Worker만 존재하며 매 반복마다 Queue를 다시 읽는다.
+      // 따라서 작업자가 P7/P8을 계속 적재해도 중복 Worker가 생기지 않는다.
+      for(let guard=0;guard<100;guard++){
+        Q._kickRequested=false;
+        if(!force && Q._nextRetryAt && Date.now()<Q._nextRetryAt){scheduleRetry();break;}
+        last=await sendOldestOne();
+        if(last&&last.saved)saved+=last.saved;
+        if(!last||last.empty)break;
+        if(last.ok===false){
+          if(last.retryInMs)scheduleRetry();
+          break;
+        }
+        // 성공 시 즉시 다음 가장 오래된 Pallet 한 건만 이어서 처리한다.
+        // 새 stage()가 동시에 들어와도 다음 loop에서 자연스럽게 포함된다.
+      }
+      try{Q.renderStatus();}catch(_){}
+      return Object.assign({},last||{},{saved});
+    })().finally(()=>{
+      Q._workerPromise=null;
+      // Worker가 종료되는 찰나 새 Pallet이 들어온 race를 놓치지 않는다.
+      if(Q._kickRequested){
+        if(Q._nextRetryAt&&Date.now()<Q._nextRetryAt)scheduleRetry();
+        else setTimeout(()=>Q.kick().catch(()=>{}),0);
+      }
+    });
+    return Q._workerPromise;
   };
 
-  // R13: 여러 Pallet이 빠르게 Queue에 들어와도 서버 저장은 반드시 1개씩 직렬 처리한다.
-  // stage() 중 새 요청이 들어오면 현재 drain 종료 후 한 번 더 실행한다.
-  Q._kickPromise=null;
-  Q._kickAgain=false;
-  Q.kick=function(){
-    Q._kickAgain=true;
-    if(Q._kickPromise)return Q._kickPromise;
-    Q._kickPromise=(async()=>{
-      let result={ok:true,saved:0,failed:0};
-      while(Q._kickAgain){
-        Q._kickAgain=false;
-        result=await Q.retryAll();
-        // 서버 capability 없음/네트워크 실패 시 무한 재시도하지 않고 Queue에 남긴다.
-        if(!result||result.ok===false)break;
-      }
-      return result;
-    })().finally(()=>{
-      Q._kickPromise=null;
-      if(Q._kickAgain)setTimeout(()=>Q.kick().catch(()=>{}),0);
-    });
-    return Q._kickPromise;
+  // 화면의 "미전송 저장 재전송"은 backoff를 한 번 해제하고 Worker를 다시 시작한다.
+  Q.retryAll=async function(){
+    return await Q.kick(true);
   };
+
+  Q._test=Object.assign(Q._test||{},{backoffMs});
+
 
   Q.renderStatus=async function(){
     const el=document.getElementById('v58QueueStatus');if(!el)return;
