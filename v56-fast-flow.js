@@ -14,6 +14,7 @@
     photoUrls:{wms:'',vendor:''},
     uploads:{wms:null,vendor:null},
     lastEvidence:{wms:'',vendor:''},
+    uploadGeneration:{wms:0,vendor:0},
     cycleStarted:0,lastCycleMs:0
   };
   const $=id=>document.getElementById(id);
@@ -119,47 +120,51 @@
     }
   };
 
-  async function preUpload(mode,dataUrl){
+  async function preUpload(mode,dataUrl,generation){
     if(!dataUrl||typeof apiPost!=='function')return '';
     try{
       let image=dataUrl;
-      // Upload evidence is separate from OCR input, so use a slightly lighter file.
-      // This reduces save wait time without changing OCR quality.
       if(typeof shrinkForUpload==='function')image=await shrinkForUpload(dataUrl,1200,.68);
       const now=new Date();
       const y=now.getFullYear(),m=String(now.getMonth()+1).padStart(2,'0'),d=String(now.getDate()).padStart(2,'0');
       const day=''+y+m+d;
+      // 업로드 시작 순간의 입고번호/Pallet을 snapshot으로 잡는다.
+      // 다음 Pallet 화면이 먼저 열려도 사진 폴더 경로가 바뀌지 않는다.
       const inbound=val('inboundNo')||'NOINBOUND';
       const pallet=val('containerFrom')||'NOPALLET';
       const kind=mode==='vendor'?'VENDOR':'WMS';
       const tag=[day,inbound,'P'+pallet,kind,Date.now()].join('_');
       const res=await apiPost('uploadPhoto',{
-        image,
-        name:tag,
-        inboundNo:inbound,
-        palletNo:pallet,
-        photoType:kind,
-        dateKey:day
+        image,name:tag,inboundNo:inbound,palletNo:pallet,photoType:kind,dateKey:day
       });
-      if(res&&res.ok&&res.url){F.photoUrls[mode]=res.url;return res.url;}
+      // 이전 Pallet의 늦은 응답이 다음 Pallet photoUrl을 덮지 못하게 generation으로 격리한다.
+      if(res&&res.ok&&res.url && F.uploadGeneration[mode]===generation && F.lastEvidence[mode]===dataUrl){
+        F.photoUrls[mode]=res.url;
+        return res.url;
+      }
+      return (res&&res.ok&&res.url)||'';
     }catch(_){}
     return '';
   }
   function startUpload(mode,dataUrl){
     if(!dataUrl)return;
-    // 같은 촬영본에 대해 vendor capture + OCR applied 이벤트가 연속으로 들어와
-    // 동일 사진을 두 번 업로드하는 경우가 있었다. 저장 버튼은 두 번째 업로드까지
-    // 기다리게 되어 현장에서 "저장" 시간이 길어졌다. 같은 dataUrl이면 재업로드 금지.
     if(F.lastEvidence[mode]===dataUrl && (F.uploads[mode] || F.photoUrls[mode]))return;
     F.lastEvidence[mode]=dataUrl;
     F.photoUrls[mode]='';
-    const p=preUpload(mode,dataUrl).finally(()=>{if(F.uploads[mode]===p)F.uploads[mode]=null;});
+    const generation=++F.uploadGeneration[mode];
+    const p=preUpload(mode,dataUrl,generation).finally(()=>{
+      if(F.uploadGeneration[mode]===generation && F.uploads[mode]===p)F.uploads[mode]=null;
+    });
     F.uploads[mode]=p;
   }
   F.noteEvidence=function(mode,dataUrl){startUpload(mode==='vendor'?'vendor':'wms',dataUrl);};
-  F.waitForUploads=async function(){
+  F.waitForUploads=async function(maxWaitMs){
     const ps=['wms','vendor'].map(k=>F.uploads[k]).filter(Boolean);
-    if(ps.length)await Promise.allSettled(ps);
+    if(!ps.length)return {ok:true,timedOut:false};
+    const all=Promise.allSettled(ps).then(()=>({ok:true,timedOut:false}));
+    const ms=Math.max(500,Number(maxWaitMs)||4000);
+    const timeout=new Promise(resolve=>setTimeout(()=>resolve({ok:false,timedOut:true}),ms));
+    return await Promise.race([all,timeout]);
   };
 
   function startLive(mode){
@@ -225,7 +230,7 @@
       );
     }
     F.cycleStarted=0;
-    F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};F.lastEvidence={wms:'',vendor:''};
+    F.uploadGeneration.wms++;F.uploadGeneration.vendor++;F.photoUrls={wms:'',vendor:''};F.uploads={wms:null,vendor:null};F.lastEvidence={wms:'',vendor:''};
     try{if(window.V56VendorDistance&&typeof V56VendorDistance.resetForNext==='function')V56VendorDistance.resetForNext();}catch(_){}
     if(F.continuous){
       setTimeout(()=>{
