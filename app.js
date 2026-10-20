@@ -1396,8 +1396,13 @@ async function saveSingleRecord() {
   try {
     if (window.V56FastFlow && typeof V56FastFlow.waitForUploads === 'function') {
       const __uw0 = performance.now();
-      await V56FastFlow.waitForUploads();
+      const __uploadState = await V56FastFlow.waitForUploads(4000);
       __uploadWaitMs = Math.round(performance.now() - __uw0);
+      if(__uploadState&&__uploadState.timedOut){
+        // 사진 원본은 payload fallback으로 Queue에 남긴다.
+        // 네트워크가 느려도 저장 버튼/다음 Pallet 진행을 막지 않는다.
+        window.__V58_UPLOAD_WAIT_TIMEOUT__={at:Date.now(),inboundNo:(document.getElementById('inboundNo')||{}).value||'',palletNo:(document.getElementById('containerFrom')||{}).value||''};
+      }
       // Background vendor OCR may finish while photos upload; never save stale evidence.
       if (!v58Active && document.body.classList.contains('v56-fast') &&
           window.V56VendorDistance &&
