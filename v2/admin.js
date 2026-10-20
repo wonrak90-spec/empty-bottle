@@ -1,15 +1,30 @@
-/* R15 관리 탭 (관리자만): 품목 기준정보, 주간제조계획표 링크, 사용자, 삭제 기록 복구 */
+/* R15 관리 탭 (중간관리자 이상): 품목 기준정보, 주간제조계획표 링크, 삭제 기록 복구, 변경 이력. 사용자 관리는 관리자만. */
 (function () {
   'use strict';
   const R = window.R15, { $, esc } = R.util;
-  const A = R.admin = { sub: 'items', items: [], plan: null, users: [], deleted: [] };
+  const A = R.admin = { sub: 'audit', items: [], plan: null, users: [], deleted: [], audit: [], q: '' };
+  const SUBS = [['audit', '변경 이력', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3]];
 
   function render() {
     const root = $('adminView'); if (!root) return;
-    if (!R.isAdmin()) { root.innerHTML = '<section><div class="muted">관리자 계정으로 로그인해야 볼 수 있습니다.</div></section>'; return; }
-    root.innerHTML = `<section style="padding:10px 14px"><div class="tabs" id="admSub">${[['items', '품목·별칭'], ['plan', '제조계획 링크'], ['users', '사용자'], ['deleted', '삭제 기록']].map(([v, t]) => `<button type="button" data-a="${v}" aria-pressed="${A.sub === v}">${t}</button>`).join('')}</div></section><div id="admBody"><div class="muted pad">불러오는 중…</div></div>`;
+    if (!R.isManager()) { root.innerHTML = '<section><div class="muted">중간관리자 이상 계정으로 로그인해야 볼 수 있습니다.</div></section>'; return; }
+    const subs = SUBS.filter((x) => R.rank() >= x[2]); if (!subs.some((x) => x[0] === A.sub)) A.sub = subs[0][0];
+    root.innerHTML = `<section style="padding:10px 14px"><div class="tabs" id="admSub">${subs.map(([v, t]) => `<button type="button" data-a="${v}" aria-pressed="${A.sub === v}">${t}</button>`).join('')}</div></section><div id="admBody"><div class="muted pad">불러오는 중…</div></div>`;
     document.querySelectorAll('#admSub [data-a]').forEach((b) => { b.onclick = () => { A.sub = b.dataset.a; render(); }; });
-    ({ items: items, plan: plan, users: users, deleted: deleted })[A.sub]();
+    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit })[A.sub]();
+  }
+
+  /* ---------- 변경 이력 ---------- */
+  async function audit() {
+    const r = await R.tryGet('r15Audit', { q: A.q }); A.audit = r && r.items || [];
+    $('admBody').innerHTML = `<section><div class="shead"><h2>변경 이력</h2><span class="sub">기록 수정·삭제·되살리기, 투입 취소, 품목·사용자 변경. 최근 300건</span></div>
+      <div class="searchrow"><input id="auQ" type="search" value="${esc(A.q)}" placeholder="입고번호, 이름, 사유로 찾기" enterkeyhint="search"><button type="button" class="btn ghost" id="auGo">찾기</button></div>
+      <div class="list">${A.audit.map((a, i) => `<div class="row"><span><b>${esc(a.label)}</b> ${a.inboundNo ? `${esc(a.inboundNo)} P${esc(a.pallet || '?')}` : `<span class="muted">${esc(a.recordId)}</span>`} <span class="muted">${esc(a.atText)} · ${esc(a.actor)}${a.reason ? ' · ' + esc(a.reason) : ''}</span>
+        ${a.label === '수정' ? `<span class="sub">${esc(Object.keys(a.changes || {}).filter((k) => k !== 'containerTo').map((k) => `${k}: ${a.changes[k].before ?? ''} → ${a.changes[k].after ?? ''}`).join(' · '))}</span>` : ''}</span>
+        ${a.inboundNo ? `<button type="button" class="btn ghost sm" data-au="${i}">이력</button>` : ''}</div>`).join('') || '<div class="muted">없음</div>'}</div></section>`;
+    $('auGo').onclick = () => { A.q = $('auQ').value.trim(); audit(); };
+    $('auQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('auGo').click(); });
+    document.querySelectorAll('[data-au]').forEach((b) => { b.onclick = () => { const a = A.audit[Number(b.dataset.au)]; R.rec.history({ id: a.recordId, inboundNo: a.inboundNo, pallet: a.pallet }); }; });
   }
 
   /* ---------- 품목 ---------- */
@@ -77,22 +92,28 @@
   async function users() {
     const r = await R.tryPost('listUsers', {}); A.users = r && r.items || [];
     $('admBody').innerHTML = `<section><div class="shead"><h2>사용자</h2></div>
-      <div class="list">${A.users.map((u, i) => `<div class="row"><span><b>${esc(u.name)}</b> <span class="muted">${esc(u.employeeNo)} · ${esc(u.department || '')} · ${u.role === 'admin' ? '관리자' : '작업자'} · 최근 ${esc(u.lastLogin || '-')}</span></span>
-        <span>${R.pill(u.status === 'ACTIVE' ? 'ok' : 'idle', u.status === 'ACTIVE' ? '사용' : '중지')} <button type="button" class="btn ghost sm" data-pin="${i}">PIN 초기화</button> <button type="button" class="btn ghost sm" data-st="${i}">${u.status === 'ACTIVE' ? '중지' : '다시 사용'}</button></span></div>`).join('')}</div>
+      <div class="list">${A.users.map((u, i) => `<div class="row"><span><b>${esc(u.name)}</b> <span class="muted">${esc(u.employeeNo)} · ${esc(u.department || '')} · 최근 ${esc(u.lastLogin || '-')}</span></span>
+        <span class="ract"><select data-urole="${i}" aria-label="${esc(u.name)} 권한">${roleOpts(R.roleOf(u.role))}</select>${R.pill(u.status === 'ACTIVE' ? 'ok' : 'idle', u.status === 'ACTIVE' ? '사용' : '중지')} <button type="button" class="btn ghost sm" data-pin="${i}">PIN 초기화</button> <button type="button" class="btn ghost sm" data-st="${i}">${u.status === 'ACTIVE' ? '중지' : '다시 사용'}</button></span></div>`).join('')}</div>
+      <details><summary>권한별로 할 수 있는 일</summary><div class="scroll"><table class="mt permt"><tbody>${Object.keys(R.ROLES).map((k) => `<tr><td>${esc(R.roleName(k))}</td><td>${R.CAN[k].map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div></details>
       <h3>사용자 추가</h3><div class="grid g2"><label>사번<input id="nuEmp"></label><label>이름<input id="nuName"></label><label>부서<input id="nuDept"></label>
-      <label>권한<select id="nuRole"><option value="worker">작업자</option><option value="admin">관리자</option></select></label></div>
+      <label>권한<select id="nuRole">${roleOpts('worker')}</select></label></div>
       <div><button type="button" class="btn" id="nuAdd">추가</button></div></section>`;
+    document.querySelectorAll('[data-urole]').forEach((sel) => { sel.onchange = async () => { const u = A.users[Number(sel.dataset.urole)], to = sel.value;
+      if (!confirm(`${u.name}의 권한을 ${R.roleName(to)}(으)로 바꿀까요? 바꾸면 그 사람은 다시 로그인해야 합니다.`)) { sel.value = R.roleOf(u.role); return; }
+      const r = await R.tryPost('updateUser', { userId: u.userId, role: to }); if (r && r.ok) { R.toast('권한을 바꿨습니다', 'ok'); users(); } else sel.value = R.roleOf(u.role); }; });
     document.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = async () => { const u = A.users[Number(b.dataset.pin)]; if (!confirm(`${u.name}의 PIN을 초기화할까요?`)) return; const r = await R.tryPost('resetUserPin', { userId: u.userId }); if (r && r.ok) alert(`${u.name} 임시 PIN: ${r.tempPin}\n본인에게 전달하세요.`); }; });
     document.querySelectorAll('[data-st]').forEach((b) => { b.onclick = async () => { const u = A.users[Number(b.dataset.st)]; const r = await R.tryPost('updateUser', { userId: u.userId, status: u.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); if (r && r.ok) users(); }; });
     $('nuAdd').onclick = async () => { const r = await R.tryPost('createUser', { employeeNo: $('nuEmp').value, name: $('nuName').value, department: $('nuDept').value, role: $('nuRole').value }); if (r && r.ok) { alert(`추가했습니다. 임시 PIN: ${r.tempPin}`); users(); } };
   }
 
+  function roleOpts(cur) { return Object.keys(R.ROLES).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(R.roleName(k))}</option>`).join(''); }
+
   /* ---------- 삭제 기록 ---------- */
   async function deleted() {
     const r = await R.tryGet('listDeletedRecords'); A.deleted = r && (r.items || r.records) || [];
-    $('admBody').innerHTML = `<section><div class="shead"><h2>삭제한 기록</h2><span class="sub">보고서에서 지운 중복 기록 등. 복구하면 다시 보고서에 나옵니다.</span></div>
-      <div class="list">${A.deleted.map((x, i) => `<div class="row"><span><b>${esc(x.inboundNo || '')}</b> ${esc(x.product || '')} <span class="muted">${esc(new Date(x.deletedAt).toLocaleString('ko-KR'))} · ${esc(x.reason || '')} · ${esc(x.actor || '')}</span></span><button type="button" class="btn ghost sm" data-rs="${i}">복구</button></div>`).join('') || '<div class="muted">없음</div>'}</div></section>`;
-    document.querySelectorAll('[data-rs]').forEach((b) => { b.onclick = async () => { const x = A.deleted[Number(b.dataset.rs)]; const reason = prompt('복구 사유'); if (!reason) return; const r = await R.tryPost('restoreRecords', { ids: [x.id], reason }); if (r && r.ok) { R.toast('복구했습니다', 'ok'); deleted(); } }; });
+    $('admBody').innerHTML = `<section><div class="shead"><h2>삭제 보관함</h2><span class="sub">지운 기록은 여기 남습니다. 되살리면 다시 보고서·재고에 나옵니다.</span></div>
+      <div class="list">${A.deleted.map((x, i) => `<div class="row"><span><b>${esc(x.inboundNo || '')}</b> ${esc(x.product || '')} <span class="muted">${esc(new Date(x.deletedAt).toLocaleString('ko-KR'))} · ${esc(x.reason || '')} · ${esc(x.actor || '')}</span></span><button type="button" class="btn ghost sm" data-rs="${i}">되살리기</button></div>`).join('') || '<div class="muted">없음</div>'}</div></section>`;
+    document.querySelectorAll('[data-rs]').forEach((b) => { b.onclick = async () => { const x = A.deleted[Number(b.dataset.rs)]; R.rec.restore(x.id, () => { deleted(); if (R.report.reload) R.report.reload(); }); }; });
   }
 
   A.show = render;

@@ -3,14 +3,20 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
 
+  // 권한별로 보이는 탭: 조회=추적·보고서, 작업자=+검수·투입, 중간관리자 이상=+관리
+  const allowed = (tab) => { const b = document.querySelector(`#nav [data-tab="${tab}"]`); return !!b && R.rank() >= Number(b.dataset.min || 0); };
+  function applyNav() {
+    document.querySelectorAll('#nav [data-tab]').forEach((b) => { b.hidden = !!R.user && R.rank() < Number(b.dataset.min || 0); });
+  }
   function showTab(tab) {
-    if (tab === 'admin' && !R.isAdmin()) tab = 'inspect';
+    if (R.user && !allowed(tab)) tab = R.rank() >= 1 ? 'inspect' : 'report';
     document.body.dataset.tab = tab;
     document.querySelectorAll('#nav [data-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
     try { localStorage.setItem('r15.tab', tab); } catch (_) {}
     if (tab === 'lot') R.lot.show();
     if (tab === 'report') R.report.show();
+    if (tab === 'inspect' && R.rec) R.rec.loadMine();
     if (tab === 'admin') R.admin.show();
     window.scrollTo({ top: 0 });
   }
@@ -47,6 +53,35 @@
     $('jDel').onclick = async () => { if (!confirm('이 건을 버리면 사진과 입력값이 단말에서 지워집니다. 버릴까요?')) return; await R.queue.remove(j.id); $('dialog').hidden = true; };
   };
 
+  // 내 정보: 이름·권한·할 수 있는 일, PIN 변경, 로그아웃
+  const CAN = {
+    viewer: ['보고서·추적 보기', '인쇄·엑셀(CSV) 내려받기'],
+    worker: ['입고 검수 저장', '생산 투입', '내가 오늘 저장한 기록 고치기·지우기·되살리기 (생산 투입 전까지)', '보고서·추적 보기'],
+    manager: ['작업자가 하는 모든 일', '모든 기록 고치기·지우기·되살리기', '종료된 생산 작업의 투입 취소', '품목 기준정보·제조계획 링크 관리', '변경 이력 보기'],
+    admin: ['중간관리자가 하는 모든 일', '사용자 추가·권한 변경·PIN 초기화·사용 중지']
+  };
+  R.CAN = CAN;
+  function meDialog() {
+    if (!R.user) return R.showLogin();
+    const u = R.user, role = R.roleOf(u.role);
+    $('dialogBody').innerHTML = `<h3>내 정보</h3>
+      <div class="me-grid"><span>이름</span><b>${esc(u.name)}</b><span>사번</span><span>${esc(u.employeeNo || '')}</span><span>부서</span><span>${esc(u.department || '-')}</span><span>권한</span><b>${esc(R.roleName(role))}</b></div>
+      <div class="sub">이 권한으로 할 수 있는 일</div><ul class="canlist">${CAN[role].map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      <div class="sub">권한을 바꾸려면 관리자에게 요청하세요.</div>
+      <details><summary>PIN 바꾸기</summary><div class="grid g2"><label>지금 PIN<input id="mePin0" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label><label>새 PIN 6자리<input id="mePin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>
+        <button type="button" class="btn ghost" id="mePinGo">PIN 바꾸기</button></details>
+      <div class="savebar"><button type="button" class="btn ghost" id="meOut">로그아웃</button><button type="button" class="btn ghost sm" id="meClose">닫기</button></div>`;
+    $('dialog').hidden = false;
+    $('meClose').onclick = () => { $('dialog').hidden = true; };
+    $('meOut').onclick = () => { const s = R.queue.summary(); if (!confirm(((s.pending || 0) + (s.sending || 0)) ? '아직 서버에 안 올라간 저장이 있습니다. 다시 로그인하면 이어서 보냅니다. 로그아웃할까요?' : '로그아웃할까요?')) return; $('dialog').hidden = true; R.logout(); };
+    $('mePinGo').onclick = async () => {
+      const a = $('mePin0').value.trim(), b = $('mePin1').value.trim();
+      if (!/^\d{6}$/.test(b)) return R.toast('새 PIN은 숫자 6자리입니다', 'crit');
+      const r = await R.tryPost('changeMyPin', { oldPin: a, newPin: b });
+      if (r && r.ok) { $('dialog').hidden = true; alert('PIN을 바꿨습니다. 새 PIN으로 다시 로그인하세요.'); R.logout(); }
+    };
+  }
+
   function queueDialog() {
     const list = R.queue.list((j) => j.state !== 'done').concat(R.queue.list((j) => j.state === 'done').slice(-20).reverse());
     $('dialogBody').innerHTML = `<h3>이 폰의 저장 대기열</h3>
@@ -64,12 +99,13 @@
     R.initPrefs();
     document.querySelectorAll('#nav [data-tab]').forEach((b) => { b.onclick = () => showTab(b.dataset.tab); });
     $('qChip').onclick = queueDialog;
-    $('roleChip').onclick = () => { if (R.user && confirm('로그아웃할까요? 단말 보관 중인 저장은 다시 로그인하면 이어서 보냅니다.')) R.logout(); };
+    $('roleChip').onclick = meDialog;
     $('viewerClose').onclick = $('viewer').onclick = (e) => { if (e.target.id === 'viewerImg') return; $('viewer').hidden = true; };
     $('dialog').addEventListener('click', (e) => { if (e.target.id === 'dialog') $('dialog').hidden = true; });
     $('foot').textContent = `새 화면 ${window.R15_CONFIG.RELEASE} · 기존 화면은 상위 주소에서 그대로 사용 가능`;
     R.on('queue', queueChip);
-    R.on('login', () => { R.queue.kick(); R.ocr.warmup(); showTab(document.body.dataset.tab); });
+    R.on('role', applyNav);
+    R.on('login', () => { R.queue.kick(); R.ocr.warmup(); applyNav(); showTab(document.body.dataset.tab); });
     await R.queue.init();
     R.inspect.init(); R.lot.init(); R.trace.init(); R.report.init();
     let tab = 'inspect'; try { tab = localStorage.getItem('r15.tab') || 'inspect'; } catch (_) {}
@@ -78,7 +114,11 @@
     R.boot();
     // 저장하지 않은 단말 보관 건이 있으면 창을 닫기 전에 알린다
     window.addEventListener('beforeunload', (e) => { const s = R.queue.summary(); if ((s.pending || 0) + (s.sending || 0) > 0 && R.queue.store && R.queue.store.kind === 'memory') { e.preventDefault(); e.returnValue = ''; } });
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if ('serviceWorker' in navigator) {
+      const had = !!navigator.serviceWorker.controller;
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (had) R.toast('새 버전을 받았습니다. 화면을 새로 고치면 적용됩니다', 'ok'); });
+      navigator.serviceWorker.register('sw.js').catch(() => {});
+    }
   });
   function showTabSafe(tab) { document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; }); document.querySelectorAll('#nav [data-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === tab))); }
 })();

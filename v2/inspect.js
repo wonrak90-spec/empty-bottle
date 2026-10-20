@@ -334,4 +334,5 @@
   R.on('login', () => { loadItems().then(render); if (S.base) refreshSaved(); });
   R.inspect.init = function () { load(); render(); };
   R.inspect.render = render;
+  R.inspect.refreshSaved = refreshSaved;
 })();

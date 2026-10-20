@@ -98,7 +98,7 @@
       <div class="shead"><h2>투입 내역</h2></div>
       <div class="list">${pend.map((x) => `<div class="row"><span><b>${esc(x.inboundNo)}</b> P${esc(x.pallet)}</span><span>${R.pill(x.state === 'blocked' ? 'error' : 'warn', x.state === 'blocked' ? '확인 필요' : '단말 보관')} ${x.state === 'blocked' ? `<button type="button" class="btn ghost sm" data-job="${esc(x.jobId)}">처리</button>` : ''}</span></div>`).join('')}
         ${used.slice().reverse().map((x) => `<div class="row"><span><b>${esc(x.inboundNo)}</b> P${esc(x.pallet)} <span class="muted">${esc(x.product || '')} · ${fmt(x.qty)}</span></span>
-          <span>${x.unverified ? R.pill('error', '미검수 투입') : R.pill('ok', '서버 완료')} <span class="muted">${esc((x.at || '').slice(11))}</span> ${closed ? '' : `<button type="button" class="btn ghost sm" data-rm="${esc(x.inboundNo)}|${esc(x.pallet)}" aria-label="투입 취소">취소</button>`}</span></div>`).join('') || (pend.length ? '' : '<div class="muted">아직 투입한 Pallet가 없습니다.</div>')}</div>
+          <span>${x.unverified ? R.pill('error', '미검수 투입') : R.pill('ok', '서버 완료')} <span class="muted">${esc((x.at || '').slice(11))}</span> ${closed && !R.isManager() ? '' : `<button type="button" class="btn ghost sm" data-rm="${esc(x.inboundNo)}|${esc(x.pallet)}" aria-label="투입 취소">취소</button>`}</span></div>`).join('') || (pend.length ? '' : '<div class="muted">아직 투입한 Pallet가 없습니다.</div>')}</div>
     </section>
     ${closed ? '' : `<div class="savebar"><button type="button" class="btn" id="lotAdd" ${L.sel.size ? '' : 'disabled'}>선택 ${L.sel.size}개 투입</button><button type="button" class="btn ghost sm" id="lotFinish">작업 종료</button></div>`}`;
   }

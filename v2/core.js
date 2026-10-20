@@ -119,12 +119,19 @@
   }
   R.logout = logout;
 
+  // 권한 4단계 (서버 ROLE_RANK_V24와 같다). 예전 계정의 빈 값은 작업자.
+  R.ROLES = { viewer: [0, '조회'], worker: [1, '작업자'], manager: [2, '중간관리자'], admin: [3, '관리자'] };
+  R.roleOf = (role) => (R.ROLES[role] ? role : 'worker');
+  R.roleName = (role) => R.ROLES[R.roleOf(role)][1];
+  R.rank = () => (R.user ? R.ROLES[R.roleOf(R.user.role)][0] : -1);
   function applyUser(u) {
     R.user = u || null;
-    document.body.dataset.role = u ? (u.role === 'admin' ? 'admin' : 'worker') : 'guest';
-    const chip = $('roleChip'); if (chip) chip.textContent = u ? `${u.name} · ${u.role === 'admin' ? '관리자' : '작업자'}` : '로그인 전';
+    document.body.dataset.role = u ? R.roleOf(u.role) : 'guest';
+    const chip = $('roleChip'); if (chip) chip.textContent = u ? `${u.name} · ${R.roleName(u.role)}` : '로그인 전';
+    R.emit('role', u);
   }
-  R.isAdmin = () => !!(R.user && R.user.role === 'admin');
+  R.isAdmin = () => R.rank() >= 3;
+  R.isManager = () => R.rank() >= 2;
 
   R.boot = async function () {
     $('loginBtn').onclick = doLogin;

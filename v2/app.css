@@ -43,7 +43,21 @@ tr.lv-error td:first-child{box-shadow:inset 4px 0 0 var(--crit)}tr.lv-warn td:fi
 .tabs button{border:2px solid transparent;background:transparent;color:var(--ink);border-radius:10px;padding:7px 14px;font:inherit;font-size:13.5px;cursor:pointer;display:flex;gap:6px;align-items:center}
 .tabs button[aria-pressed="true"]{background:var(--surface);border-color:var(--brand);font-weight:700}
 .nav .s{display:none}
-body:not([data-role=admin]) .nav .adm{display:none}
+/* 권한별 탭: 버튼의 data-min보다 낮은 권한이면 숨긴다 (app.js가 hidden을 붙임) */
+.nav [hidden]{display:none!important}
+.ract{display:inline-flex;gap:6px;flex-wrap:wrap;align-items:center}
+.ract select{width:auto;min-width:0;padding:6px 10px}
+.btn.danger{background:var(--crit);border-color:var(--crit);color:#fff}
+.small{font-size:12px}
+ol.hist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:10px}
+ol.hist li{border-left:3px solid var(--line);padding:4px 0 4px 12px;display:flex;flex-direction:column;gap:2px}
+ol.hist li.h-수정{border-color:var(--warn)} ol.hist li.h-삭제{border-color:var(--crit)} ol.hist li.h-복구{border-color:var(--good)}
+ol.hist s{color:var(--ink3)}
+details.mine summary{cursor:pointer;font-size:15px}
+.permt td,.permt th{vertical-align:top}
+.permt td:first-child{white-space:nowrap;font-weight:700}
+.me-grid{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;font-size:14px}
+.me-grid span:nth-child(odd){color:var(--ink2)}
 .cnt2{background:var(--crit);color:#fff;border-radius:999px;padding:0 6px;font-size:11px}
 .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:12px 14px}

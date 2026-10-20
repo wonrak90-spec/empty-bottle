@@ -23,20 +23,21 @@
       <button type="button" class="qchip" id="qChip" aria-label="저장 대기열 보기">대기열</button>
       <span class="fz" role="group" aria-label="글씨 크기"><button type="button" data-fz="-1" aria-label="글씨 작게">가−</button><button type="button" data-fz="0" aria-label="기본 크기">가</button><button type="button" data-fz="1" aria-label="글씨 크게">가+</button></span>
       <span class="fz"><button type="button" id="thBtn">어두운 모드</button></span>
-      <button type="button" class="role" id="roleChip" title="눌러서 로그아웃">로그인 전</button>
+      <button type="button" class="role" id="roleChip" title="내 정보 · PIN 변경 · 로그아웃">로그인 전</button>
     </div>
   </header>
 
   <nav class="tabs nav" id="nav">
-    <button type="button" data-tab="inspect"><span class="l">1. 입고 검수</span><span class="s">검수</span></button>
-    <button type="button" data-tab="lot"><span class="l">2. 생산 투입</span><span class="s">투입</span></button>
-    <button type="button" data-tab="trace"><span class="l">3. 추적</span><span class="s">추적</span></button>
-    <button type="button" data-tab="report"><span class="l">4. 보고서</span><span class="s">보고서</span></button>
-    <button type="button" data-tab="admin" class="adm"><span class="l">5. 관리</span><span class="s">관리</span></button>
+    <button type="button" data-tab="inspect" data-min="1"><span class="l">1. 입고 검수</span><span class="s">검수</span></button>
+    <button type="button" data-tab="lot" data-min="1"><span class="l">2. 생산 투입</span><span class="s">투입</span></button>
+    <button type="button" data-tab="trace" data-min="0"><span class="l">3. 추적</span><span class="s">추적</span></button>
+    <button type="button" data-tab="report" data-min="0"><span class="l">4. 보고서</span><span class="s">보고서</span></button>
+    <button type="button" data-tab="admin" data-min="2" class="adm"><span class="l">5. 관리</span><span class="s">관리</span></button>
   </nav>
 
   <main>
     <div class="page" data-page="inspect" id="inspectView"></div>
+    <div class="page" data-page="inspect" id="mineView" hidden></div>
     <div class="page" data-page="lot" id="lotView" hidden></div>
     <div class="page" data-page="trace" id="traceView" hidden></div>
     <div class="page" data-page="report" id="reportView" hidden></div>
@@ -73,6 +74,7 @@
 <script src="ocr/ocr.js"></script>
 <script src="inspect.js"></script>
 <script src="lot.js"></script>
+<script src="records.js"></script>
 <script src="report.js"></script>
 <script src="admin.js"></script>
 <script src="app.js"></script>

@@ -235,7 +235,8 @@ function doGet(e) {
     if (action === 'securityInfo') return jsonOut_(securityInfoV24_());
 
     const session = (e && e.parameter && (e.parameter.session || e.parameter.token)) || '';
-    const needRole = (action === 'dbStatus' || action === 'listDeletedRecords' || action === 'r15Audit') ? 'admin' : 'worker';
+    // 읽기는 조회 권한부터. 삭제 보관함·변경 이력은 중간관리자, DB 상태는 관리자.
+    const needRole = action === 'dbStatus' ? 'admin' : (action === 'listDeletedRecords' || action === 'r15Audit') ? 'manager' : 'viewer';
     const auth = authorizeSessionV24_(session, needRole);
     if (!auth.ok) return jsonOut_(auth);
 
@@ -275,8 +276,12 @@ function doPost(e) {
     if (action === 'authLogin') return jsonOut_(authLoginV24_(body.payload || {}));
 
     const session = body.session || body.token || '';
-    const adminActions = ['deleteRecord','updateRecord','softDeleteRecords','restoreRecords','dbStatus','listUsers','createUser','updateUser','resetUserPin','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
-    const auth = authorizeSessionV24_(session, adminActions.indexOf(action) >= 0 ? 'admin' : 'worker');
+    // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
+    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin'];
+    const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
+    const viewerActions = ['authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
+    const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
+    const auth = authorizeSessionV24_(session, needRole);
     if (!auth.ok) return jsonOut_(auth);
 
     if (action === 'authLogout') return jsonOut_(authLogoutV24_(session));
@@ -449,8 +454,8 @@ function userRowByIdV24_(ss,userId){
   return hit?{sheet:sh,row:hit.getRow(),values:sh.getRange(hit.getRow(),1,1,USER_HEADERS.length).getValues()[0]}:null;
 }
 function publicUserFromRowV24_(row){const i=userIdxV24_();return {userId:row[i['User ID']],employeeNo:row[i['사번']],name:row[i['이름']],department:row[i['부서']],role:row[i['권한']],status:row[i['상태']]};}
-function publicUserV24_(auth){return {userId:auth.userId||'',employeeNo:auth.employeeNo||'',name:auth.name||'',department:auth.department||'',role:auth.role||'worker'};}
-function actorLabelV24_(auth){return [auth.employeeNo||'',auth.name||'',auth.role?'('+auth.role+')':''].filter(Boolean).join(' ');}
+function publicUserV24_(auth){return {userId:auth.userId||'',employeeNo:auth.employeeNo||'',name:auth.name||'',department:auth.department||'',role:roleOfV24_(auth.role)};}
+function actorLabelV24_(auth){return [auth.employeeNo||'',auth.name||'',auth.role?'('+roleLabelV24_(auth.role)+')':''].filter(Boolean).join(' ');}
 function setupSecurityV24(){
   const ss=getSs_(),props=PropertiesService.getScriptProperties();
   ensureSheet_(ss,'Users',USER_HEADERS);ensureSheet_(ss,'Sessions',SESSION_HEADERS);
@@ -506,8 +511,15 @@ function authorizeSessionV24_(token,needRole){
   try{const raw=CacheService.getScriptCache().get('V24SESS_'+hash);if(raw)auth=JSON.parse(raw);}catch(e){}
   const ss=getSs_();
   if(!auth){const sh=ss.getSheetByName('Sessions');if(!sh||sh.getLastRow()<2)return {ok:false,code:'AUTH_REQUIRED',message:'로그인 세션이 없습니다.'};const hit=sh.getRange(2,1,sh.getLastRow()-1,1).createTextFinder(hash).matchEntireCell(true).findNext();if(!hit)return {ok:false,code:'AUTH_REQUIRED',message:'로그인 세션이 만료되었습니다.'};const si=sessionIdxV24_(),r=sh.getRange(hit.getRow(),1,1,SESSION_HEADERS.length).getValues()[0],exp=r[si['만료일시']] instanceof Date?r[si['만료일시']]:new Date(r[si['만료일시']]||0);if(String(r[si['상태']])!=='ACTIVE'||isNaN(exp.getTime())||exp.getTime()<Date.now())return {ok:false,code:'AUTH_REQUIRED',message:'로그인 세션이 만료되었습니다.'};const u=userRowByIdV24_(ss,r[si['User ID']]);if(!u)return {ok:false,code:'AUTH_REQUIRED',message:'사용자 계정을 찾을 수 없습니다.'};const ui=userIdxV24_(),ur=u.values;if(String(ur[ui['상태']])!=='ACTIVE')return {ok:false,code:'AUTH_REQUIRED',message:'사용 중지된 계정입니다.'};auth={ok:true,userId:ur[ui['User ID']],employeeNo:ur[ui['사번']],name:ur[ui['이름']],department:ur[ui['부서']],role:ur[ui['권한']],expiresAt:exp.getTime()};sh.getRange(hit.getRow(),si['최종사용']+1).setValue(new Date());cacheSessionV24_(hash,auth);}
-  if(Number(auth.expiresAt)<Date.now())return {ok:false,code:'AUTH_REQUIRED',message:'로그인 세션이 만료되었습니다.'};if(needRole==='admin'&&auth.role!=='admin')return {ok:false,code:'ADMIN_REQUIRED',message:'관리자 권한이 필요한 작업입니다.'};return auth;
+  if(Number(auth.expiresAt)<Date.now())return {ok:false,code:'AUTH_REQUIRED',message:'로그인 세션이 만료되었습니다.'};if(roleRankV24_(auth.role)<roleRankV24_(needRole))return {ok:false,code:needRole==='admin'?'ADMIN_REQUIRED':'ROLE_REQUIRED',message:roleLabelV24_(needRole)+' 이상 권한이 필요한 작업입니다.'};return auth;
 }
+// 권한 4단계. 예전 계정의 빈 값이나 모르는 값은 작업자로 본다.
+const ROLE_RANK_V24 = { viewer:0, worker:1, manager:2, admin:3 };
+const ROLE_LABEL_V24 = { viewer:'조회', worker:'작업자', manager:'중간관리자', admin:'관리자' };
+function roleOfV24_(role){ role = String(role || '').trim(); return Object.prototype.hasOwnProperty.call(ROLE_RANK_V24, role) ? role : 'worker'; }
+function roleRankV24_(role){ return ROLE_RANK_V24[roleOfV24_(role)]; }
+function roleLabelV24_(role){ return ROLE_LABEL_V24[roleOfV24_(role)]; }
+function atLeastV24_(auth, role){ return !!auth && roleRankV24_(auth.role) >= roleRankV24_(role); }
 function authLogoutV24_(token){const hash=sha256V24_(String(token||''));try{CacheService.getScriptCache().remove('V24SESS_'+hash);}catch(e){}try{const ss=getSs_(),sh=ss.getSheetByName('Sessions');if(sh&&sh.getLastRow()>=2){const hit=sh.getRange(2,1,sh.getLastRow()-1,1).createTextFinder(hash).matchEntireCell(true).findNext();if(hit)sh.getRange(hit.getRow(),9).setValue('REVOKED');}}catch(e){}return {ok:true};}
 // 로그인은 유지하되 캐시만 비운다 (이름·부서가 바뀐 경우, 다음 요청에서 새 값을 읽도록)
 function refreshUserSessionCacheV24_(ss,userId){
@@ -524,8 +536,8 @@ function revokeUserSessionsV24_(ss,userId){const sh=ss.getSheetByName('Sessions'
 function cleanupSessionsV24_(){try{const ss=getSs_(),sh=ss.getSheetByName('Sessions');if(!sh||sh.getLastRow()<2)return;const si=sessionIdxV24_(),vals=sh.getRange(2,1,sh.getLastRow()-1,SESSION_HEADERS.length).getValues(),cut=Date.now()-30*24*60*60*1000,del=[];vals.forEach(function(r,n){const exp=r[si['만료일시']] instanceof Date?r[si['만료일시']]:new Date(r[si['만료일시']]||0);if((!isNaN(exp.getTime())&&exp.getTime()<Date.now())||String(r[si['상태']])!=='ACTIVE'){const issued=r[si['발급일시']] instanceof Date?r[si['발급일시']]:new Date(r[si['발급일시']]||0);if(!isNaN(issued.getTime())&&issued.getTime()<cut)del.push(n+2);}});del.sort(function(a,b){return b-a;}).forEach(function(r){sh.deleteRow(r);});}catch(e){}}
 function activeAdminCountV24_(ss){const sh=ss.getSheetByName('Users'),i=userIdxV24_();if(!sh||sh.getLastRow()<2)return 0;return sh.getRange(2,1,sh.getLastRow()-1,USER_HEADERS.length).getValues().filter(function(r){return String(r[i['권한']])==='admin'&&String(r[i['상태']])==='ACTIVE';}).length;}
 function listUsersV24_(auth){if(!auth||auth.role!=='admin')return {ok:false,code:'ADMIN_REQUIRED',message:'관리자 권한이 필요합니다.'};const ss=getSs_(),sh=ss.getSheetByName('Users'),i=userIdxV24_(),items=[];if(sh.getLastRow()>=2)sh.getRange(2,1,sh.getLastRow()-1,USER_HEADERS.length).getValues().forEach(function(r){items.push({userId:r[i['User ID']],employeeNo:r[i['사번']],name:r[i['이름']],department:r[i['부서']],role:r[i['권한']],status:r[i['상태']],lastLogin:r[i['최근로그인']] instanceof Date?Utilities.formatDate(r[i['최근로그인']],'Asia/Seoul','yyyy-MM-dd HH:mm'):String(r[i['최근로그인']]||'')});});return {ok:true,items:items};}
-function createUserV24_(p,auth){const ss=getSs_(),emp=normalizeEmployeeV24_(p.employeeNo),name=String(p.name||'').trim(),dept=String(p.department||'').trim(),role=String(p.role||'worker')==='admin'?'admin':'worker';if(!emp||!name)return {ok:false,message:'사번과 이름은 필수입니다.'};if(userRowByEmployeeV24_(ss,emp))return {ok:false,message:'이미 등록된 사번입니다.'};const pin=validPinV24_(p.pin)?String(p.pin):randomPinV24_(),salt=randomHexV24_().slice(0,24),uid=Utilities.getUuid(),now=new Date();ss.getSheetByName('Users').appendRow([uid,emp,name,dept,role,salt,pinHashV24_(pin,salt),'ACTIVE',0,'',now,now,'',actorLabelV24_(auth)]);appendAudit_('사용자생성','USER:'+uid,{actor:actorLabelV24_(auth),after:{employeeNo:emp,name:name,department:dept,role:role,status:'ACTIVE'}});return {ok:true,userId:uid,tempPin:pin};}
-function updateUserV24_(p,auth){const ss=getSs_(),u=userRowByIdV24_(ss,String(p.userId||''));if(!u)return {ok:false,message:'사용자를 찾을 수 없습니다.'};const i=userIdxV24_(),r=u.values,before=publicUserFromRowV24_(r),role=String(p.role||before.role)==='admin'?'admin':'worker',status=String(p.status||before.status)==='INACTIVE'?'INACTIVE':'ACTIVE';if(before.role==='admin'&&before.status==='ACTIVE'&&(role!=='admin'||status!=='ACTIVE')&&activeAdminCountV24_(ss)<=1)return {ok:false,message:'마지막 활성 관리자 계정은 중지하거나 작업자로 변경할 수 없습니다.'};r[i['이름']]=String(p.name||before.name).trim();r[i['부서']]=String(p.department==null?before.department:p.department).trim();r[i['권한']]=role;r[i['상태']]=status;r[i['수정일시']]=new Date();u.sheet.getRange(u.row,1,1,USER_HEADERS.length).setValues([r]);if(status!=='ACTIVE'||role!==before.role)revokeUserSessionsV24_(ss,before.userId);
+function createUserV24_(p,auth){const ss=getSs_(),emp=normalizeEmployeeV24_(p.employeeNo),name=String(p.name||'').trim(),dept=String(p.department||'').trim(),role=roleOfV24_(p.role||'worker');if(!emp||!name)return {ok:false,message:'사번과 이름은 필수입니다.'};if(userRowByEmployeeV24_(ss,emp))return {ok:false,message:'이미 등록된 사번입니다.'};const pin=validPinV24_(p.pin)?String(p.pin):randomPinV24_(),salt=randomHexV24_().slice(0,24),uid=Utilities.getUuid(),now=new Date();ss.getSheetByName('Users').appendRow([uid,emp,name,dept,role,salt,pinHashV24_(pin,salt),'ACTIVE',0,'',now,now,'',actorLabelV24_(auth)]);appendAudit_('사용자생성','USER:'+uid,{actor:actorLabelV24_(auth),after:{employeeNo:emp,name:name,department:dept,role:role,status:'ACTIVE'}});return {ok:true,userId:uid,tempPin:pin};}
+function updateUserV24_(p,auth){const ss=getSs_(),u=userRowByIdV24_(ss,String(p.userId||''));if(!u)return {ok:false,message:'사용자를 찾을 수 없습니다.'};const i=userIdxV24_(),r=u.values,before=publicUserFromRowV24_(r),role=roleOfV24_(p.role||before.role),status=String(p.status||before.status)==='INACTIVE'?'INACTIVE':'ACTIVE';if(before.role==='admin'&&before.status==='ACTIVE'&&(role!=='admin'||status!=='ACTIVE')&&activeAdminCountV24_(ss)<=1)return {ok:false,message:'마지막 활성 관리자 계정은 중지하거나 다른 권한으로 바꿀 수 없습니다.'};r[i['이름']]=String(p.name||before.name).trim();r[i['부서']]=String(p.department==null?before.department:p.department).trim();r[i['권한']]=role;r[i['상태']]=status;r[i['수정일시']]=new Date();u.sheet.getRange(u.row,1,1,USER_HEADERS.length).setValues([r]);if(status!=='ACTIVE'||role!==before.role)revokeUserSessionsV24_(ss,before.userId);
   else if(r[i['이름']]!==before.name||r[i['부서']]!==before.department)refreshUserSessionCacheV24_(ss,before.userId);
   appendAudit_('사용자수정','USER:'+before.userId,{actor:actorLabelV24_(auth),before:before,after:publicUserFromRowV24_(r)});return {ok:true};}
 function resetUserPinV24_(p,auth){const ss=getSs_(),u=userRowByIdV24_(ss,String(p.userId||''));if(!u)return {ok:false,message:'사용자를 찾을 수 없습니다.'};const pin=validPinV24_(p.pin)?String(p.pin):randomPinV24_(),i=userIdxV24_(),r=u.values,salt=randomHexV24_().slice(0,24);r[i['PIN Salt']]=salt;r[i['PIN Hash']]=pinHashV24_(pin,salt);r[i['실패횟수']]=0;r[i['잠금해제시각']]='';r[i['수정일시']]=new Date();u.sheet.getRange(u.row,1,1,USER_HEADERS.length).setValues([r]);revokeUserSessionsV24_(ss,r[i['User ID']]);appendAudit_('PIN초기화','USER:'+r[i['User ID']],{actor:actorLabelV24_(auth),reason:'관리자 PIN 초기화'});return {ok:true,tempPin:pin};}
@@ -1576,8 +1588,8 @@ function v58BackendCapabilities_(auth){
 }
 
 function v58ReportCapabilities_(auth){
-  const admin=!!(auth&&auth.role==='admin');
-  return {ok:true,edit:admin,softDelete:admin,restore:admin,audit:admin};
+  const mgr=atLeastV24_(auth,'manager');
+  return {ok:true,edit:mgr,softDelete:mgr,restore:mgr,audit:mgr,role:roleOfV24_(auth&&auth.role)};
 }
 
 function v58SafeName_(s){
@@ -1710,7 +1722,11 @@ function v58ProductionLinked_(id){
   return !!sh.getRange(2,col+1,sh.getLastRow()-1,1).createTextFinder(String(id||'')).matchEntireCell(true).findNext();
 }
 function v58SoftDeleteRecords_(p,auth){
-  if(!auth||auth.role!=='admin')return {ok:false,code:'ADMIN_REQUIRED',message:'관리자 권한이 필요합니다.'};
+  if(!atLeastV24_(auth,'manager'))return {ok:false,code:'ROLE_REQUIRED',message:'중간관리자 이상 권한이 필요합니다.'};
+  return v58SoftDeleteCore_(p,auth);
+}
+// 권한 확인은 부르는 쪽에서 한다 (v58SoftDeleteRecords_: 중간관리자, r15RecordDelete_: 본인 당일 기록)
+function v58SoftDeleteCore_(p,auth){
   const ids=(p.ids||[]).map(String).filter(Boolean),reason=String(p.reason||'').trim(),actor=String(p.actor||actorLabelV24_(auth));
   if(!ids.length)return {ok:false,message:'삭제할 기록이 없습니다.'};if(!reason)return {ok:false,message:'삭제 사유가 필요합니다.'};
   const lock=LockService.getScriptLock();if(!lock.tryLock(10000))return {ok:false,message:'다른 작업이 진행 중입니다. 다시 시도하세요.'};
@@ -1725,7 +1741,11 @@ function v58SoftDeleteRecords_(p,auth){
   }finally{lock.releaseLock();}
 }
 function v58RestoreRecords_(p,auth){
-  if(!auth||auth.role!=='admin')return {ok:false,code:'ADMIN_REQUIRED',message:'관리자 권한이 필요합니다.'};
+  if(!atLeastV24_(auth,'manager'))return {ok:false,code:'ROLE_REQUIRED',message:'중간관리자 이상 권한이 필요합니다.'};
+  return v58RestoreCore_(p,auth);
+}
+// 권한 확인은 부르는 쪽에서 한다 (v58RestoreRecords_: 중간관리자, r15RecordRestore_: 본인이 오늘 지운 기록)
+function v58RestoreCore_(p,auth){
   const ids=(p.ids||[]).map(String).filter(Boolean),actor=String(p.actor||actorLabelV24_(auth));if(!ids.length)return {ok:false,message:'복구할 기록이 없습니다.'};
   const lock=LockService.getScriptLock();if(!lock.tryLock(10000))return {ok:false,message:'다른 작업이 진행 중입니다. 다시 시도하세요.'};
   try{
@@ -1740,7 +1760,7 @@ function v58RestoreRecords_(p,auth){
   }finally{lock.releaseLock();}
 }
 function v58ListSoftDeletedRecords_(auth){
-  if(!auth||auth.role!=='admin')return {ok:false,code:'ADMIN_REQUIRED',message:'관리자 권한이 필요합니다.'};
+  if(!atLeastV24_(auth,'manager'))return {ok:false,code:'ROLE_REQUIRED',message:'중간관리자 이상 권한이 필요합니다.'};
   const sh=v58EnsureSheet_('SoftDeletedRecords',V58_SOFT_DELETED_HEADERS),items=[];if(sh.getLastRow()<2)return {ok:true,items:items};
   const vals=sh.getRange(2,1,sh.getLastRow()-1,6).getValues();for(let i=vals.length-1;i>=0&&items.length<200;i--){const r=vals[i];if(!r[1]||r[4])continue;const info=v58RecordInfo_(r[0]),o=info?rowObjectV23_(RECORD_HEADERS,info.values):{};items.push({id:String(r[0]||''),deletedAt:r[1],reason:String(r[2]||''),actor:String(r[3]||''),inboundNo:o['입고번호']||'',product:o['품명']||''});}
   return {ok:true,items:items};
@@ -1865,6 +1885,10 @@ const R15_TZ = 'Asia/Seoul';
 const R15_MEM_ = {};
 
 function r15Get_(action, q, auth) {
+  R15_MEM_.__auth = auth; // r15Public_가 기록마다 이 사용자가 고칠 수 있는지(can)를 붙인다
+  if (action === 'r15Mine') return r15Mine_(auth);
+  if (action === 'r15History') return r15History_(q.id);
+  if (action === 'r15Audit') return r15Audit_(q, auth);
   if (action === 'r15Ping') return { ok:true, backendVersion:BACKEND_VERSION, user:publicUserV24_(auth) };
   if (action === 'r15Report') return r15Report_(q.from, q.to);
   if (action === 'r15Inbound') return r15Inbound_(q.inboundNo);
@@ -1884,6 +1908,9 @@ function r15Post_(action, p, auth) {
   if (action === 'r15LotAdd') return r15LotAdd_(p, auth);
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
   if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; return finishProduction_(p); }
+  if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
+  if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
+  if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
   if (action === 'r15ItemSave') return r15ItemSave_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
@@ -2050,6 +2077,7 @@ function r15Public_(rec, ctx) {
   const k = r15Key_(rec.inboundNo, rec.pallet), uses = (ctx.used[k] || []).map(function(pp) { return { lotNo:pp.lotNo, productName:pp.productName, productionId:pp.productionId, at:pp.atText }; });
   const o = {}; Object.keys(rec).forEach(function(x) { if (x !== 'row') o[x] = rec[x]; });
   o.issues = r15Issues_(rec, ctx); o.usedIn = uses;
+  if (R15_MEM_.__auth) o.can = r15RecordPerm_(rec, R15_MEM_.__auth, uses.length > 0);
   o.level = o.issues.some(function(x) { return x.level === 'error'; }) ? 'error' : (o.issues.some(function(x) { return x.level === 'warn'; }) ? 'warn' : 'ok');
   return o;
 }
@@ -2260,7 +2288,7 @@ function r15LotRemove_(p, auth) {
   try {
     r15Forget_('ProductionPallets'); delete R15_MEM_.__pp;
     const prod = r15ProductionRowObj_(pid); if (!prod) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
-    if (r15S_(prod.values[prod.idx['상태']]) !== '진행중' && auth.role !== 'admin') return { ok:false, code:'ADMIN_REQUIRED', message:'종료된 작업의 투입 취소는 관리자만 할 수 있습니다.' };
+    if (r15S_(prod.values[prod.idx['상태']]) !== '진행중' && !atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'종료된 작업의 투입 취소는 중간관리자 이상만 할 수 있습니다.' };
     const hit = r15ProdPallets_().filter(function(x) { return x.productionId === pid && r15Key_(x.inboundNo, x.pallet) === k; });
     if (!hit.length) return { ok:false, message:'이 작업에 투입된 Pallet가 아닙니다.' };
     const sh = getSs_().getSheetByName('ProductionPallets');
@@ -2273,7 +2301,7 @@ function r15LotRemove_(p, auth) {
 
 /* ---------- 기준정보 ---------- */
 function r15ItemSave_(p, auth) {
-  if (!auth || auth.role !== 'admin') return { ok:false, code:'ADMIN_REQUIRED', message:'관리자 권한이 필요합니다.' };
+  if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
   const code = r15Digits_(p.itemCode), name = r15S_(p.itemName);
   if (!code || !name) return { ok:false, message:'자재코드와 자재명은 필수입니다.' };
   const list = function(v) { return (Array.isArray(v) ? v : String(v || '').split(',')).map(r15S_).filter(String).join(', '); };
@@ -2297,7 +2325,7 @@ function r15ItemSave_(p, auth) {
 // 관리자가 공유 링크를 붙여 넣으면 화면에서 풀어 일정만 보낸다. 현장 폰은 오늘 일정을 눌러 작업을 시작한다.
 function r15PlanSheet_() { return ensureSheet_(getSs_(), 'R15Plan', ['저장일시', '저장자', '일정 JSON', '제품명 연결 JSON']); }
 function r15PlanSave_(p, auth) {
-  if (!auth || auth.role !== 'admin') return { ok:false, code:'ADMIN_REQUIRED', message:'관리자 권한이 필요합니다.' };
+  if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
   const list = (p.schedules || []).filter(function(x) { return x && x.prod && /^\d{4}-\d{2}-\d{2}$/.test(String(x.date || '')); })
     .map(function(x) { return { prod: r15S_(x.prod), date: r15S_(x.date), batch: r15S_(x.batch), line: r15S_(x.line) }; }).slice(0, 3000);
   if (!list.length) return { ok:false, message:'일정이 없습니다.' };
@@ -2322,4 +2350,102 @@ function r15PlanToday_() {
   return (plan.schedules || []).filter(function(x) { return x.date >= from && x.date <= to && x.batch; })
     .map(function(x) { return { date:x.date, prod:x.prod, productName: plan.names[x.prod] || x.prod, lotNo:x.batch, line:x.line }; })
     .sort(function(a, b) { return a.date.localeCompare(b.date) || a.lotNo.localeCompare(b.lotNo); });
+}
+
+
+/* ==================== R15 기록 수정·삭제 권한과 이력 ==================== */
+// 작업자: 본인이 오늘 저장한 기록만, 생산에 투입되지 않았을 때. 중간관리자 이상: 모든 기록.
+// 생산에 투입된 Pallet는 누구도 삭제할 수 없다 (투입 취소가 먼저). 모든 변경은 사유를 받고 AuditLog에 남긴다.
+const R15_WORKER_FIELDS = ['inboundNo','containerFrom','displayQty','actualQty','vendorProduct','vendorQty','vendorProdDate','vendorLotNo','note'];
+const R15_MANAGER_FIELDS = R15_WORKER_FIELDS.concat(['inboundDate','product','itemCode','manufacturer','supplier','unit','expiryDate','finalResult','vendorProdTime','vendorPalletNo','vendorLine']);
+function r15Today_() { return Utilities.formatDate(new Date(), R15_TZ, 'yyyy-MM-dd'); }
+function r15RecordPerm_(rec, auth, used) {
+  if (!atLeastV24_(auth, 'worker')) return { edit:false, del:false, fields:[], why:'조회 권한은 기록을 고칠 수 없습니다.' };
+  if (atLeastV24_(auth, 'manager')) return { edit:true, del:!used, fields:R15_MANAGER_FIELDS, why: used ? '생산에 투입된 Pallet입니다. 삭제하려면 투입 취소를 먼저 하세요.' : '' };
+  if (!rec.inspector || rec.inspector !== r15S_(auth.name)) return { edit:false, del:false, fields:[], why:'다른 사람이 저장한 기록입니다. 중간관리자에게 요청하세요.' };
+  if (rec.day !== r15Today_()) return { edit:false, del:false, fields:[], why:'지난 날짜 기록은 중간관리자만 고칠 수 있습니다.' };
+  if (used) return { edit:false, del:false, fields:[], why:'생산에 투입된 Pallet는 중간관리자만 고칠 수 있습니다.' };
+  return { edit:true, del:true, fields:R15_WORKER_FIELDS, why:'' };
+}
+function r15RecordAndPerm_(id, auth) {
+  const rec = r15Records_().filter(function(r) { return r.id === String(id || ''); })[0];
+  if (!rec) return { error:{ ok:false, message:'기록을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.' } };
+  const k = r15Key_(rec.inboundNo, rec.pallet);
+  const used = r15ProdPallets_().some(function(pp) { return pp.recordId === rec.id || (k && r15Key_(pp.inboundNo, pp.pallet) === k); });
+  return { rec:rec, perm:r15RecordPerm_(rec, auth, used) };
+}
+function r15RecordEdit_(p, auth) {
+  const reason = r15S_(p.reason); if (!reason) return { ok:false, message:'수정 사유를 적어 주세요.' };
+  const x = r15RecordAndPerm_(p.id, auth); if (x.error) return x.error;
+  if (!x.perm.edit) return { ok:false, code:'ROLE_REQUIRED', message:x.perm.why };
+  const changes = {}, src = p.changes || {}, denied = [];
+  Object.keys(src).forEach(function(k) { if (x.perm.fields.indexOf(k) >= 0) changes[k] = src[k]; else denied.push(k); });
+  if (denied.length) return { ok:false, code:'ROLE_REQUIRED', message:'이 권한으로 고칠 수 없는 항목입니다: ' + denied.join(', ') };
+  if (Object.prototype.hasOwnProperty.call(changes, 'containerFrom')) changes.containerTo = changes.containerFrom;
+  if (Object.prototype.hasOwnProperty.call(changes, 'inboundNo')) changes.inboundNo = r15Digits_(changes.inboundNo);
+  const res = updateRecord_({ id:x.rec.id, actor:actorLabelV24_(auth), reason:reason, changes:changes });
+  r15Forget_('Records'); delete R15_MEM_.__records;
+  return res;
+}
+function r15RecordDelete_(p, auth) {
+  const reason = r15S_(p.reason); if (!reason) return { ok:false, message:'삭제 사유를 적어 주세요.' };
+  const x = r15RecordAndPerm_(p.id, auth); if (x.error) return x.error;
+  if (!x.perm.del) return { ok:false, code:'ROLE_REQUIRED', message:x.perm.why || '삭제할 수 없는 기록입니다.' };
+  const res = v58SoftDeleteCore_({ ids:[x.rec.id], reason:reason, actor:actorLabelV24_(auth) }, auth);
+  if (res.ok && res.failed && res.failed.length) return { ok:false, message:'삭제하지 못했습니다: ' + res.failed[0].reason };
+  return res;
+}
+// 작업자는 본인이 오늘 지운 기록을 되살릴 수 있다 (잘못 지운 경우). 그 밖의 복구는 중간관리자 이상.
+function r15RecordRestore_(p, auth) {
+  const id = r15S_(p.id), item = v58SoftDeletedMap_()[id];
+  if (!item) return { ok:false, message:'삭제 보관함에 없는 기록입니다.' };
+  if (!atLeastV24_(auth, 'manager')) {
+    const at = r15Date_(item.deletedAt), mine = r15S_(item.actor) === actorLabelV24_(auth);
+    if (!atLeastV24_(auth, 'worker') || !mine || !at || Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd') !== r15Today_()) return { ok:false, code:'ROLE_REQUIRED', message:'본인이 오늘 지운 기록만 되살릴 수 있습니다. 그 밖에는 중간관리자에게 요청하세요.' };
+  }
+  const res = v58RestoreCore_({ ids:[id], reason:r15S_(p.reason) || '복구', actor:actorLabelV24_(auth) }, auth);
+  if (res.ok && res.failed && res.failed.length) return { ok:false, message:'되살리지 못했습니다: ' + res.failed[0].reason };
+  return res;
+}
+// 오늘 내가 저장한 기록과 오늘 내가 지운 기록 (검수 탭 "오늘 내 기록")
+function r15Mine_(auth) {
+  const today = r15Today_(), name = r15S_(auth.name), all = r15Records_(), ctx = r15Ctx_(all);
+  const items = all.filter(function(r) { return r.day === today && r.inspector === name; }).sort(function(a, b) { return b.at - a.at; }).map(function(r) { return r15Public_(r, ctx); });
+  const del = v58SoftDeletedMap_(), me = actorLabelV24_(auth), deleted = [];
+  Object.keys(del).forEach(function(id) {
+    const d = del[id], at = r15Date_(d.deletedAt);
+    if (r15S_(d.actor) !== me || !at || Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd') !== today) return;
+    const info = v58RecordInfo_(id), o = info ? rowObjectV23_(RECORD_HEADERS, info.values) : {};
+    deleted.push({ id:id, deletedAt:Utilities.formatDate(at, R15_TZ, 'HH:mm'), reason:r15S_(d.reason), inboundNo:r15Digits_(o['입고번호']), pallet:r15Pallet_(o['용기번호시작']) });
+  });
+  return { ok:true, today:today, items:items, deleted:deleted };
+}
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+function r15AuditRows_() {
+  const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
+  const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
+  for (let n = 1; n < vals.length; n++) {
+    const r = vals[n], at = r15Date_(r[i['일시']]); let changes = {};
+    try { changes = JSON.parse(r[i['After JSON']] || '{}'); } catch (e) {}
+    out.push({ at:at ? at.getTime() : 0, atText:at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '', action:r15S_(r[i['작업']]),
+      label:R15_AUDIT_LABEL[r15S_(r[i['작업']])] || r15S_(r[i['작업']]), recordId:r15S_(r[i['Record ID']]), actor:r15S_(r[i['Actor']]), reason:r15S_(r[i['Reason']]), changes:changes });
+  }
+  return out;
+}
+// 기록 1건의 변경 이력: 처음 저장 + AuditLog의 수정·삭제·복구
+function r15History_(id) {
+  id = r15S_(id); if (!id) return { ok:false, message:'기록 ID가 없습니다.' };
+  const rec = r15Records_().filter(function(r) { return r.id === id; })[0];
+  const items = r15AuditRows_().filter(function(a) { return a.recordId === id && a.action !== '로그인'; }).sort(function(a, b) { return b.at - a.at; });
+  if (rec && !items.some(function(a) { return a.label === '저장'; })) items.push({ at:rec.at, atText:rec.atText, action:'기록저장', label:'저장', actor:rec.inspector, reason:'', changes:{} });
+  return { ok:true, id:id, items:items };
+}
+// 최근 변경 이력 (관리 탭). 로그인 기록은 뺀다.
+function r15Audit_(q, auth) {
+  if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
+  const kw = r15S_(q.q), byId = {}; r15Records_().forEach(function(r) { byId[r.id] = r; });
+  const items = r15AuditRows_().filter(function(a) { return a.action !== '로그인' && a.action !== 'R15생산투입' && a.label !== '저장'; }).sort(function(a, b) { return b.at - a.at; })
+    .map(function(a) { const r = byId[a.recordId]; a.inboundNo = r ? r.inboundNo : ''; a.pallet = r ? r.pallet : 0; return a; })
+    .filter(function(a) { return !kw || JSON.stringify(a).indexOf(kw) >= 0; }).slice(0, 300);
+  return { ok:true, items:items };
 }
