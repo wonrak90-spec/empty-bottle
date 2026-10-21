@@ -156,6 +156,8 @@
   }
 
   function shotBtn(kind, label, done) {
+    // 업체 라벨은 높이 붙어 있어 확대 카메라로 찍는다 (안 되면 그 안의 '기본 카메라')
+    if (kind === 'vendor' && R.zoomcam && R.zoomcam.supported) return `<button type="button" class="shot ${done ? 'done' : ''}" data-zoom="vendor"><span class="ic">${busy[kind] ? '…' : done ? '✓' : '🔍'}</span><span>${label}${busy[kind] ? ' 읽는 중' : done ? ' 다시' : ' 확대 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</button><input type="file" accept="image/*" capture="environment" data-shot="vendor" id="vendorFile" hidden>`;
     return `<label class="shot ${done ? 'done' : ''}"><input type="file" accept="image/*" capture="environment" data-shot="${kind}" hidden>
       <span class="ic">${busy[kind] ? '…' : done ? '✓' : '📷'}</span><span>${label}${busy[kind] ? ' 읽는 중' : done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
   }
@@ -185,10 +187,19 @@
   }
 
   function bindShots() {
+    document.querySelectorAll('[data-zoom]').forEach((b) => {
+      b.onclick = async () => {
+        const r = await R.zoomcam.capture();
+        if (r === 'fallback') { const f = $('vendorFile'); if (f) f.click(); return; }
+        if (r) handleShot(b.dataset.zoom, r);
+      };
+    });
     document.querySelectorAll('[data-shot]').forEach((inp) => {
-      inp.onchange = async () => {
-        const file = inp.files && inp.files[0]; inp.value = ''; if (!file) return;
-        const kind = inp.dataset.shot, st = $('ocrStatus');
+      inp.onchange = () => { const file = inp.files && inp.files[0]; inp.value = ''; if (file) handleShot(inp.dataset.shot, file); };
+    });
+  }
+  async function handleShot(kind, file) {
+        const st = $('ocrStatus');
         if (st) { st.textContent = '사진 준비 중…'; st.dataset.type = 'warn'; } // OCR 파일(전역 setStatus)이 안 읽혀도 촬영은 되게
         const forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72) : '';
         if (!forOcr || !stored) { if (st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); return; }
@@ -202,8 +213,6 @@
           busy[kind] = false;
           if (S.cur === cur) { cur.status = e.message; R.toast(e.message, 'warn'); render(); }
         }
-      };
-    });
   }
 
   // 용기번호(0029/0042)와 바코드 글자(26004733-0029)에서 Pallet 후보를 모은다 (라벨은 4자리로 인쇄된다).
