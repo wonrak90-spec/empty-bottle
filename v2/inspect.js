@@ -267,6 +267,9 @@
     if (bad.length && !confirm('기준과 다른 값이 있습니다.\n\n' + bad.map((x) => '· ' + x.label).join('\n') + '\n\n확인필요로 저장할까요? (값을 고치려면 취소)')) return;
     const stops = warn.filter((x) => x.stop);
     if (stops.length && !confirm('저장 전에 확인하세요.\n\n' + stops.map((x) => '· ' + x.label).join('\n') + '\n\n이대로 저장할까요? (값을 고치려면 취소)')) return;
+    // 업체 사진 없이 저장하면 이유를 고른다. '나중에 찍기'만 점검에 남고, 보고서에서 사진을 붙일 수 있다.
+    let noVendor = '';
+    if (!photos.vendor && !c.vendorPhotoKept) { noVendor = await askNoVendor(); if (!noVendor) return; }
     const item = S.items[b.itemCode] || S.items[c.itemCode], vm = vendorMatch(item, c.vProduct);
     const qtyResult = num(c.vQty) && num(c.qty) ? (num(c.vQty) === num(c.qty) ? '일치' : '불일치') : '';
     const reasons = bad.concat(warn).map((x) => x.label);
@@ -276,7 +279,7 @@
       containerFrom: c.pallet, containerTo: c.pallet, codeRaw: c.codeRaw || (c.inboundNo + '-' + String(c.pallet).padStart(4, '0')),
       infoMatch: c.inboundNo === b.inboundNo && (!c.itemCode || c.itemCode === b.itemCode) ? '일치' : '불일치', mixed: c.itemCode && c.itemCode !== b.itemCode ? '있음' : '없음',
       actualQty: c.vQty || c.qty, qtyResult, finalResult: bad.length ? '확인필요' : '적합',
-      note: [c.note, reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
+      note: [c.note, noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
       ocrRaw: c.ocrRaw, labelMatch: vm.result,
       vendorProduct: c.vProduct, vendorQty: c.vQty, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,
       vendorOcrRaw: c.vOcrRaw, vendorPalletNo: c.vPallet, dateKey: today().replace(/-/g, '')
@@ -285,6 +288,19 @@
     R.toast(`P${c.pallet} 단말에 보관 · 서버로 보내는 중`, 'ok');
     S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  function askNoVendor() {
+    return new Promise((done) => {
+      const opts = ['라벨 없음', '라벨 손상', '높아서 못 찍음', '나중에 찍기'];
+      $('dialogBody').innerHTML = `<h3>업체 라벨 사진이 없습니다</h3><div class="sub">이유를 고르면 그대로 저장합니다. "나중에 찍기"는 보고서 점검에 남고, 그 기록에서 사진을 붙일 수 있습니다.</div>
+        <div class="grid g2">${opts.map((o) => `<button type="button" class="btn ghost" data-nv="${o}">${o}</button>`).join('')}</div>
+        <div class="savebar"><button type="button" class="btn ghost sm" id="nvBack">돌아가서 찍기</button></div>`;
+      $('dialog').hidden = false;
+      const end = (v) => { $('dialog').hidden = true; done(v); };
+      document.querySelectorAll('[data-nv]').forEach((b) => { b.onclick = () => end(b.dataset.nv); });
+      $('nvBack').onclick = () => end('');
+    });
   }
 
   function palletChip(n) {

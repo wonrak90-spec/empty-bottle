@@ -19,11 +19,12 @@
   // 한 줄에 붙는 버튼: 고치기·삭제(권한 있을 때)와 이력(항상)
   function actionsHtml(r) {
     const c = can(r);
-    return `<span class="ract">${c.edit ? `<button type="button" class="btn ghost sm" data-rx="edit" data-rid="${esc(r.id)}">고치기</button>` : ''}${c.del ? `<button type="button" class="btn ghost sm" data-rx="del" data-rid="${esc(r.id)}">삭제</button>` : ''}<button type="button" class="btn ghost sm" data-rx="hist" data-rid="${esc(r.id)}">이력</button></span>`;
+    const ph = !r.vendorPhoto && R.rank() >= 1 && (R.isManager() || (R.user && r.inspector === R.user.name));
+    return `<span class="ract">${ph ? `<button type="button" class="btn ghost sm" data-rx="photo" data-rid="${esc(r.id)}">업체 사진 붙이기</button>` : ''}${c.edit ? `<button type="button" class="btn ghost sm" data-rx="edit" data-rid="${esc(r.id)}">고치기</button>` : ''}${c.del ? `<button type="button" class="btn ghost sm" data-rx="del" data-rid="${esc(r.id)}">삭제</button>` : ''}<button type="button" class="btn ghost sm" data-rx="hist" data-rid="${esc(r.id)}">이력</button></span>`;
   }
   function bind(root, records, onDone) {
     root.querySelectorAll('[data-rx]').forEach((b) => {
-      b.onclick = () => { const r = records.find((x) => x.id === b.dataset.rid); if (!r) return; ({ edit, del, hist: history })[b.dataset.rx](r, onDone); };
+      b.onclick = () => { const r = records.find((x) => x.id === b.dataset.rid); if (!r) return; ({ edit, del, hist: history, photo: attach })[b.dataset.rx](r, onDone); };
     });
   }
 
@@ -67,6 +68,22 @@
       const res = await R.tryPost('r15RecordDelete', { id: r.id, reason }); R.busy(btn, false);
       if (res && res.ok) { close(); R.toast('삭제했습니다 · 삭제 보관함에서 되살릴 수 있습니다', 'ok'); if (onDone) onDone('del', r); }
     };
+  }
+
+  // 업체 라벨 사진을 나중에 붙인다 (저장 때 '나중에 찍기'를 고른 경우 등). 확대 카메라 → 안 되면 기본 카메라.
+  async function attach(r, onDone) {
+    let src = null;
+    if (R.zoomcam && R.zoomcam.supported) { src = await R.zoomcam.capture(); if (src === null) return; }
+    if (!src || src === 'fallback') src = await new Promise((ok) => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.capture = 'environment'; i.onchange = () => ok(i.files && i.files[0] || null); i.click(); });
+    if (!src) return;
+    const img = await R.shrink(src, 1400, 0.72); if (!img) return R.toast('사진을 열지 못했습니다 · 다시 찍어 주세요', 'crit');
+    R.toast('사진 올리는 중…', 'warn');
+    try {
+      const up = await R.apiPost('uploadPhoto', { image: img, name: `${r.inboundNo}_P${R.util.pad(r.pallet, 2)}_VENDOR_추가`, inboundNo: r.inboundNo, palletNo: Number(r.pallet) || 0, photoType: 'VENDOR', dateKey: (r.atText || '').slice(0, 10).replace(/-/g, '') }, window.R15_CONFIG.TIMEOUT.upload);
+      if (!up || !up.ok || !up.url) return R.toast('사진 업로드 실패' + (up && up.message ? ' · ' + up.message : ''), 'crit');
+      const res = await R.tryPost('r15AttachPhoto', { id: r.id, url: up.url, reason: '업체 라벨 사진 나중에 추가' });
+      if (res && res.ok) { R.toast(`${r.inboundNo} P${r.pallet} 업체 사진을 붙였습니다`, 'ok'); if (onDone) onDone('photo', r); }
+    } catch (e) { R.toast('사진 업로드 실패 · ' + (e.message || e), 'crit'); }
   }
 
   function delMany(list, onDone) {
@@ -151,5 +168,5 @@
   R.on('queue', (s) => { if (s && s.done !== M.lastDone) { M.lastDone = s.done; if (document.body.dataset.tab === 'inspect') soon(); } });
   // 인쇄·내려받기도 감사 추적에 남긴다 (실패해도 화면 동작은 막지 않음)
   function note(kind, target, count) { try { R.apiPost('r15AuditNote', { kind, target, count: count || 0 }).catch(() => null); } catch (_) {} }
-  R.rec = { ack, note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
+  R.rec = { attach, ack, note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
 })();

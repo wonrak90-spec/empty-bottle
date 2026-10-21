@@ -1914,6 +1914,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
   if (action === 'r15AuditNote') return r15AuditNote_(p, auth);
   if (action === 'r15IssueAck') return r15IssueAck_(p, auth);
+  if (action === 'r15AttachPhoto') return r15AttachPhoto_(p, auth);
   if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
@@ -2079,6 +2080,28 @@ function r15Ctx_(records) {
   const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
   return { dup:dup, used:used, items:r15ItemMap_(), acks:r15AckMap_() };
 }
+// 저장할 때 업체 사진 없이 고른 사유 (inspect.js가 특이사항에 '업체사진 없음: …'으로 남김). '나중에 찍기'는 점검에 남는다.
+const R15_NOVENDOR_OK = ['라벨 없음', '라벨 손상', '높아서 못 찍음'];
+function r15NoVendorReason_(note) { const m = r15S_(note).match(/업체사진 없음: ([^/]+)/); return m ? m[1].trim() : ''; }
+// 업체 라벨 사진을 나중에 붙인다. 작업자는 본인이 검수한 기록 중 사진이 없는 것만, 중간관리자 이상은 바꾸기도 가능.
+function r15AttachPhoto_(p, auth) {
+  const url = r15S_(p.url); if (!/^https:\/\//.test(url)) return { ok:false, message:'사진 주소가 없습니다. 사진을 먼저 올리세요.' };
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { ok:false, busy:true, retry:true, message:'잠시 후 다시 시도하세요.' };
+  try {
+    r15Forget_('Records'); delete R15_MEM_.__records;
+    const rec = r15Records_().filter(function(r) { return r.id === r15S_(p.id); })[0]; if (!rec) return { ok:false, message:'기록을 찾을 수 없습니다.' };
+    const mgr = atLeastV24_(auth, 'manager'), mine = r15S_(rec.inspector) === r15S_(auth.name);
+    if (!mgr && !mine) return { ok:false, code:'ROLE_REQUIRED', message:'본인이 검수한 기록에만 사진을 붙일 수 있습니다.' };
+    if (!mgr && rec.vendorPhoto) return { ok:false, code:'ROLE_REQUIRED', message:'이미 업체 사진이 있습니다. 바꾸려면 중간관리자에게 요청하세요.' };
+    const sh = getSs_().getSheetByName('Records'), head = sh.getRange(1, 1, 1, sh.getLastColumn()).getValues()[0].map(function(h) { return String(h).trim(); });
+    const col = head.indexOf('업체라벨사진URL') + 1; if (!col) return { ok:false, message:'Records 시트에 업체라벨사진URL 열이 없습니다.' };
+    if (r15S_(sh.getRange(rec.row, 1).getValue()) !== rec.id) return { ok:false, retry:true, message:'기록 위치가 바뀌었습니다. 다시 시도하세요.' };
+    sh.getRange(rec.row, col).setValue(url);
+    r15Forget_('Records'); delete R15_MEM_.__records;
+    appendAudit_('사진추가', rec.id, { actor: actorLabelV24_(auth), reason: r15S_(p.reason) || '업체 라벨 사진 추가', before: { vendorPhoto: rec.vendorPhoto || '' }, after: { vendorPhoto: url } });
+    return { ok:true, url:url };
+  } finally { lock.releaseLock(); }
+}
 // 점검 확인 처리: 사람이 보고 '문제 아님/조치함'으로 닫은 점검 항목. 기록ID|점검코드 → 마지막 처리 (취소 포함)
 const R15_ACK_HEADERS = ['Record ID', '점검코드', '처리', '사유', '처리자', '일시'];
 function r15AckMap_() {
@@ -2111,7 +2134,11 @@ function r15IssueAck_(p, auth) {
 function r15Public_(rec, ctx) {
   const k = r15Key_(rec.inboundNo, rec.pallet), uses = (ctx.used[k] || []).map(function(pp) { return { lotNo:pp.lotNo, productName:pp.productName, productionId:pp.productionId, at:pp.atText }; });
   const o = {}; Object.keys(rec).forEach(function(x) { if (x !== 'row') o[x] = rec[x]; });
-  o.issues = r15Issues_(rec, ctx).map(function(x) { const a = ctx.acks && ctx.acks[rec.id + '|' + x.code]; if (a) x.acked = a; return x; }); o.usedIn = uses;
+  const nv = r15NoVendorReason_(rec.note);
+  o.issues = r15Issues_(rec, ctx).map(function(x) {
+    const a = ctx.acks && ctx.acks[rec.id + '|' + x.code]; if (a) x.acked = a;
+    else if (x.code === 'NO_VENDOR_PHOTO' && nv) { if (R15_NOVENDOR_OK.indexOf(nv) >= 0) x.acked = { by: rec.inspector, reason: nv + ' (저장 시 선택)', at: rec.atText }; else x.label += ' · ' + nv; }
+    return x; }); o.usedIn = uses;
   if (R15_MEM_.__auth) o.can = r15RecordPerm_(rec, R15_MEM_.__auth, uses.length > 0);
   const open = o.issues.filter(function(x) { return !x.acked; }); // 확인 처리한 점검은 등급에서 뺀다
   o.level = open.some(function(x) { return x.level === 'error'; }) ? 'error' : (open.some(function(x) { return x.level === 'warn'; }) ? 'warn' : 'ok');
@@ -2500,7 +2527,7 @@ function r15Mine_(auth) {
   });
   return { ok:true, today:today, items:items, deleted:deleted };
 }
-const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '사진추가':'사진 추가', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
 function r15AuditRows_() {
   const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
   const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
@@ -2524,7 +2551,7 @@ function r15History_(id) {
 }
 // 최근 변경 이력 (관리 탭). 로그인 기록은 뺀다.
 // 종류 묶음: 화면의 '종류' 선택과 같다
-const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록', '점검 확인':'기록', '점검 확인 취소':'기록',
+const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록', '점검 확인':'기록', '사진 추가':'기록', '점검 확인 취소':'기록',
   '생산 투입':'생산', '투입 취소':'생산', '작업 시작':'생산', '작업 참여':'생산', '작업 종료':'생산', '작업 삭제':'생산',
   '품목 수정':'기준정보', '품목 추가':'기준정보', '계획표 저장':'기준정보',
   '로그인':'로그인·사용자', '로그아웃':'로그인·사용자', '로그인 실패':'로그인·사용자', 'PIN 변경':'로그인·사용자', 'PIN 초기화':'로그인·사용자', '사용자 추가':'로그인·사용자', '사용자 수정':'로그인·사용자',
