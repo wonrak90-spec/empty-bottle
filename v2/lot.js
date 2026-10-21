@@ -36,7 +36,7 @@
       <div class="chips">${(d.plan || []).map((p, i) => `<button type="button" class="chipbtn" data-plan="${i}"><b>${esc(p.productName)}</b> ${esc(p.lotNo)}<small>${esc(p.date.slice(5))}${p.line ? ' · ' + esc(p.line) : ''}</small></button>`).join('') || '<span class="muted">관리 탭에서 주간제조계획표 링크를 넣으면 여기에 나옵니다.</span>'}</div>
     </section>
     ${open.length ? `<section><div class="shead"><h2>진행 중인 작업</h2><span class="sub">다른 작업자와 같이 투입할 수 있습니다</span></div>
-      <div class="list">${open.map((x, i) => `<button type="button" class="row" data-open="${i}"><span><b>${esc(x.productName)}</b> ${esc(x.lotNo)}</span><span class="muted">${x.palletCount} Pallet · ${esc(x.workers || '')}</span></button>`).join('')}</div></section>` : ''}
+      <div class="list">${open.map((x, i) => `<div class="row"><button type="button" class="lnk" data-open="${i}"><b>${esc(x.productName)}</b> ${esc(x.lotNo)} <span class="muted">${x.palletCount} Pallet · ${esc(x.workers || '')}</span></button>${!x.palletCount || R.isManager() ? `<button type="button" class="btn ghost sm danger" data-del="${i}">삭제</button>` : ''}</div>`).join('')}</div></section>` : ''}
     <section><div class="shead"><h2>직접 입력</h2></div>
       <div class="grid g2"><label>제품명<input id="lpName" list="lpNames" placeholder="예: 판콜에이"><datalist id="lpNames">${(d.products || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
       <label>제조번호<input id="lpLot" placeholder="예: 2F205" autocapitalize="characters"></label></div>
@@ -46,6 +46,7 @@
   function bindPick() {
     const d = L.lots || {};
     document.querySelectorAll('[data-plan]').forEach((b) => { b.onclick = () => { const p = d.plan[Number(b.dataset.plan)]; start(p.productName, p.lotNo, b); }; });
+    document.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => { const p = d.lots.filter((x) => x.status === '진행중')[Number(b.dataset.del)]; deleteLot(p); }; });
     document.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => { const p = d.lots.filter((x) => x.status === '진행중')[Number(b.dataset.open)]; start(p.productName, p.lotNo, b); }; });
     $('lpStart').onclick = () => start($('lpName').value.trim(), $('lpLot').value.trim().toUpperCase(), $('lpStart'));
   }
@@ -105,7 +106,7 @@
 
   function bindWork() {
     $('lotLeave').onclick = () => { L.lot = null; L.detail = null; L.sel.clear(); persist(); refresh(); };
-    if ($('lotDel')) $('lotDel').onclick = deleteLot;
+    if ($('lotDel')) $('lotDel').onclick = () => deleteLot();
     document.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => removePallet(b.dataset.rm); });
     document.querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => { const j = R.queue.jobs.find((x) => x.id === b.dataset.job); if (j) R.showJob(j); }; });
     if (!$('lotAdd')) return;
@@ -236,13 +237,15 @@
     if (r && r.ok) { R.toast('투입을 취소했습니다', 'ok'); refresh(); }
   }
   // 잘못 시작한 작업(제품명·제조번호 오입력)을 지운다. 투입된 Pallet가 있으면 중간관리자만, 지우면 그 Pallet들은 다시 투입할 수 있다.
-  async function deleteLot() {
-    if (pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 삭제하세요', 'warn');
-    const n = L.detail && L.detail.pallets ? L.detail.pallets.length : 0;
+  // lot: 목록에서 고른 작업 (없으면 지금 연 작업)
+  async function deleteLot(lot) {
+    const cur = !lot || (L.lot && lot.id === L.lot.id); lot = cur ? L.lot : lot;
+    if (cur && pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 삭제하세요', 'warn');
+    const n = cur ? (L.detail && L.detail.pallets ? L.detail.pallets.length : 0) : lot.palletCount || 0;
     if (n && !R.isManager()) return R.toast('투입된 Pallet가 있습니다. 투입 내역에서 모두 취소한 뒤 삭제하세요', 'warn');
-    const reason = prompt(`${L.lot.productName} ${L.lot.lotNo} 작업을 삭제합니다.${n ? `\n투입된 ${n} Pallet도 모두 취소됩니다.` : ''}\n사유를 입력하세요. (예: 제품명 오입력)`); if (!reason) return;
-    const r = await R.tryPost('r15LotDelete', { productionId: L.lot.id, reason });
-    if (r && r.ok) { R.toast('작업을 삭제했습니다', 'ok'); L.lot = null; L.detail = null; L.sel.clear(); persist(); refresh(); }
+    const reason = prompt(`${lot.productName} ${lot.lotNo} 작업을 삭제합니다.${n ? `\n투입된 ${n} Pallet도 모두 취소됩니다.` : ''}\n사유를 입력하세요. (예: 제품명 오입력)`); if (!reason) return;
+    const r = await R.tryPost('r15LotDelete', { productionId: lot.id, reason });
+    if (r && r.ok) { R.toast('작업을 삭제했습니다', 'ok'); if (cur) { L.lot = null; L.detail = null; L.sel.clear(); persist(); } refresh(); }
   }
   async function finish() {
     if (pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 종료하세요', 'warn');
