@@ -188,3 +188,8 @@ input.dsel{width:20px;height:20px;vertical-align:middle}
 .zcam-bar{background:var(--bg);padding:10px 16px calc(10px + env(safe-area-inset-bottom))}
 .zcam-zoom{display:flex;align-items:center;gap:8px;margin:6px 0}
 .zcam-zoom input{flex:1}
+.aufilter label.wide{grid-column:1/-1}
+details.aurow{border-bottom:1px solid var(--line);padding:8px 0}
+details.aurow summary{cursor:pointer;list-style:none}
+details.aurow summary::-webkit-details-marker{display:none}
+.audet{padding:6px 0 2px 12px;font-size:14px;display:grid;gap:4px}

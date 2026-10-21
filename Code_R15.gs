@@ -279,12 +279,12 @@ function doPost(e) {
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
     const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
-    const viewerActions = ['authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
+    const viewerActions = ['r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
     const auth = authorizeSessionV24_(session, needRole);
     if (!auth.ok) return jsonOut_(auth);
 
-    if (action === 'authLogout') return jsonOut_(authLogoutV24_(session));
+    if (action === 'authLogout') { appendAudit_('로그아웃', '', { actor: actorLabelV24_(auth) }); return jsonOut_(authLogoutV24_(session)); }
     if (action === 'changeMyPin') return jsonOut_(changeMyPinV24_(body.payload || {}, auth, session));
     if (action === 'listUsers') return jsonOut_(listUsersV24_(auth));
     if (action === 'createUser') return jsonOut_(createUserV24_(body.payload || {}, auth));
@@ -502,6 +502,8 @@ function authLoginCoreV24_(p){
 // 로그인 실패 응답은 잠금을 푼 뒤에 지연시킨다 (무차별 대입 속도는 늦추되 다른 사용자는 막지 않음)
 function authLoginV24_(p){
   const res=authLoginCoreV24_(p);
+  // 실패한 로그인도 남긴다 (PIN은 남기지 않음). 잠금 밖에서 쓴다.
+  if(res&&!res.ok&&(res.code==='INVALID_CREDENTIALS'||res.code==='ACCOUNT_LOCKED'))appendAudit_('로그인실패','',{actor:'사번 '+String(p.employeeNo||'').slice(0,20),reason:res.message||'',meta:{code:res.code}});
   if(res&&res._delay){delete res._delay;Utilities.sleep(350);}
   return res;
 }
@@ -1905,11 +1907,12 @@ function r15Get_(action, q, auth) {
 
 function r15Post_(action, p, auth) {
   p = p || {};
-  if (action === 'r15LotStart') { p.worker = auth.name || ''; return startProduction_(p); }
+  if (action === 'r15LotStart') { p.worker = auth.name || ''; const r = startProduction_(p); if (r && r.ok) appendAudit_(r.joined ? 'R15작업참여' : 'R15작업시작', r.id || '', { actor: actorLabelV24_(auth), after: { productName: r15S_(p.productName), lotNo: r15S_(p.lotNo) } }); return r; }
   if (action === 'r15LotAdd') return r15LotAdd_(p, auth);
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
   if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
-  if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; return finishProduction_(p); }
+  if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
+  if (action === 'r15AuditNote') return r15AuditNote_(p, auth);
   if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
@@ -2361,6 +2364,7 @@ function r15PlanSave_(p, auth) {
   const json = JSON.stringify(list); if (json.length > 48000) return { ok:false, message:'일정이 너무 많습니다. 기간을 줄여 주세요.' };
   const sh = r15PlanSheet_(); sh.getRange(2, 1, 1, 4).setValues([[new Date(), actorLabelV24_(auth), json, JSON.stringify(names)]]);
   try { CacheService.getScriptCache().remove('R15PLAN'); } catch (e) {}
+  appendAudit_('R15계획저장', '', { actor: actorLabelV24_(auth), after: { count: list.length, from: list[0].date, to: list[list.length - 1].date } });
   return { ok:true, count:list.length };
 }
 function r15Plan_() {
@@ -2465,15 +2469,17 @@ function r15Mine_(auth) {
   });
   return { ok:true, today:today, items:items, deleted:deleted };
 }
-const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
 function r15AuditRows_() {
   const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
   const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
   for (let n = 1; n < vals.length; n++) {
-    const r = vals[n], at = r15Date_(r[i['일시']]); let changes = {};
+    const r = vals[n], at = r15Date_(r[i['일시']]); let changes = {}, before = {}, meta = {};
     try { changes = JSON.parse(r[i['After JSON']] || '{}'); } catch (e) {}
+    try { before = JSON.parse(r[i['Before JSON']] || '{}'); } catch (e) {}
+    try { meta = JSON.parse(r[i['Meta JSON']] || '{}'); } catch (e) {}
     out.push({ at:at ? at.getTime() : 0, atText:at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '', action:r15S_(r[i['작업']]),
-      label:R15_AUDIT_LABEL[r15S_(r[i['작업']])] || r15S_(r[i['작업']]), recordId:r15S_(r[i['Record ID']]), actor:r15S_(r[i['Actor']]), reason:r15S_(r[i['Reason']]), changes:changes });
+      label:R15_AUDIT_LABEL[r15S_(r[i['작업']])] || r15S_(r[i['작업']]), recordId:r15S_(r[i['Record ID']]), actor:r15S_(r[i['Actor']]), reason:r15S_(r[i['Reason']]), changes:changes, before:before, meta:meta });
   }
   return out;
 }
@@ -2486,11 +2492,29 @@ function r15History_(id) {
   return { ok:true, id:id, items:items };
 }
 // 최근 변경 이력 (관리 탭). 로그인 기록은 뺀다.
+// 종류 묶음: 화면의 '종류' 선택과 같다
+const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록',
+  '생산 투입':'생산', '투입 취소':'생산', '작업 시작':'생산', '작업 참여':'생산', '작업 종료':'생산', '작업 삭제':'생산',
+  '품목 수정':'기준정보', '품목 추가':'기준정보', '계획표 저장':'기준정보',
+  '로그인':'로그인·사용자', '로그아웃':'로그인·사용자', '로그인 실패':'로그인·사용자', 'PIN 변경':'로그인·사용자', 'PIN 초기화':'로그인·사용자', '사용자 추가':'로그인·사용자', '사용자 수정':'로그인·사용자',
+  '내보내기':'내보내기' };
+// 감사 추적: 기간·종류·사람·검색어로 거른다. 저장·로그인까지 모두 포함 (최대 2000건, 최신순)
 function r15Audit_(q, auth) {
   if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
-  const kw = r15S_(q.q), byId = {}; r15Records_().forEach(function(r) { byId[r.id] = r; });
-  const items = r15AuditRows_().filter(function(a) { return a.action !== '로그인' && a.action !== 'R15생산투입' && a.label !== '저장'; }).sort(function(a, b) { return b.at - a.at; })
-    .map(function(a) { const r = byId[a.recordId]; a.inboundNo = r ? r.inboundNo : ''; a.pallet = r ? r.pallet : 0; return a; })
-    .filter(function(a) { return !kw || JSON.stringify(a).indexOf(kw) >= 0; }).slice(0, 300);
-  return { ok:true, items:items };
+  const kw = r15S_(q.q), kind = r15S_(q.kind), actor = r15S_(q.actor), byId = {};
+  const from = /^\d{4}-\d{2}-\d{2}$/.test(r15S_(q.from)) ? r15S_(q.from) : '', to = /^\d{4}-\d{2}-\d{2}$/.test(r15S_(q.to)) ? r15S_(q.to) : '';
+  r15Records_().forEach(function(r) { byId[r.id] = r; });
+  const all = r15AuditRows_().map(function(a) { a.kind = R15_AUDIT_KIND[a.label] || '기타'; a.day = a.atText.slice(0, 10); return a; })
+    .filter(function(a) { return (!from || a.day >= from) && (!to || a.day <= to); });
+  const actors = {}; all.forEach(function(a) { if (a.actor) actors[a.actor] = 1; });
+  const items = all.filter(function(a) { return (!kind || a.kind === kind) && (!actor || a.actor === actor); }).sort(function(a, b) { return b.at - a.at; })
+    .map(function(a) { const r = byId[a.recordId]; a.inboundNo = r ? r.inboundNo : (a.before && a.before.inboundNo) || ''; a.pallet = r ? r.pallet : 0; return a; })
+    .filter(function(a) { return !kw || JSON.stringify(a).indexOf(kw) >= 0; });
+  return { ok:true, total:items.length, items:items.slice(0, 2000), actors:Object.keys(actors).sort(), kinds:['기록','생산','기준정보','로그인·사용자','내보내기','기타'] };
+}
+// 인쇄·CSV 내보내기를 남긴다 (조회 권한도 가능)
+function r15AuditNote_(p, auth) {
+  const what = r15S_(p.kind).slice(0, 20); if (!what) return { ok:false, message:'종류가 없습니다.' };
+  appendAudit_('내보내기', '', { actor: actorLabelV24_(auth), reason: what, meta: { target: r15S_(p.target).slice(0, 500), count: r15Num_(p.count) } });
+  return { ok:true };
 }

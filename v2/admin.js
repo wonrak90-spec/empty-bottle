@@ -3,7 +3,7 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
   const A = R.admin = { sub: 'audit', items: [], plan: null, users: [], deleted: [], audit: [], q: '' };
-  const SUBS = [['audit', '변경 이력', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3]];
+  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3]];
 
   function render() {
     const root = $('adminView'); if (!root) return;
@@ -15,15 +15,47 @@
   }
 
   /* ---------- 변경 이력 ---------- */
+  // 감사 추적: 누가·언제·무엇을·왜. 저장·로그인·투입·내보내기까지 모두. 기간·종류·사람·검색으로 거르고 CSV로 내려받는다.
+  const day = (d) => d.toISOString().slice(0, 10);
+  function auF() { if (!A.f) { const t = new Date(Date.now() + 9 * 3600e3); A.f = { from: day(new Date(t - 6 * 864e5)), to: day(t), kind: '', actor: '', q: '' }; } return A.f; }
+  function auDetail(a) {
+    const ch = a.changes || {}, isDiff = Object.keys(ch).some((k) => ch[k] && typeof ch[k] === 'object' && 'after' in ch[k]);
+    const flat = (o) => Object.keys(o || {}).filter((k) => o[k] !== '' && o[k] != null && typeof o[k] !== 'object').map((k) => `${k}: ${o[k]}`).join(' · ');
+    const lines = [];
+    if (isDiff) lines.push(R.rec.changesHtml(ch));
+    else if (flat(ch)) lines.push(`<div>내용: ${esc(flat(ch))}</div>`);
+    if (flat(a.before)) lines.push(`<div class="muted">이전: ${esc(flat(a.before))}${Array.isArray(a.before.pallets) && a.before.pallets.length ? ' · Pallet ' + esc(a.before.pallets.join(', ')) : ''}</div>`);
+    if (flat(a.meta)) lines.push(`<div class="muted">${esc(flat(a.meta))}</div>`);
+    return lines.join('');
+  }
+  const auText = (a) => { const ch = a.changes || {}; return Object.keys(ch).map((k) => { const v = ch[k]; return v && typeof v === 'object' ? `${k}: ${v.before ?? ''} → ${v.after ?? ''}` : `${k}: ${v}`; }).join(' / '); };
   async function audit() {
-    const r = await R.tryGet('r15Audit', { q: A.q }); A.audit = r && r.items || [];
-    $('admBody').innerHTML = `<section><div class="shead"><h2>변경 이력</h2><span class="sub">기록 수정·삭제·되살리기, 투입 취소, 품목·사용자 변경. 최근 300건</span></div>
-      <div class="searchrow"><input id="auQ" type="search" value="${esc(A.q)}" placeholder="입고번호, 이름, 사유로 찾기" enterkeyhint="search"><button type="button" class="btn ghost" id="auGo">찾기</button></div>
-      <div class="list">${A.audit.map((a, i) => `<div class="row"><span><b>${esc(a.label)}</b> ${a.inboundNo ? `${esc(a.inboundNo)} P${esc(a.pallet || '?')}` : `<span class="muted">${esc(a.recordId)}</span>`} <span class="muted">${esc(a.atText)} · ${esc(a.actor)}${a.reason ? ' · ' + esc(a.reason) : ''}</span>
-        ${a.label === '수정' ? `<span class="sub">${esc(Object.keys(a.changes || {}).filter((k) => k !== 'containerTo').map((k) => `${k}: ${a.changes[k].before ?? ''} → ${a.changes[k].after ?? ''}`).join(' · '))}</span>` : ''}</span>
-        ${a.inboundNo ? `<button type="button" class="btn ghost sm" data-au="${i}">이력</button>` : ''}</div>`).join('') || '<div class="muted">없음</div>'}</div></section>`;
-    $('auGo').onclick = () => { A.q = $('auQ').value.trim(); audit(); };
+    const f = auF();
+    $('admBody').innerHTML = '<div class="muted pad">불러오는 중…</div>';
+    const r = await R.tryGet('r15Audit', f); A.audit = r && r.items || []; A.auMeta = r || {};
+    const opt = (list, cur, all) => `<option value="">${all}</option>` + (list || []).map((x) => `<option ${x === cur ? 'selected' : ''}>${esc(x)}</option>`).join('');
+    $('admBody').innerHTML = `<section><div class="shead"><h2>감사 추적</h2><span class="sub">누가 · 언제 · 무엇을 · 왜 · 저장·로그인·투입·내보내기 모두</span></div>
+      <div class="grid g2 aufilter">
+        <label>시작일<input type="date" id="auFrom" value="${esc(f.from)}"></label><label>종료일<input type="date" id="auTo" value="${esc(f.to)}"></label>
+        <label>종류<select id="auKind">${opt(A.auMeta.kinds, f.kind, '전체')}</select></label>
+        <label>사람<select id="auActor">${opt(A.auMeta.actors, f.actor, '전체')}</select></label>
+        <label class="wide">검색<input id="auQ" type="search" value="${esc(f.q)}" placeholder="입고번호, 제조번호, 사유" enterkeyhint="search"></label></div>
+      <div class="savebar"><button type="button" class="btn" id="auGo">조회</button><button type="button" class="btn ghost sm" id="auCsv" ${A.audit.length ? '' : 'disabled'}>CSV 내려받기</button>
+        <span class="sub">${A.auMeta.total || 0}건${A.auMeta.total > A.audit.length ? ` · 앞 ${A.audit.length}건만 표시` : ''}</span></div>
+      <div class="list">${A.audit.map((a, i) => `<details class="aurow"><summary><span><b>${esc(a.label)}</b> <span class="pill p-idle">${esc(a.kind)}</span> ${a.inboundNo ? `${esc(a.inboundNo)}${a.pallet ? ' P' + esc(a.pallet) : ''}` : ''}
+          <span class="muted">${esc(a.atText)} · ${esc(a.actor)}${a.reason ? ' · ' + esc(a.reason) : ''}</span></span></summary>
+        <div class="audet">${auDetail(a) || '<div class="muted">추가 내용 없음</div>'}${a.inboundNo && a.recordId ? `<button type="button" class="btn ghost sm" data-au="${i}">이 기록의 전체 이력</button>` : ''}</div></details>`).join('') || '<div class="muted">이 조건에 해당하는 이력이 없습니다.</div>'}</div></section>`;
+    const read = () => { f.from = $('auFrom').value; f.to = $('auTo').value; f.kind = $('auKind').value; f.actor = $('auActor').value; f.q = $('auQ').value.trim(); if (f.from && f.to && f.from > f.to) [f.from, f.to] = [f.to, f.from]; };
+    $('auGo').onclick = () => { read(); audit(); };
+    ['auKind', 'auActor'].forEach((id) => { $(id).onchange = () => { read(); audit(); }; });
     $('auQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('auGo').click(); });
+    $('auCsv').onclick = () => {
+      const q = (v) => '"' + String(v == null ? '' : v).replace(/"/g, '""') + '"';
+      const rows = [['일시', '종류', '작업', '입고번호', 'Pallet', '작업자', '사유', '내용', 'Record ID']].concat(A.audit.map((a) => [a.atText, a.kind, a.label, a.inboundNo, a.pallet || '', a.actor, a.reason, auText(a), a.recordId]));
+      const blob = new Blob(['\ufeff' + rows.map((r) => r.map(q).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+      const el = document.createElement('a'); el.href = URL.createObjectURL(blob); el.download = `감사추적_${f.from}_${f.to}.csv`; el.click(); setTimeout(() => URL.revokeObjectURL(el.href), 5000);
+      R.rec.note('감사추적 CSV', `${f.from}~${f.to} ${f.kind || '전체'} ${f.actor || ''}`, A.audit.length);
+    };
     document.querySelectorAll('[data-au]').forEach((b) => { b.onclick = () => { const a = A.audit[Number(b.dataset.au)]; R.rec.history({ id: a.recordId, inboundNo: a.inboundNo, pallet: a.pallet }); }; });
   }
 

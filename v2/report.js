@@ -227,8 +227,8 @@
     $('dialogBody').innerHTML = `<h3>인쇄 ${nos.length}건</h3><div class="sub">사진 장을 함께 인쇄할까요?</div><div class="savebar"><button type="button" class="btn" id="prPh">사진 포함</button><button type="button" class="btn ghost" id="prNo">표만</button><button type="button" class="btn ghost sm" id="prClose">닫기</button></div>`;
     $('dialog').hidden = false;
     $('prClose').onclick = () => { $('dialog').hidden = true; };
-    $('prPh').onclick = () => { $('dialog').hidden = true; printOpen(nos, true); };
-    $('prNo').onclick = () => { $('dialog').hidden = true; printOpen(nos, false); };
+    $('prPh').onclick = () => { $('dialog').hidden = true; R.rec.note('보고서 인쇄(사진 포함)', nos.join(', '), nos.length); printOpen(nos, true); };
+    $('prNo').onclick = () => { $('dialog').hidden = true; R.rec.note('보고서 인쇄', nos.join(', '), nos.length); printOpen(nos, false); };
   }
   async function printOpen(nos, withPhotos) {
     const w = window.open('', '_blank'); if (!w) return R.toast('팝업이 막혀 있습니다. 브라우저에서 팝업을 허용하세요', 'crit');
@@ -245,7 +245,7 @@
     const rows = P.data.records.map((r) => [r.inboundNo, r.pallet, r.atText, r.itemCode, r.product, r.productRaw, r.supplier, r.qty, r.vendorQty, r.vendorProduct, r.vendorProdDate, r.finalResult,
       r.issues.filter((x) => x.level !== 'info').map((x) => x.label).join(' / '), r.usedIn.map((u) => u.productName + ' ' + u.lotNo).join(' / '), r.inspector, r.wmsPhoto, r.vendorPhoto, r.id]);
     const text = '﻿' + [head].concat(rows).map((row) => row.map((v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = `공병검수_${P.from}_${P.to}.csv`; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 120000); // iOS는 '다운로드할까요?' 확인 뒤에 받는다
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = `공병검수_${P.from}_${P.to}.csv`; a.click(); R.rec.note('보고서 CSV', `${P.from}~${P.to}`, rows.length); setTimeout(() => URL.revokeObjectURL(a.href), 120000); // iOS는 '다운로드할까요?' 확인 뒤에 받는다
   }
 
   P.init = function () { setPeriod('week'); render(); };

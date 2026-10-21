@@ -131,5 +131,7 @@
 
   R.on('login', soon);
   R.on('queue', (s) => { if (s && s.done !== M.lastDone) { M.lastDone = s.done; if (document.body.dataset.tab === 'inspect') soon(); } });
-  R.rec = { actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
+  // 인쇄·내려받기도 감사 추적에 남긴다 (실패해도 화면 동작은 막지 않음)
+  function note(kind, target, count) { try { R.apiPost('r15AuditNote', { kind, target, count: count || 0 }).catch(() => null); } catch (_) {} }
+  R.rec = { note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
 })();
