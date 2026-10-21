@@ -127,8 +127,9 @@
   }
 
   function renderIssues() {
-    const d = P.data, groups = {};
-    d.records.forEach((r) => r.issues.forEach((x) => { if (x.level === 'info') return; (groups[x.code] = groups[x.code] || { level: x.level, list: [] }).list.push({ r, x }); }));
+    const d = P.data, groups = {}, mgr = R.isManager();
+    const acked = [];
+    d.records.forEach((r) => r.issues.forEach((x) => { if (x.level === 'info') return; if (x.acked) { acked.push({ r, x }); return; } (groups[x.code] = groups[x.code] || { level: x.level, list: [] }).list.push({ r, x }); }));
     const codes = Object.keys(groups).sort((a, b) => LEVEL_ORDER[groups[a].level] - LEVEL_ORDER[groups[b].level] || groups[b].list.length - groups[a].list.length);
     const gaps = d.inbounds.filter((x) => x.gaps.missing.length);
     $('repSubBody').innerHTML = `<section><div class="shead"><h2>데이터 점검</h2><span class="sub">저장된 값 자체의 문제입니다. 항목을 누르면 해당 기록이 나옵니다.${R.rank() >= 1 ? ' 고칠 권한이 있는 기록은 바로 고칠 수 있습니다.' : ''}</span></div>
@@ -136,8 +137,14 @@
       ${gaps.length ? `<details class="iss"><summary>${R.pill('warn', gaps.reduce((t, x) => t + x.gaps.missing.length, 0) + '개')} Pallet 번호가 중간에 빠짐</summary>
         <div class="list">${gaps.map((x) => `<button type="button" class="row" data-open="${esc(x.inboundNo)}"><span><b>${esc(x.inboundNo)}</b> ${esc(x.product)}</span><span class="muted">P${x.gaps.min}~P${x.gaps.max} 중 ${x.gaps.missing.length > 12 ? x.gaps.missing.length + '개' : x.gaps.missing.map((n) => 'P' + n).join(' ')} 없음</span></button>`).join('')}</div></details>` : ''}
       ${codes.map((c) => `<details class="iss"><summary>${R.pill(groups[c].level, groups[c].list.length + '건')} ${esc(ISSUE_NAMES[c] || c)}</summary>
-        <div class="list">${groups[c].list.map(({ r, x }) => `<div class="row"><button type="button" class="lnk" data-open="${esc(r.inboundNo)}"><b>${esc(r.inboundNo || '번호 없음')}</b> P${esc(r.pallet || '?')} <span class="muted">${esc(r.atText)} · ${esc(x.label)}</span></button>${R.rec.actionsHtml(r)}</div>`).join('')}</div></details>`).join('')}
+        ${mgr ? `<div class="bulk"><span class="sub">값이 맞으면 확인 처리, 틀렸으면 고치기</span><button type="button" class="btn ghost sm" data-ackall="${esc(c)}">${groups[c].list.length}건 모두 확인 처리</button></div>` : ''}
+        <div class="list">${groups[c].list.map(({ r, x }) => `<div class="row"><button type="button" class="lnk" data-open="${esc(r.inboundNo)}"><b>${esc(r.inboundNo || '번호 없음')}</b> P${esc(r.pallet || '?')} <span class="muted">${esc(r.atText)} · ${esc(x.label)}</span></button>${mgr ? `<button type="button" class="btn ghost sm" data-ack="${esc(r.id)}|${esc(c)}">확인 처리</button>` : ''}${R.rec.actionsHtml(r)}</div>`).join('')}</div></details>`).join('')}
+      ${acked.length ? `<details class="iss"><summary>${R.pill('ok', acked.length + '건')} 확인 처리된 점검</summary>
+        <div class="list">${acked.map(({ r, x }) => `<div class="row"><button type="button" class="lnk" data-open="${esc(r.inboundNo)}"><b>${esc(r.inboundNo || '번호 없음')}</b> P${esc(r.pallet || '?')} <span class="muted">${esc(x.label)} · ${esc(x.acked.by)} ${esc(x.acked.at)} · ${esc(x.acked.reason)}</span></button>${mgr ? `<button type="button" class="btn ghost sm" data-unack="${esc(r.id)}|${esc(x.code)}">처리 취소</button>` : ''}</div>`).join('')}</div></details>` : ''}
     </section>`;
+    const byId = (id) => d.records.find((r) => r.id === id);
+    document.querySelectorAll('[data-ackall]').forEach((b) => { b.onclick = () => { const c = b.dataset.ackall; R.rec.ack(groups[c].list.map((g) => g.r), [c], ISSUE_NAMES[c] || c, afterChange); }; });
+    document.querySelectorAll('[data-ack],[data-unack]').forEach((b) => { b.onclick = () => { const un = !!b.dataset.unack, [id, c] = (b.dataset.ack || b.dataset.unack).split('|'); R.rec.ack([byId(id)], [c], ISSUE_NAMES[c] || c, afterChange, un); }; });
     document.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openDetail(b.dataset.open); });
     R.rec.bind($('repSubBody'), d.records, afterChange);
   }
@@ -166,7 +173,7 @@
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${fmt(r.vendorQty)}</td>
         <td data-l="업체 생산일" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
-        <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}</td>
+        <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
         <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
         <td data-l="투입" class="${r.usedIn.length ? '' : 'e'}">${r.usedIn.map((u) => esc(u.productName + ' ' + u.lotNo)).join('<br>') || '<span class="muted">-</span>'}</td>
         <td data-l="관리" class="wide2">${R.rec.actionsHtml(r)}${r.can && !r.can.edit && r.can.why && R.user && r.inspector === R.user.name ? `<div class="muted small">${esc(r.can.why)}</div>` : ''}</td></tr>`).join('')}
@@ -178,6 +185,7 @@
     $('detPhotos').onclick = () => gallery(records, $('detGallery'), s.inboundNo);
     bindPhotoButtons(root);
     R.rec.bind(root, records, afterChange);
+    root.querySelectorAll('[data-dack]').forEach((b) => { b.onclick = () => { const r = records.find((x) => x.id === b.dataset.dack); R.rec.ack([r], [], r.issues.filter((x) => x.level !== 'info' && !x.acked).map((x) => x.label).join(', '), afterChange); }; });
     // 여러 건 삭제: 사유 한 번, 서버 왕복 한 번
     const boxes = [...root.querySelectorAll('[data-dsel]')], delBtn = $('detDelSel');
     const upd = () => { const n = boxes.filter((b) => b.checked).length; if (delBtn) { delBtn.disabled = !n; delBtn.textContent = `선택 ${n}건 삭제`; } };

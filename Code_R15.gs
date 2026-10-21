@@ -1913,6 +1913,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
   if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
   if (action === 'r15AuditNote') return r15AuditNote_(p, auth);
+  if (action === 'r15IssueAck') return r15IssueAck_(p, auth);
   if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
@@ -2076,14 +2077,44 @@ function r15LabelCode_(v) {
 function r15Ctx_(records) {
   const dup = {}; records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) dup[k] = (dup[k] || 0) + 1; });
   const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
-  return { dup:dup, used:used, items:r15ItemMap_() };
+  return { dup:dup, used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+}
+// 점검 확인 처리: 사람이 보고 '문제 아님/조치함'으로 닫은 점검 항목. 기록ID|점검코드 → 마지막 처리 (취소 포함)
+const R15_ACK_HEADERS = ['Record ID', '점검코드', '처리', '사유', '처리자', '일시'];
+function r15AckMap_() {
+  if (R15_MEM_.__acks) return R15_MEM_.__acks;
+  const vals = r15SheetValues_('IssueAcks'), m = {};
+  if (vals.length >= 2) { const i = r15HeaderIdx_(vals, R15_ACK_HEADERS); for (let n = 1; n < vals.length; n++) { const r = vals[n], k = r15S_(r[i['Record ID']]) + '|' + r15S_(r[i['점검코드']]); const at = r15Date_(r[i['일시']]);
+    if (r15S_(r[i['처리']]) === '취소') delete m[k]; else m[k] = { reason: r15S_(r[i['사유']]), by: r15S_(r[i['처리자']]), at: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '' }; } }
+  return R15_MEM_.__acks = m;
+}
+// ids: 기록ID 목록, codes: 점검코드 목록(비우면 그 기록의 열린 점검 전부), undo: 처리 취소
+function r15IssueAck_(p, auth) {
+  if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'점검 확인 처리는 중간관리자 이상만 할 수 있습니다. 값이 틀렸으면 기록을 고치세요.' };
+  const reason = r15S_(p.reason), undo = !!p.undo; if (!reason) return { ok:false, message:'처리 사유를 적어 주세요.' };
+  const ids = (p.ids || []).map(r15S_).filter(String).slice(0, 500), codes = (p.codes || []).map(r15S_).filter(String);
+  if (!ids.length) return { ok:false, message:'처리할 기록을 고르세요.' };
+  const all = r15Records_(), ctx = r15Ctx_(all), byId = {}; all.forEach(function(r) { byId[r.id] = r; });
+  const rows = [], now = new Date(), who = actorLabelV24_(auth);
+  ids.forEach(function(id) {
+    const rec = byId[id]; if (!rec) return;
+    r15Issues_(rec, ctx).filter(function(x) { return x.level !== 'info' && (!codes.length || codes.indexOf(x.code) >= 0) && (undo ? ctx.acks[id + '|' + x.code] : !ctx.acks[id + '|' + x.code]); })
+      .forEach(function(x) { rows.push([id, x.code, undo ? '취소' : '확인', reason, who, now]); });
+  });
+  if (!rows.length) return { ok:true, count:0 };
+  const sh = ensureSheet_(getSs_(), 'IssueAcks', R15_ACK_HEADERS); sh.getRange(sh.getLastRow() + 1, 1, rows.length, R15_ACK_HEADERS.length).setValues(rows);
+  r15Forget_('IssueAcks'); delete R15_MEM_.__acks;
+  const byRec = {}; rows.forEach(function(r) { (byRec[r[0]] = byRec[r[0]] || []).push(r[1]); });
+  Object.keys(byRec).forEach(function(id) { appendAudit_(undo ? '점검확인취소' : '점검확인', id, { actor: who, reason: reason, after: { codes: byRec[id].join(', ') } }); });
+  return { ok:true, count: rows.length, records: Object.keys(byRec).length };
 }
 function r15Public_(rec, ctx) {
   const k = r15Key_(rec.inboundNo, rec.pallet), uses = (ctx.used[k] || []).map(function(pp) { return { lotNo:pp.lotNo, productName:pp.productName, productionId:pp.productionId, at:pp.atText }; });
   const o = {}; Object.keys(rec).forEach(function(x) { if (x !== 'row') o[x] = rec[x]; });
-  o.issues = r15Issues_(rec, ctx); o.usedIn = uses;
+  o.issues = r15Issues_(rec, ctx).map(function(x) { const a = ctx.acks && ctx.acks[rec.id + '|' + x.code]; if (a) x.acked = a; return x; }); o.usedIn = uses;
   if (R15_MEM_.__auth) o.can = r15RecordPerm_(rec, R15_MEM_.__auth, uses.length > 0);
-  o.level = o.issues.some(function(x) { return x.level === 'error'; }) ? 'error' : (o.issues.some(function(x) { return x.level === 'warn'; }) ? 'warn' : 'ok');
+  const open = o.issues.filter(function(x) { return !x.acked; }); // 확인 처리한 점검은 등급에서 뺀다
+  o.level = open.some(function(x) { return x.level === 'error'; }) ? 'error' : (open.some(function(x) { return x.level === 'warn'; }) ? 'warn' : 'ok');
   return o;
 }
 function r15Gaps_(pallets) {
@@ -2137,7 +2168,7 @@ function r15Report_(from, to) {
   });
   r15Stock_(180).groups.forEach(function(g) { const s = sup(g.itemCode, g.product); s.stockPallets += g.palletCount; s.stockQty += g.qtyTotal; });
 
-  const issueCounts = {}; records.forEach(function(r) { r.issues.forEach(function(x) { issueCounts[x.code] = (issueCounts[x.code] || 0) + 1; }); });
+  const issueCounts = {}; records.forEach(function(r) { r.issues.forEach(function(x) { if (!x.acked) issueCounts[x.code] = (issueCounts[x.code] || 0) + 1; }); });
   const lotsInPeriod = r15Productions_().filter(function(p) { return p.at >= start.getTime() && p.at < end; }).length;
   return {
     ok:true, from:from, to:to || from, generatedAt: Utilities.formatDate(new Date(), R15_TZ, 'yyyy-MM-dd HH:mm'), backendVersion:BACKEND_VERSION,
@@ -2469,7 +2500,7 @@ function r15Mine_(auth) {
   });
   return { ok:true, today:today, items:items, deleted:deleted };
 }
-const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
 function r15AuditRows_() {
   const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
   const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
@@ -2493,7 +2524,7 @@ function r15History_(id) {
 }
 // 최근 변경 이력 (관리 탭). 로그인 기록은 뺀다.
 // 종류 묶음: 화면의 '종류' 선택과 같다
-const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록',
+const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록', '점검 확인':'기록', '점검 확인 취소':'기록',
   '생산 투입':'생산', '투입 취소':'생산', '작업 시작':'생산', '작업 참여':'생산', '작업 종료':'생산', '작업 삭제':'생산',
   '품목 수정':'기준정보', '품목 추가':'기준정보', '계획표 저장':'기준정보',
   '로그인':'로그인·사용자', '로그아웃':'로그인·사용자', '로그인 실패':'로그인·사용자', 'PIN 변경':'로그인·사용자', 'PIN 초기화':'로그인·사용자', '사용자 추가':'로그인·사용자', '사용자 수정':'로그인·사용자',

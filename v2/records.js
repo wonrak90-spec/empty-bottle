@@ -87,6 +87,24 @@
     };
   }
 
+  // 점검 확인 처리(중간관리자): 값은 맞는데 점검에 걸린 경우(예: 업체 라벨이 없는 차량) 사유를 남기고 닫는다. undo면 처리 취소.
+  function ack(list, codes, label, onDone, undo) {
+    if (!list.length) return;
+    $('dialogBody').innerHTML = `<h3>${undo ? '점검 확인 취소' : '점검 확인 처리'} · ${list.length}건</h3>
+      <div class="sub">${esc(label || '열린 점검 전부')}</div>
+      <div class="sub">${list.slice(0, 30).map((r) => esc((r.inboundNo || '') + ' P' + (r.pallet || '?'))).join(', ')}${list.length > 30 ? ' 외 ' + (list.length - 30) + '건' : ''}</div>
+      ${undo ? '' : '<div class="sub">값이 틀린 경우에는 처리하지 말고 기록을 고치세요. 처리 내역은 감사 추적에 남습니다.</div>'}
+      <label>사유 (필수)<input id="akReason" placeholder="${undo ? '예: 잘못 처리' : '예: 업체 라벨 미부착 차량, 현장 확인함'}"></label>
+      <div class="savebar"><button type="button" class="btn" id="akGo">${undo ? '처리 취소' : '확인 처리'}</button><button type="button" class="btn ghost sm" id="akClose">닫기</button></div>`;
+    $('dialog').hidden = false; $('akClose').onclick = close;
+    $('akGo').onclick = async () => {
+      const reason = $('akReason').value.trim(); if (!reason) { $('akReason').focus(); return R.toast('사유를 적어 주세요', 'crit'); }
+      const btn = $('akGo'); R.busy(btn, true, '처리 중…');
+      const res = await R.tryPost('r15IssueAck', { ids: list.map((r) => r.id), codes: codes || [], reason, undo: !!undo }); R.busy(btn, false);
+      if (res && res.ok) { close(); R.toast(`${res.count}개 점검을 ${undo ? '다시 열었습니다' : '확인 처리했습니다'}`, 'ok'); if (onDone) onDone('ack'); }
+    };
+  }
+
   async function restore(id, onDone) {
     const reason = prompt('되살리는 사유를 적어 주세요', '잘못 삭제'); if (reason == null) return;
     const res = await R.tryPost('r15RecordRestore', { id, reason: reason.trim() || '복구' });
@@ -133,5 +151,5 @@
   R.on('queue', (s) => { if (s && s.done !== M.lastDone) { M.lastDone = s.done; if (document.body.dataset.tab === 'inspect') soon(); } });
   // 인쇄·내려받기도 감사 추적에 남긴다 (실패해도 화면 동작은 막지 않음)
   function note(kind, target, count) { try { R.apiPost('r15AuditNote', { kind, target, count: count || 0 }).catch(() => null); } catch (_) {} }
-  R.rec = { note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
+  R.rec = { ack, note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
 })();
