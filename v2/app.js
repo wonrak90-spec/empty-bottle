@@ -70,10 +70,24 @@
       <div class="sub">권한을 바꾸려면 관리자에게 요청하세요.</div>
       <details><summary>PIN 바꾸기</summary><div class="grid g2"><label>지금 PIN<input id="mePin0" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label><label>새 PIN 6자리<input id="mePin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>
         <button type="button" class="btn ghost" id="mePinGo">PIN 바꾸기</button></details>
+      <details><summary>서버 속도 확인 (이 폰·이 통신망)</summary><div class="sub">읽기만 합니다. 기록은 바뀌지 않습니다.</div><button type="button" class="btn ghost" id="meSpeed">확인 시작</button><div id="meSpeedOut" class="sub"></div></details>
       <div class="savebar"><button type="button" class="btn ghost" id="meOut">로그아웃</button><button type="button" class="btn ghost sm" id="meClose">닫기</button></div>`;
     $('dialog').hidden = false;
     $('meClose').onclick = () => { $('dialog').hidden = true; };
     $('meOut').onclick = () => { const s = R.queue.summary(); if (!confirm(((s.pending || 0) + (s.sending || 0)) ? '아직 서버에 안 올라간 저장이 있습니다. 다시 로그인하면 이어서 보냅니다. 로그아웃할까요?' : '로그아웃할까요?')) return; $('dialog').hidden = true; R.logout(); };
+    // 실제 서버까지 왕복 시간을 이 폰에서 잰다 (Apps Script 첫 호출은 깨어나는 시간이 더 든다)
+    $('meSpeed').onclick = async () => {
+      const out = $('meSpeedOut'), btn = $('meSpeed'), rows = [];
+      const steps = [['로그인 확인', 'whoami'], ['로그인 확인 (다시)', 'whoami'], ['투입 작업 목록', 'r15Lots'], ['품목 기준정보', 'r15Items'], ['오늘 내 기록', 'r15Mine']];
+      if (R.rank() >= 0) steps.push(['보고서 이번 주', 'r15Report', { from: R.util.today(-6), to: R.util.today() }]);
+      R.busy(btn, true, '확인 중…');
+      for (const [label, action, q] of steps) {
+        const t = performance.now(); let ok = true;
+        try { const r = await R.apiGet(action, q || {}); ok = !!(r && r.ok !== false); } catch (_) { ok = false; }
+        rows.push(`${label}: ${((performance.now() - t) / 1000).toFixed(1)}초${ok ? '' : ' (실패)'}`); out.innerHTML = rows.join('<br>');
+      }
+      R.busy(btn, false); R.rec.note('서버 속도 확인', rows.join(' / '));
+    };
     $('mePinGo').onclick = async () => {
       const a = $('mePin0').value.trim(), b = $('mePin1').value.trim();
       if (!/^\d{6}$/.test(b)) return R.toast('새 PIN은 숫자 6자리입니다', 'crit');

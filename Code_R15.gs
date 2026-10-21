@@ -221,7 +221,9 @@ function getSs_() {
   return SS_MEM_;
 }
 
+var R15_TEST_FOLDER_ = null; // r15ServerTest 중에만: 시험 사진을 실제 사진 폴더 대신 임시 폴더에 넣는다
 function getPhotoFolder_() {
+  if (R15_TEST_FOLDER_) return R15_TEST_FOLDER_;
   const id = PropertiesService.getScriptProperties().getProperty('PHOTO_FOLDER_ID');
   if (!id) throw new Error('사진 폴더가 아직 설정되지 않았습니다. setupSystem을 먼저 실행하세요.');
   return DriveApp.getFolderById(id);
@@ -2575,4 +2577,79 @@ function r15AuditNote_(p, auth) {
   const what = r15S_(p.kind).slice(0, 20); if (!what) return { ok:false, message:'종류가 없습니다.' };
   appendAudit_('내보내기', '', { actor: actorLabelV24_(auth), reason: what, meta: { target: r15S_(p.target).slice(0, 500), count: r15Num_(p.count) } });
   return { ok:true };
+}
+
+
+/* ======================================================================
+ * 실제 서버 시험 (Apps Script 편집기에서 r15ServerTest 를 선택하고 ▶ 실행)
+ * - 운영 스프레드시트를 통째로 복사한 사본에서만 저장·수정·삭제를 한다. 운영 시트와 사진 폴더는 건드리지 않는다.
+ * - 실제 Apps Script·실제 시트 크기로 동작별 시간을 재고, 결과를 실행 로그에 표로 남긴다.
+ * - 끝나면 사본과 임시 사진 폴더를 휴지통으로 보낸다 (keep=true면 남김).
+ * - 시험 중 잠금(LockService)을 쓰므로 현장에서 저장이 몰리지 않는 시간에 돌린다. 약 1~3분.
+ * ====================================================================== */
+function r15ServerTest(keep) {
+  const t0 = Date.now(), out = [], fails = [];
+  const origId = scriptProp_('SPREADSHEET_ID'), stamp = Utilities.formatDate(new Date(), R15_TZ, 'yyyyMMdd_HHmmss');
+  const copy = DriveApp.getFileById(origId).makeCopy('R15_서버시험_' + stamp);
+  const folder = DriveApp.createFolder('R15_서버시험_사진_' + stamp);
+  const reset = function() { SS_MEM_ = null; SHEET_MEM_ = {}; Object.keys(R15_MEM_).forEach(function(k) { delete R15_MEM_[k]; }); };
+  const time = function(name, fn, check) {
+    reset(); SS_MEM_ = SpreadsheetApp.openById(copy.getId());
+    const a = Date.now(); let r, err = '';
+    try { r = fn(); if (check && !check(r)) err = '결과 이상: ' + JSON.stringify(r).slice(0, 160); } catch (e) { err = String(e && e.message || e); }
+    const ms = Date.now() - a; out.push([name, ms, err ? '실패' : '정상', err]); if (err) fails.push(name + ' · ' + err); return r;
+  };
+  const who = function(role, name) { return { ok:true, userId:'TEST-' + role, employeeNo:'T-' + role, name:name, department:'시험', role:role, expiresAt:Date.now() + 3600e3 }; };
+  const W = who('worker', '시험작업자'), W2 = who('worker', '시험작업자2'), MG = who('manager', '시험중간관리자'), V = who('viewer', '시험조회자');
+  const img = 'data:image/jpeg;base64,' + 'UjE1IHNlcnZlciB0ZXN0';
+  const today = r15Today_(), inb = '9999' + stamp.slice(4, 8), ids = [];
+  try {
+    R15_TEST_FOLDER_ = folder;
+    const n0 = time('시트 크기 확인', function() { return r15Records_().length; }, function(n) { return n >= 0; });
+    // 읽기 (운영과 같은 데이터 크기)
+    time('보고서 1주', function() { return r15Get_('r15Report', { from: Utilities.formatDate(new Date(Date.now() - 6 * 864e5), R15_TZ, 'yyyy-MM-dd'), to: today }, MG); }, function(r) { return r.ok; });
+    time('보고서 전체 기간', function() { return r15Get_('r15Report', { from: '2000-01-01', to: '2099-12-31' }, MG); }, function(r) { return r.ok; });
+    time('투입 작업 목록', function() { return r15Get_('r15Lots', {}, W); }, function(r) { return r.ok; });
+    time('가용 공병(재고)', function() { return r15Get_('r15Stock', {}, W); }, function(r) { return r.ok; });
+    time('감사 추적 1주', function() { return r15Get_('r15Audit', { from: Utilities.formatDate(new Date(Date.now() - 6 * 864e5), R15_TZ, 'yyyy-MM-dd'), to: today }, MG); }, function(r) { return r.ok; });
+    // 차량 1대: Pallet 10개 (사진 2장 + 저장)
+    for (let i = 1; i <= 10; i++) {
+      const u1 = time('사진 올리기 WMS P' + i, function() { return v58SavePhoto_(img, inb + '_P' + i + '_WMS', { inboundNo: inb, palletNo: i, photoType: 'WMS' }); }, function(u) { return !!u; });
+      const u2 = i === 10 ? '' : time('사진 올리기 업체 P' + i, function() { return v58SavePhoto_(img, inb + '_P' + i + '_VENDOR', { inboundNo: inb, palletNo: i, photoType: 'VENDOR' }); }, function(u) { return !!u; });
+      const r = time('Pallet 저장 P' + i, function() { return saveSingleRecord_({ client:'r15', requestId:'R15TEST-' + stamp + '-' + i, inspector:W.name, inboundNo:inb, containerFrom:String(i), containerTo:String(i), photoUrl:u1, vendorPhotoUrl:u2,
+        product:'서버시험', itemCode:'0000000', displayQty:'1000', actualQty:'1000', finalResult:'적합', note: i === 10 ? '업체사진 없음: 나중에 찍기 / R15 서버시험' : 'R15 서버시험', dateKey: today.replace(/-/g, '') }); }, function(r) { return r && r.ok && r.id; });
+      if (r && r.id) ids.push(r.id);
+    }
+    time('같은 요청 다시 보내기(중복 방지)', function() { return saveSingleRecord_({ client:'r15', requestId:'R15TEST-' + stamp + '-1', inspector:W.name, inboundNo:inb, containerFrom:'1', containerTo:'1', photoUrl:'x', product:'서버시험', itemCode:'0000000', displayQty:'1000', finalResult:'적합' }); }, function(r) { return r && r.ok && r.id === ids[0]; });
+    time('같은 Pallet 새로 저장(막혀야 함)', function() { return saveSingleRecord_({ client:'r15', requestId:'R15TEST-' + stamp + '-dup', inspector:W.name, inboundNo:inb, containerFrom:'2', containerTo:'2', photoUrl:'x', product:'서버시험', itemCode:'0000000', displayQty:'1000', finalResult:'적합' }); }, function(r) { return r && !r.ok && r.duplicate; });
+    time('입고번호로 조회', function() { return r15Get_('r15Inbound', { inboundNo: inb }, W); }, function(r) { return r.ok && r.records.length === 10; });
+    time('오늘 내 기록', function() { return r15Get_('r15Mine', {}, W); }, function(r) { return r.ok && r.items.length >= 10; });
+    // 권한·수정·삭제·복구·이력
+    time('작업자 수정(사유 있음)', function() { return r15Post_('r15RecordEdit', { id: ids[0], reason: '서버시험 수정', changes: { note: '수정됨' } }, W); }, function(r) { return r.ok; });
+    time('남의 기록 수정(막혀야 함)', function() { return r15Post_('r15RecordEdit', { id: ids[0], reason: 'x', changes: { note: 'x' } }, W2); }, function(r) { return !r.ok; });
+    time('여러 건 삭제 3건', function() { return r15Post_('r15RecordDelete', { ids: ids.slice(1, 4), reason: '서버시험 삭제' }, W); }, function(r) { return r.ok && r.deleted === 3; });
+    time('되살리기 1건', function() { return r15Post_('r15RecordRestore', { id: ids[1], reason: '서버시험 복구' }, W); }, function(r) { return r.ok; });
+    time('기록 이력', function() { return r15Get_('r15History', { id: ids[0] }, V); }, function(r) { return r.ok && r.items.some(function(x) { return x.label === '수정'; }); });
+    time('업체 사진 나중에 붙이기', function() { return r15Post_('r15AttachPhoto', { id: ids[9], url: v58SavePhoto_(img, inb + '_P10_VENDOR_추가', { inboundNo: inb, palletNo: 10, photoType: 'VENDOR' }) }, W); }, function(r) { return r.ok; });
+    time('점검 확인 처리(중간관리자)', function() { return r15Post_('r15IssueAck', { ids: [ids[0]], codes: [], reason: '서버시험 확인' }, MG); }, function(r) { return r.ok; });
+    // 생산 투입
+    const lot = time('작업 시작', function() { return r15Post_('r15LotStart', { productName: '서버시험제품', lotNo: 'T' + stamp.slice(9) }, W); }, function(r) { return r.ok && r.id; }) || {};
+    time('Pallet 5개 투입', function() { return r15Post_('r15LotAdd', { productionId: lot.id, requestId: 'R15TESTLOT-' + stamp, items: [1, 5, 6, 7, 8].map(function(n) { return { inboundNo: inb, pallet: n }; }) }, W); }, function(r) { return r.ok; });
+    time('투입된 기록 삭제(막혀야 함)', function() { return r15Post_('r15RecordDelete', { id: ids[4], reason: 'x' }, MG); }, function(r) { return !r.ok; });
+    time('투입 1개 취소', function() { return r15Post_('r15LotRemove', { productionId: lot.id, inboundNo: inb, pallet: 8, reason: '서버시험' }, W); }, function(r) { return r.ok; });
+    time('작업 종료', function() { return r15Post_('r15LotFinish', { productionId: lot.id }, W); }, function(r) { return r.ok; });
+    time('제조번호로 역추적', function() { return r15Get_('r15Trace', { q: 'T' + stamp.slice(9) }, V); }, function(r) { return r.ok; });
+    time('작업 삭제(중간관리자, 투입 풀림)', function() { return r15Post_('r15LotDelete', { productionId: lot.id, reason: '서버시험' }, MG); }, function(r) { return r.ok; });
+    time('감사 추적 오늘 전체', function() { return r15Get_('r15Audit', { from: today, to: today }, MG); }, function(r) { return r.ok && r.items.some(function(x) { return x.label === '작업 삭제'; }); });
+    out.unshift(['운영 기록 수(사본)', n0, '', '']);
+  } finally {
+    R15_TEST_FOLDER_ = null; reset();
+    if (!keep) { try { copy.setTrashed(true); } catch (e) {} try { folder.setTrashed(true); } catch (e) {} }
+  }
+  const sum = function(re) { const xs = out.filter(function(r) { return re.test(r[0]); }).map(function(r) { return r[1]; }); return xs.length ? Math.round(xs.reduce(function(a, b) { return a + b; }, 0) / xs.length) : 0; };
+  const lines = ['R15 서버 시험 ' + stamp + ' · 총 ' + Math.round((Date.now() - t0) / 1000) + '초 · 실패 ' + fails.length + '건' + (keep ? ' · 사본 남김: ' + copy.getUrl() : ' · 사본·임시 사진 폴더는 휴지통으로 보냄'),
+    '평균: 사진 올리기 ' + sum(/^사진 올리기/) + 'ms · Pallet 저장 ' + sum(/^Pallet 저장/) + 'ms',
+    '동작 | 서버 시간(ms) | 결과 | 비고'].concat(out.map(function(r) { return r.join(' | '); }));
+  Logger.log(lines.join('\n'));
+  return lines.join('\n');
 }
