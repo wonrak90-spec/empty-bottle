@@ -193,3 +193,5 @@ details.aurow{border-bottom:1px solid var(--line);padding:8px 0}
 details.aurow summary{cursor:pointer;list-style:none}
 details.aurow summary::-webkit-details-marker{display:none}
 .audet{padding:6px 0 2px 12px;font-size:14px;display:grid;gap:4px}
+.fixes{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
+.fix{border-color:var(--ink2)}

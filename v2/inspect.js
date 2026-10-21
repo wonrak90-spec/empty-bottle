@@ -128,7 +128,7 @@
           ${field('cVDate', '업체 생산일자', c.vDate, { ph: 'yyyy-mm-dd' })}
           ${field('cVPallet', '업체 P-번호', c.vPallet)}
         </div>
-        ${b && !c.inboundNo && c.wmsDone ? `<button type="button" class="btn ghost" id="useBaseInbound">입고번호 ${esc(b.inboundNo)}가 맞습니다</button>` : ''}
+        <div class="fixes" id="fixBox"></div>
         <div class="checks" id="checksBox"></div>
         <label>특이사항<input id="cNote" value="${esc(c.note || '')}" placeholder="필요할 때만"></label>
         <details class="raw"><summary>OCR 원문</summary><pre>${esc((c.ocrRaw || '') + (c.vOcrRaw ? '\n---\n' + c.vOcrRaw : ''))}</pre></details>
@@ -142,7 +142,23 @@
 
   function checksHtml(ck) { return ck.map((x) => `<div class="ck ${x.ok ? 'ok' : x.hard ? 'bad' : 'warn'}">${x.ok ? '✓' : x.hard ? '✗' : '!'} ${esc(x.label)}</div>`).join(''); }
   // 입력 중에는 화면 전체를 다시 그리지 않는다 (입력 칸 포커스가 사라지지 않게)
+  // 읽은 값이 비었거나 차량 기준과 다를 때: 라벨을 눈으로 보고 "기준값이 맞습니다"를 한 번 누르면 기준값으로 바꾼다.
+  // 몰래 채우지 않고 사람이 누른 것만 바꾸며, 누른 내역(읽은 값)은 특이사항에 남아 감사 추적에 보인다.
+  const FIX = [['inboundNo', 'inboundNo', '입고번호', 'cInbound'], ['itemCode', 'itemCode', '품목코드', 'cItem'], ['qty', 'qty', 'WMS 수량', 'cQty']];
+  function fixesHtml() {
+    const b = S.base, c = S.cur || {}; if (!b || !c.wmsDone || busy.wms) return '';
+    return FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk]).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
+  }
+  function refreshFixes() {
+    const box = $('fixBox'); if (!box) return; box.innerHTML = fixesHtml();
+    box.querySelectorAll('[data-fix]').forEach((el) => { el.onclick = () => {
+      const k = el.dataset.fix, f = FIX.find((x) => x[0] === k), c = S.cur;
+      (c.confirmed = c.confirmed || []).push(`${f[2]} 기준값 확인(읽은 값 ${c[k] || '없음'})`);
+      c[k] = S.base[f[1]]; $(f[3]).value = c[k]; persist(); refreshChecks();
+    }; });
+  }
   function refreshChecks() {
+    refreshFixes();
     const box = $('checksBox'), btn = $('saveBtn'); if (!box || !btn) return;
     const ck = checks(), hard = ck.some((x) => !x.ok && x.hard), c = S.cur || {};
     box.innerHTML = checksHtml(ck);
@@ -179,7 +195,7 @@
   function bindPallet() {
     bindShots();
     ['cPallet', 'cInbound', 'cItem', 'cQty', 'cVProduct', 'cVQty', 'cVDate', 'cVPallet', 'cNote'].forEach((id) => $(id).addEventListener('input', () => { readCur(); refreshChecks(); }));
-    const ub = $('useBaseInbound'); if (ub) ub.onclick = () => { S.cur.inboundNo = S.base.inboundNo; persist(); render(); };
+
     $('saveBtn').onclick = savePallet;
     $('clearCur').onclick = () => { if (!confirm('이 Pallet 입력을 지우고 다시 찍을까요?')) return; S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render(); };
     if ($('vehEnd')) $('vehEnd').onclick = endVehicle;
@@ -279,7 +295,7 @@
       containerFrom: c.pallet, containerTo: c.pallet, codeRaw: c.codeRaw || (c.inboundNo + '-' + String(c.pallet).padStart(4, '0')),
       infoMatch: c.inboundNo === b.inboundNo && (!c.itemCode || c.itemCode === b.itemCode) ? '일치' : '불일치', mixed: c.itemCode && c.itemCode !== b.itemCode ? '있음' : '없음',
       actualQty: c.vQty || c.qty, qtyResult, finalResult: bad.length ? '확인필요' : '적합',
-      note: [c.note, noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
+      note: [c.note, (c.confirmed || []).join(', '), noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
       ocrRaw: c.ocrRaw, labelMatch: vm.result,
       vendorProduct: c.vProduct, vendorQty: c.vQty, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,
       vendorOcrRaw: c.vOcrRaw, vendorPalletNo: c.vPallet, dateKey: today().replace(/-/g, '')
