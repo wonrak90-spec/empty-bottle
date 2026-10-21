@@ -69,6 +69,24 @@
     };
   }
 
+  function delMany(list, onDone) {
+    if (!list.length) return;
+    $('dialogBody').innerHTML = `<h3>${list.length}건 삭제</h3>
+      <div class="sub">${list.slice(0, 30).map((r) => esc((r.inboundNo || '') + ' P' + (r.pallet || '?'))).join(', ')}${list.length > 30 ? ' 외 ' + (list.length - 30) + '건' : ''}</div>
+      <label>삭제 사유 (필수, 모두 같은 사유로 남습니다)<input id="dmReason" placeholder="예: 다른 차량 라벨로 잘못 저장"></label>
+      <div class="savebar"><button type="button" class="btn danger" id="dmGo">${list.length}건 삭제</button><button type="button" class="btn ghost sm" id="dmClose">닫기</button></div>`;
+    $('dialog').hidden = false; $('dmClose').onclick = close;
+    $('dmGo').onclick = async () => {
+      const reason = $('dmReason').value.trim(); if (!reason) { $('dmReason').focus(); return R.toast('삭제 사유를 적어 주세요', 'crit'); }
+      const btn = $('dmGo'); R.busy(btn, true, '삭제 중…');
+      const res = await R.tryPost('r15RecordDelete', { ids: list.map((r) => r.id), reason }); R.busy(btn, false);
+      if (!res || !res.ok) return;
+      close(); const f = res.failed || [];
+      R.toast(`${res.deleted}건 삭제했습니다${f.length ? ` · ${f.length}건은 못 지움 (${f[0].reason})` : ''} · 삭제 보관함에서 되살릴 수 있습니다`, f.length ? 'warn' : 'ok');
+      if (onDone) onDone('del');
+    };
+  }
+
   async function restore(id, onDone) {
     const reason = prompt('되살리는 사유를 적어 주세요', '잘못 삭제'); if (reason == null) return;
     const res = await R.tryPost('r15RecordRestore', { id, reason: reason.trim() || '복구' });
@@ -113,5 +131,5 @@
 
   R.on('login', soon);
   R.on('queue', (s) => { if (s && s.done !== M.lastDone) { M.lastDone = s.done; if (document.body.dataset.tab === 'inspect') soon(); } });
-  R.rec = { actionsHtml, bind, edit, del, restore, history, loadMine };
+  R.rec = { actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
 })();

@@ -135,6 +135,7 @@
           await sleepUntilKick(Math.max(200, next - Date.now()));
           continue;
         }
+        prefetch(ready.slice(1, 3));
         await process(ready[0]);
       }
     } finally { Q.running = false; }
@@ -162,15 +163,26 @@
     await save(job);
   }
 
+  // 사진 올리기는 기록 저장(서버 잠금)과 달리 동시에 해도 된다: WMS·업체 사진을 같이 올리고,
+  // 앞 Pallet를 저장하는 동안 다음 Pallet 사진을 미리 올린다. 같은 사진은 한 번만 올린다.
+  const inflight = {};
+  function uploadOne(job, kind) {
+    const k = job.id + '|' + kind; if (inflight[k]) return inflight[k];
+    const p = job.payload;
+    inflight[k] = R.apiPost('uploadPhoto', { image: job.photos[kind], name: `${p.inboundNo}_P${R.util.pad(R.util.digits(p.containerFrom), 2)}_${kind === 'wms' ? 'WMS' : 'VENDOR'}`,
+      inboundNo: p.inboundNo, palletNo: Number(R.util.digits(p.containerFrom)), photoType: kind === 'wms' ? 'WMS' : 'VENDOR', dateKey: p.dateKey || '' }, window.R15_CONFIG.TIMEOUT.upload)
+      .then(async (r) => { if (r && r.ok && r.url) { job.urls[kind] = r.url; await save(job); } return r; })
+      .finally(() => { delete inflight[k]; });
+    return inflight[k];
+  }
+  const needsUpload = (j) => j.type === 'inspect' && ['wms', 'vendor'].filter((k) => j.photos && j.photos[k] && !j.urls[k]);
+  function prefetch(jobs) { jobs.forEach((j) => { (needsUpload(j) || []).forEach((k) => { uploadOne(j, k).catch(() => null); }); }); }
+
   async function sendInspect(job) {
-    const p = job.payload, dateKey = p.dateKey || '';
-    for (const kind of ['wms', 'vendor']) {
-      if (!job.photos[kind] || job.urls[kind]) continue;
-      const r = await R.apiPost('uploadPhoto', { image: job.photos[kind], name: `${p.inboundNo}_P${R.util.pad(R.util.digits(p.containerFrom), 2)}_${kind === 'wms' ? 'WMS' : 'VENDOR'}`,
-        inboundNo: p.inboundNo, palletNo: Number(R.util.digits(p.containerFrom)), photoType: kind === 'wms' ? 'WMS' : 'VENDOR', dateKey }, window.R15_CONFIG.TIMEOUT.upload);
-      if (!r || !r.ok || !r.url) return transient(job, '사진 업로드 실패' + (r && r.message ? ' · ' + r.message : ''));
-      job.urls[kind] = r.url; await save(job);
-    }
+    const p = job.payload;
+    const res = await Promise.all(needsUpload(job).map((k) => uploadOne(job, k)));
+    const bad = res.find((r) => !r || !r.ok || !r.url);
+    if (bad !== undefined) return transient(job, '사진 업로드 실패' + (bad && bad.message ? ' · ' + bad.message : ''));
     const body = Object.assign({}, p, { client: 'r15', requestId: job.id, photoUrl: job.urls.wms || '', vendorPhotoUrl: job.urls.vendor || '' });
     const r = await R.apiPost('saveSingle', body);
     if (r && r.ok && r.id) {

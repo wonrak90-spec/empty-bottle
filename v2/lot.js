@@ -73,7 +73,7 @@
     const closed = d && d.lot.status !== '진행중';
     return `<section class="veh">
       <div class="shead"><div><div class="sub">제조번호</div><div class="big">${esc(L.lot.productName)} ${esc(L.lot.lotNo)}</div></div>
-        <div class="right"><button type="button" class="btn ghost sm" id="lotLeave">다른 작업</button></div></div>
+        <div class="right">${closed && !R.isManager() ? '' : '<button type="button" class="btn ghost sm danger" id="lotDel">작업 삭제</button> '}<button type="button" class="btn ghost sm" id="lotLeave">다른 작업</button></div></div>
       <div class="vline">투입 <b>${used.length}</b> Pallet · ${fmt(d ? d.total : 0)} EA${pend.length ? ` · <span class="pill p-warn"><i></i>단말 보관 ${pend.length}</span>` : ''}${closed ? ' · <span class="pill p-idle"><i></i>종료됨</span>' : ''}</div>
     </section>
     ${closed ? '' : `<section>
@@ -105,6 +105,7 @@
 
   function bindWork() {
     $('lotLeave').onclick = () => { L.lot = null; L.detail = null; L.sel.clear(); persist(); refresh(); };
+    if ($('lotDel')) $('lotDel').onclick = deleteLot;
     document.querySelectorAll('[data-rm]').forEach((b) => { b.onclick = () => removePallet(b.dataset.rm); });
     document.querySelectorAll('[data-job]').forEach((b) => { b.onclick = () => { const j = R.queue.jobs.find((x) => x.id === b.dataset.job); if (j) R.showJob(j); }; });
     if (!$('lotAdd')) return;
@@ -233,6 +234,15 @@
     const reason = prompt(`${inboundNo} P${pallet} 투입을 취소합니다. 사유를 입력하세요.`); if (!reason) return;
     const r = await R.tryPost('r15LotRemove', { productionId: L.lot.id, inboundNo, pallet, reason });
     if (r && r.ok) { R.toast('투입을 취소했습니다', 'ok'); refresh(); }
+  }
+  // 잘못 시작한 작업(제품명·제조번호 오입력)을 지운다. 투입된 Pallet가 있으면 중간관리자만, 지우면 그 Pallet들은 다시 투입할 수 있다.
+  async function deleteLot() {
+    if (pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 삭제하세요', 'warn');
+    const n = L.detail && L.detail.pallets ? L.detail.pallets.length : 0;
+    if (n && !R.isManager()) return R.toast('투입된 Pallet가 있습니다. 투입 내역에서 모두 취소한 뒤 삭제하세요', 'warn');
+    const reason = prompt(`${L.lot.productName} ${L.lot.lotNo} 작업을 삭제합니다.${n ? `\n투입된 ${n} Pallet도 모두 취소됩니다.` : ''}\n사유를 입력하세요. (예: 제품명 오입력)`); if (!reason) return;
+    const r = await R.tryPost('r15LotDelete', { productionId: L.lot.id, reason });
+    if (r && r.ok) { R.toast('작업을 삭제했습니다', 'ok'); L.lot = null; L.detail = null; L.sel.clear(); persist(); refresh(); }
   }
   async function finish() {
     if (pendingItems().length) return R.toast('단말 보관 중인 투입이 서버에 올라간 뒤 종료하세요', 'warn');

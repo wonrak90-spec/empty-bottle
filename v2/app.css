@@ -177,3 +177,6 @@ details.iss{border-bottom:1px solid var(--line);padding:8px 0}details.iss summar
 .overlay .card{max-height:calc(100dvh - 32px);overflow:auto}
 .overlay .savebar{bottom:0}
 .overlay .savebar .btn{white-space:nowrap}
+.bulk{display:flex;gap:8px;align-items:center;justify-content:space-between;margin:8px 0}
+.bulk .chk{display:flex;gap:6px;align-items:center;font-size:14px}
+input.dsel{width:20px;height:20px;vertical-align:middle}

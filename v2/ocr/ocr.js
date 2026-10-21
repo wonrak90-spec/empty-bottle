@@ -29,7 +29,14 @@
     return Promise.resolve(null);
   };
 
-  O.read = async function (dataUrl, mode, statusEl) {
+  // WMS·업체 사진을 연달아 찍어도 엔진 하나를 같이 쓰지 않게 차례로 읽는다 (동시에 부르면 기기 OCR이 실패해 느린 서버 OCR로 넘어갔다)
+  let chain = Promise.resolve();
+  O.read = function (dataUrl, mode, statusEl) {
+    const run = chain.then(() => readOne(dataUrl, mode, statusEl));
+    chain = run.catch(() => null);
+    return run;
+  };
+  async function readOne(dataUrl, mode, statusEl) {
     const KO = window.V26KoreanOCR; let base = null, err = '';
     if (KO && KO.recognize) {
       try { base = await KO.recognize(dataUrl, false, statusEl); } catch (e) { err = String(e && e.message || e); }
@@ -50,5 +57,5 @@
     }
     O.lastEngine = '기기 OCR';
     return { text: String(base.text || ''), parsed, method, latency: Number(base.latency) || 0 };
-  };
+  }
 })();

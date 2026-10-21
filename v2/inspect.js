@@ -1,6 +1,6 @@
 /* R15 검수 탭
- * 차량 1대 = 입고번호 1개. 첫 Pallet로 기준(입고번호·품목·수량)을 정하고, 매 Pallet는
- * WMS 라벨 → 업체 라벨 → 저장. 읽은 값이 기준과 다를 때만 멈춘다.
+ * 차량 1대 = 입고번호 1개. 첫 Pallet를 저장하면 그 값이 차량 기준(입고번호·품목·수량)이 된다.
+ * 매 Pallet는 WMS 라벨·업체 라벨을 순서 없이 연달아 찍고, 둘 다 읽히면 저장. 읽은 값이 기준과 다를 때만 멈춘다.
  * R14와 달리 기준값으로 빈 칸을 몰래 채우지 않는다. (다른 차량 라벨이 기준 입고번호로 저장되던 원인)
  */
 (function () {
@@ -13,6 +13,7 @@
   function persist() { try { localStorage.setItem(KEY, JSON.stringify({ base: S.base, cur: S.cur ? Object.assign({}, S.cur, { photos: undefined }) : null })); } catch (_) {} }
   // 사진은 크기가 커서 localStorage 대신 메모리에만 둔다 (저장 버튼을 누르면 대기열(IndexedDB)로 넘어간다)
   const photos = { wms: '', vendor: '' };
+  const busy = { wms: false, vendor: false }; // 글자 읽는 중인 사진 (둘 다 끝나야 저장)
 
   /* ---------- 기준정보 ---------- */
   async function loadItems() {
@@ -101,16 +102,16 @@
   function render() {
     const root = $('inspectView'); if (!root) return;
     const b = S.base;
-    if (!b) { root.innerHTML = startHtml(); bindStart(); return; }
     const c = S.cur || (S.cur = blankCur());
-    const ck = checks(), hard = ck.some((x) => !x.ok && x.hard);
+    const it = S.items[c.itemCode];
     root.innerHTML = `
-      <section class="veh">
+      ${b ? `<section class="veh">
         <div class="shead"><div><div class="sub">입고번호</div><div class="big">${esc(b.inboundNo)}</div></div>
           <div class="right"><button type="button" class="btn ghost sm" id="vehEnd">차량 종료</button></div></div>
         <div class="vline"><b>${esc(b.product)}</b> · ${esc(b.supplier || '')} · ${fmt(b.qty)} ${esc(b.unit || 'EA')}/Pallet</div>
         <div id="progBox">${progressHtml()}</div>
-      </section>
+      </section>` : `<section class="veh"><div class="shead"><div><div class="sub">새 차량</div><div class="big">${esc(c.inboundNo || '첫 Pallet')}</div></div></div>
+        <div class="vline">${c.itemCode ? `<b>${esc(it ? it.itemName : c.productOcr || '기준정보에 없는 품목코드')}</b> · ${esc(c.supplier || '')}` : 'WMS 라벨과 업체 라벨을 찍으세요. 첫 Pallet를 저장하면 이 차량의 기준이 됩니다.'}</div></section>`}
       <section>
         <div class="shead"><h2>${c.pallet ? 'P' + esc(c.pallet) : '다음 Pallet'}</h2><span class="sub" id="ocrStatus">${esc(c.status || '')}</span></div>
         <div class="steps">
@@ -119,7 +120,7 @@
         </div>
         <div class="grid g2">
           ${field('cPallet', 'Pallet 번호', c.pallet, { num: true, ph: hintNext(), cls: 'key' + (c.pallet ? '' : ' need') })}
-          ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: c.inboundNo && c.inboundNo !== b.inboundNo ? 'bad' : '' })}
+          ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: b && c.inboundNo && c.inboundNo !== b.inboundNo ? 'bad' : '' })}
           ${field('cItem', '품목코드', c.itemCode, { num: true })}
           ${field('cQty', 'WMS 수량', c.qty, { num: true })}
           ${field('cVProduct', '업체 품명', c.vProduct)}
@@ -127,8 +128,8 @@
           ${field('cVDate', '업체 생산일자', c.vDate, { ph: 'yyyy-mm-dd' })}
           ${field('cVPallet', '업체 P-번호', c.vPallet)}
         </div>
-        ${!c.inboundNo && c.wmsDone ? `<button type="button" class="btn ghost" id="useBaseInbound">입고번호 ${esc(b.inboundNo)}가 맞습니다</button>` : ''}
-        <div class="checks" id="checksBox">${checksHtml(ck)}</div>
+        ${b && !c.inboundNo && c.wmsDone ? `<button type="button" class="btn ghost" id="useBaseInbound">입고번호 ${esc(b.inboundNo)}가 맞습니다</button>` : ''}
+        <div class="checks" id="checksBox"></div>
         <label>특이사항<input id="cNote" value="${esc(c.note || '')}" placeholder="필요할 때만"></label>
         <details class="raw"><summary>OCR 원문</summary><pre>${esc((c.ocrRaw || '') + (c.vOcrRaw ? '\n---\n' + c.vOcrRaw : ''))}</pre></details>
       </section>
@@ -146,7 +147,7 @@
     const ck = checks(), hard = ck.some((x) => !x.ok && x.hard), c = S.cur || {};
     box.innerHTML = checksHtml(ck);
     btn.disabled = !canSave(); btn.classList.toggle('warn', hard);
-    btn.textContent = (hard ? '확인필요로 저장' : '저장') + (c.pallet ? ' · P' + c.pallet : '');
+    btn.textContent = busy.wms || busy.vendor ? '글자 읽는 중…' : (hard ? '확인필요로 저장' : '저장') + (c.pallet ? ' · P' + c.pallet : '');
   }
   function refreshProgress() {
     const box = $('progBox'); if (!box) return;
@@ -156,58 +157,15 @@
 
   function shotBtn(kind, label, done) {
     return `<label class="shot ${done ? 'done' : ''}"><input type="file" accept="image/*" capture="environment" data-shot="${kind}" hidden>
-      <span class="ic">${done ? '✓' : '📷'}</span><span>${label}${done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
+      <span class="ic">${busy[kind] ? '…' : done ? '✓' : '📷'}</span><span>${label}${busy[kind] ? ' 읽는 중' : done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
   }
   function lastSaved() { return Math.max(0, ...Object.keys(S.saved).map(Number), ...R.queue.list((j) => S.base && j.key.indexOf(S.base.inboundNo + '|') === 0).map((j) => Number(j.key.split('|')[1]))); }
   function hintNext() {
     const n = lastSaved();
     return n ? '다음은 아마 ' + (n + 1) : '';
   }
-  function blankCur() { return { pallet: '', palletTo: '', palletNote: '', palletNoteFor: '', inboundNo: '', itemCode: '', qty: '', vProduct: '', vQty: '', vDate: '', vTime: '', vLot: '', vLine: '', vPallet: '', note: '', ocrRaw: '', vOcrRaw: '', codeRaw: '', wmsDone: false, vendorDone: false, status: '' }; }
-  function canSave() { const c = S.cur || {}; return !!(S.base && Number(digits(c.pallet)) && c.inboundNo && photos.wms); }
-
-  function startHtml() {
-    const f = S.draft || {};
-    return `<section>
-      <div class="shead"><h2>새 차량 시작</h2><span class="sub" id="ocrStatus">${esc(f.status || '')}</span></div>
-      <div class="sub">첫 Pallet의 WMS 라벨을 찍으면 입고번호·품목·수량을 읽어 이 차량의 기준으로 씁니다. 읽은 값을 확인하고 시작하세요.</div>
-      <div class="steps">${shotBtn('base', '첫 Pallet WMS 라벨', !!f.ocrRaw)}</div>
-      <div class="grid g2">
-        ${field('bInbound', '입고번호', f.inboundNo, { num: true, cls: 'key' })}
-        ${field('bItem', '품목코드', f.itemCode, { num: true })}
-        <label class="wide">품명 (기준정보 정식 명칭)<input id="bProduct" value="${esc(f.product || '')}" readonly></label>
-        ${field('bSupplier', '공급업체', f.supplier)}
-        ${field('bQty', 'Pallet당 수량', f.qty, { num: true })}
-        ${field('bInDate', '입고일자', f.inboundDate, { ph: 'yyyy-mm-dd' })}
-        ${field('bExp', '사용기한', f.expiryDate, { ph: 'yyyy-mm-dd' })}
-        ${field('bTotal', '총 Pallet 수 (알면)', f.total, { num: true })}
-      </div>
-      <div class="savebar"><button type="button" class="btn" id="baseStart">이 기준으로 시작</button></div>
-    </section>`;
-  }
-
-  function readStart() {
-    const f = S.draft = S.draft || {};
-    f.inboundNo = digits($('bInbound').value); f.itemCode = digits($('bItem').value); f.supplier = $('bSupplier').value.trim();
-    f.qty = digits($('bQty').value); f.inboundDate = $('bInDate').value.trim(); f.expiryDate = $('bExp').value.trim(); f.total = digits($('bTotal').value);
-    const it = S.items[f.itemCode]; f.product = it ? it.itemName : (f.productOcr || '');
-    $('bProduct').value = f.product || (f.itemCode ? '기준정보에 없는 품목코드' : '');
-  }
-  function bindStart() {
-    ['bInbound', 'bItem', 'bSupplier', 'bQty', 'bInDate', 'bExp', 'bTotal'].forEach((id) => $(id).addEventListener('input', readStart));
-    bindShots();
-    $('baseStart').onclick = () => {
-      readStart(); const f = S.draft;
-      if (!f.inboundNo || f.inboundNo.length < 6) return R.toast('입고번호를 확인하세요', 'crit');
-      if (!f.itemCode) return R.toast('품목코드를 확인하세요', 'crit');
-      if (!S.items[f.itemCode] && !confirm('기준정보에 없는 품목코드입니다. 그대로 시작할까요?')) return;
-      S.base = { inboundNo: f.inboundNo, itemCode: f.itemCode, product: f.product || f.productOcr || '', supplier: f.supplier, manufacturer: f.manufacturer || '', qty: f.qty, unit: f.unit || 'EA', inboundDate: f.inboundDate, expiryDate: f.expiryDate, total: f.total, palletTo: f.palletTo || '', startedAt: Date.now() };
-      // 첫 Pallet 사진과 판독값을 그대로 첫 Pallet 입력으로 넘긴다
-      S.cur = Object.assign(blankCur(), { pallet: f.pallet || '', palletTo: f.palletTo || '', inboundNo: f.inboundNo, itemCode: f.itemCode, qty: f.qty, ocrRaw: f.ocrRaw || '', codeRaw: f.codeRaw || '', wmsDone: !!photos.base });
-      photos.wms = photos.base || ''; photos.base = ''; S.draft = null;
-      persist(); render(); refreshSaved();
-    };
-  }
+  function blankCur() { return { pallet: '', palletTo: '', palletNote: '', palletNoteFor: '', inboundNo: '', itemCode: '', qty: '', vProduct: '', vQty: '', vDate: '', vTime: '', vLot: '', vLine: '', vPallet: '', note: '', ocrRaw: '', vOcrRaw: '', codeRaw: '', wmsDone: false, vendorDone: false, status: '', supplier: '', manufacturer: '', unit: '', inboundDate: '', expiryDate: '', productOcr: '' }; }
+  function canSave() { const c = S.cur || {}; return !!(Number(digits(c.pallet)) && c.inboundNo && photos.wms && !busy.wms && !busy.vendor && (S.base || c.itemCode)); }
 
   function readCur() {
     const c = S.cur; if (!c || !$('cPallet')) return;
@@ -222,7 +180,7 @@
     const ub = $('useBaseInbound'); if (ub) ub.onclick = () => { S.cur.inboundNo = S.base.inboundNo; persist(); render(); };
     $('saveBtn').onclick = savePallet;
     $('clearCur').onclick = () => { if (!confirm('이 Pallet 입력을 지우고 다시 찍을까요?')) return; S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render(); };
-    $('vehEnd').onclick = endVehicle;
+    if ($('vehEnd')) $('vehEnd').onclick = endVehicle;
     refreshProgress();
   }
 
@@ -235,14 +193,14 @@
         const forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72) : '';
         if (!forOcr || !stored) { if (st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); return; }
         photos[kind] = stored;
-        if (kind === 'base') { (S.draft = S.draft || {}).status = '글자 읽는 중…'; render(); }
-        else { readCur(); S.cur[kind + 'Done'] = true; S.cur.status = '글자 읽는 중…'; render(); }
+        readCur(); const cur = S.cur; cur[kind + 'Done'] = true; cur.status = '글자 읽는 중…'; busy[kind] = true; render();
         try {
           const r = await R.ocr.read(forOcr, kind === 'vendor' ? 'vendor' : 'wms', $('ocrStatus'));
-          applyOcr(kind, r);
+          busy[kind] = false;
+          if (S.cur === cur) applyOcr(kind, r); // 그 사이 저장·다시 찍기를 했으면 버린다
         } catch (e) {
-          if (kind === 'base') S.draft.status = e.message; else S.cur.status = e.message;
-          R.toast(e.message, 'warn'); render();
+          busy[kind] = false;
+          if (S.cur === cur) { cur.status = e.message; R.toast(e.message, 'warn'); render(); }
         }
       };
     });
@@ -268,17 +226,11 @@
   function applyOcr(kind, r) {
     const p = r.parsed || {};
     const pc = palletCheck(p, r.text), pal = pc.pallet;
-    if (kind === 'base') {
-      const f = S.draft = S.draft || {};
-      Object.assign(f, { inboundNo: digits(p.inboundNo) || f.inboundNo, itemCode: digits(p.itemCode) || f.itemCode, supplier: p.supplier || f.supplier || '', manufacturer: p.manufacturer || '',
-        qty: digits(p.displayQty) || f.qty, unit: p.unit || 'EA', inboundDate: p.inboundDate || f.inboundDate || today(), expiryDate: p.expiryDate || f.expiryDate || '', pallet: pal, palletTo: pc.to,
-        productOcr: p.product || '', ocrRaw: r.text, codeRaw: p.codeRaw || '', status: `${R.ocr.lastEngine} 완료 · 값을 확인하세요` });
-      const it = S.items[f.itemCode]; f.product = it ? it.itemName : f.productOcr; render(); return;
-    }
     const c = S.cur;
     if (kind === 'wms') {
       // 읽지 못한 칸은 비워 둔다. 기준값으로 채우지 않는다.
-      Object.assign(c, { pallet: pal || '', palletTo: pc.to, palletNote: pal ? pc.note : '', palletNoteFor: pal, inboundNo: digits(p.inboundNo), itemCode: digits(p.itemCode), qty: digits(p.displayQty), ocrRaw: r.text, codeRaw: p.codeRaw || '' });
+      Object.assign(c, { pallet: pal || '', palletTo: pc.to, palletNote: pal ? pc.note : '', palletNoteFor: pal, inboundNo: digits(p.inboundNo), itemCode: digits(p.itemCode), qty: digits(p.displayQty), ocrRaw: r.text, codeRaw: p.codeRaw || '',
+        supplier: p.supplier || '', manufacturer: p.manufacturer || '', unit: p.unit || '', inboundDate: p.inboundDate || '', expiryDate: p.expiryDate || '', productOcr: p.product || '' });
       c.status = `${R.ocr.lastEngine} 완료` + (pal ? (pc.note ? ' · ' + pc.note : '') : pc.note ? ` · Pallet 번호 확인 필요 (${pc.note}), 직접 입력` : ' · Pallet 번호를 못 읽음, 직접 입력');
     } else {
       Object.assign(c, { vProduct: p.product || '', vQty: digits(p.qty), vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
@@ -290,6 +242,16 @@
 
   async function savePallet() {
     readCur();
+    if (!canSave()) return;
+    if (!S.base) {
+      // 첫 Pallet: 이 값으로 차량을 시작한다
+      const c0 = S.cur, it = S.items[c0.itemCode];
+      if (c0.inboundNo.length < 6) return R.toast('입고번호를 확인하세요', 'crit');
+      if (!it && !confirm(`품목코드 ${c0.itemCode}는 기준정보에 없습니다. 그대로 이 차량을 시작할까요?`)) return;
+      S.base = { inboundNo: c0.inboundNo, itemCode: c0.itemCode, product: it ? it.itemName : c0.productOcr || '', supplier: c0.supplier, manufacturer: c0.manufacturer, qty: c0.qty, unit: c0.unit || 'EA',
+        inboundDate: c0.inboundDate || today(), expiryDate: c0.expiryDate, total: c0.palletTo || '', palletTo: c0.palletTo || '', startedAt: Date.now() };
+      persist(); refreshSaved();
+    }
     const b = S.base, c = S.cur, ck = checks(), bad = ck.filter((x) => !x.ok && x.hard), warn = ck.filter((x) => !x.ok && !x.hard);
     if (!canSave()) return;
     if (savedState(Number(c.pallet)) && !confirm(`P${c.pallet}는 이미 ${savedState(Number(c.pallet)) === 'done' ? '저장되어' : '이 폰 대기열에'} 있습니다. 그래도 보낼까요? (서버가 중복으로 막습니다)`)) return;

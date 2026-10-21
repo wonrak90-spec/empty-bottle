@@ -138,16 +138,18 @@
     $('loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
     const s = loadSession();
     if (!s) { applyUser(null); showLogin(); return; }
-    R.session = s; applyUser(s.user);
+    // 저장된 로그인으로 화면을 바로 연다. 서버 확인(whoami)은 뒤에서 하고, 로그인이 풀렸으면 그때 로그인 화면을 띄운다.
+    R.session = s; applyUser(s.user); R.emit('login', R.user);
     try {
       const me = await request(C.API_URL + '?' + new URLSearchParams({ action: 'whoami', session: s.session }), { method: 'GET' }, C.TIMEOUT.get);
       if (!me.ok) { clearSession(); R.session = null; applyUser(null); showLogin(me.message); return; }
+      const changed = R.roleOf(me.user.role) !== R.roleOf(s.user && s.user.role);
       s.user = me.user; s.role = me.user.role; saveSession(s); applyUser(me.user);
+      if (changed) R.emit('login', R.user); // 권한이 바뀌었으면 탭을 다시 맞춘다
     } catch (e) {
       // 오프라인이면 저장된 로그인으로 계속 쓴다. 저장은 대기열에 쌓였다가 연결되면 올라간다.
       R.toast('서버 확인 실패 · 저장된 로그인으로 계속합니다', 'warn');
     }
-    R.emit('login', R.user);
   };
 
   /* ---------- 사진 ---------- */

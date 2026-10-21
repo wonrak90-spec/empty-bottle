@@ -33,12 +33,18 @@
   }
   const label = () => P.from === P.to ? P.from : `${P.from} ~ ${P.to}`;
 
+  // 마지막으로 본 기간은 폰에 남겨 두고 먼저 보여 준 뒤, 서버 응답이 오면 바꾼다 (Apps Script 응답이 몇 초씩 걸린다)
+  const CK = 'r15.report';
   async function load() {
-    $('repBody').innerHTML = '<div class="muted pad">불러오는 중…</div>';
-    const seq = (P.seq = (P.seq || 0) + 1);
+    const key = P.from + '|' + P.to, seq = (P.seq = (P.seq || 0) + 1);
+    let cached = null; try { const c = JSON.parse(localStorage.getItem(CK) || 'null'); if (c && c.key === key && R.user && c.user === R.user.name) cached = c.data; } catch (_) {}
+    if (cached && !P.detail) { P.data = cached; renderBody(); const h = $('repBody'); if (h) h.insertAdjacentHTML('afterbegin', '<div class="muted small" id="repStale">최신 내용 불러오는 중…</div>'); }
+    else if (!cached) $('repBody').innerHTML = '<div class="muted pad">불러오는 중…</div>';
     const r = await R.tryGet('r15Report', { from: P.from, to: P.to });
     if (seq !== P.seq) return; // 늦게 도착한 이전 기간 응답은 버린다
-    P.data = r; P.sel.clear(); renderBody();
+    if (!r || !r.ok) { const st = $('repStale'); if (st) st.textContent = '서버에 연결하지 못해 마지막으로 받은 내용을 보여 줍니다'; if (cached) return; }
+    if (r && r.ok) try { localStorage.setItem(CK, JSON.stringify({ key, user: R.user && R.user.name, data: r })); } catch (_) {}
+    P.data = r; P.sel.clear(); if (P.detail) { const no = P.detail.summary && P.detail.summary.inboundNo; P.detail = null; if (no && r && r.inbounds && r.inbounds.some((x) => x.inboundNo === no)) { openDetail(no); return; } } renderBody();
   }
 
   /* ---------- 화면 ---------- */
@@ -153,9 +159,10 @@
         <div class="kpi ${s.errorCount ? 'crit' : ''}"><div class="l">오류 / 주의</div><div class="v">${s.errorCount} / ${s.warnCount}</div></div>
         <div class="kpi"><div class="l">생산 투입</div><div class="v">${s.usedCount}</div><div class="d">${esc(s.lots.join(', '))}</div></div>
       </div>
+      ${records.some((r) => r.can && r.can.del) ? `<div class="bulk"><label class="chk"><input type="checkbox" id="detAll"> 지울 수 있는 기록 모두 선택</label><button type="button" class="btn ghost sm danger" id="detDelSel" disabled>선택 0건 삭제</button></div>` : ''}
       ${s.gaps.missing.length ? `<div class="warnbox">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
       <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
-      ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet"><b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
+      ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${fmt(r.vendorQty)}</td>
         <td data-l="업체 생산일" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
@@ -171,6 +178,12 @@
     $('detPhotos').onclick = () => gallery(records, $('detGallery'), s.inboundNo);
     bindPhotoButtons(root);
     R.rec.bind(root, records, afterChange);
+    // 여러 건 삭제: 사유 한 번, 서버 왕복 한 번
+    const boxes = [...root.querySelectorAll('[data-dsel]')], delBtn = $('detDelSel');
+    const upd = () => { const n = boxes.filter((b) => b.checked).length; if (delBtn) { delBtn.disabled = !n; delBtn.textContent = `선택 ${n}건 삭제`; } };
+    boxes.forEach((b) => { b.onchange = upd; });
+    if ($('detAll')) $('detAll').onchange = (e) => { boxes.forEach((b) => { b.checked = e.target.checked; }); upd(); };
+    if (delBtn) delBtn.onclick = () => R.rec.delMany(records.filter((r) => boxes.some((b) => b.checked && b.dataset.dsel === r.id)), afterChange);
   }
 
   function bindPhotoButtons(root) {
@@ -239,7 +252,7 @@
   P.show = function () { if (!P.data) load(); };
   // 기록을 고치거나 지운 뒤: 같은 기간을 다시 읽고, 보던 입고번호 상세가 있으면 다시 연다
   P.reload = async function () {
-    if (!P.data) return; const keep = P.detail && P.detail.summary && P.detail.summary.inboundNo; P.detail = null;
+    if (!P.data) return; try { localStorage.removeItem(CK); } catch (_) {} const keep = P.detail && P.detail.summary && P.detail.summary.inboundNo; P.detail = null;
     await load(); if (keep && P.data && P.data.inbounds.some((x) => x.inboundNo === keep)) openDetail(keep);
   };
   const afterChange = () => { P.reload(); if (R.rec) R.rec.loadMine(); };

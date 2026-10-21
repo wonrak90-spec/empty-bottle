@@ -982,6 +982,7 @@ function recentProducts_() {
   const products = [];
   let lastLot = '';
   for (let i = data.length - 1; i >= 1; i--) {
+    if (String(data[i][idx['상태']] || '') === '삭제') continue;
     const name = String(data[i][idx['제품명']] || '').trim();
     if (!lastLot) lastLot = String(data[i][idx['제조번호']] || '').trim();
     if (name && !seen[name]) { seen[name] = true; products.push(name); }
@@ -1907,6 +1908,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15LotStart') { p.worker = auth.name || ''; return startProduction_(p); }
   if (action === 'r15LotAdd') return r15LotAdd_(p, auth);
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
+  if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
   if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; return finishProduction_(p); }
   if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
@@ -2031,7 +2033,7 @@ function r15Productions_() {
   if (vals.length < 2) return out;
   const i = r15HeaderIdx_(vals, PRODUCTION_HEADERS);
   for (let n = 1; n < vals.length; n++) {
-    const r = vals[n], id = r15S_(r[i['ID']]); if (!id) continue;
+    const r = vals[n], id = r15S_(r[i['ID']]); if (!id || r15S_(r[i['상태']]) === '삭제') continue;
     const at = r15Date_(r[i['등록일시']]);
     out.push({ row: n + 1, id: id, at: at ? at.getTime() : 0, atText: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '',
       productName: r15S_(r[i['제품명']]), lotNo: r15S_(r[i['제조번호']]), prodDate: r15Fmt_(r[i['생산일자']]), prodQty: r15S_(r[i['생산수량']]),
@@ -2299,6 +2301,32 @@ function r15LotRemove_(p, auth) {
   } finally { lock.releaseLock(); }
 }
 
+// 잘못 시작한 작업(제품명·제조번호)을 지운다. 행은 '삭제' 상태로 남겨 이력을 보존하고 목록·제품명 추천에서 뺀다.
+// 작업자: 투입이 없는 진행중 작업만. 투입된 Pallet가 있으면 중간관리자 이상이 지우고, 그 Pallet들은 다시 투입할 수 있게 풀린다.
+function r15LotDelete_(p, auth) {
+  const pid = r15S_(p.productionId), reason = r15S_(p.reason);
+  if (!pid) return { ok:false, message:'작업 ID가 필요합니다.' };
+  if (!reason) return { ok:false, message:'삭제 사유를 입력하세요.' };
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { ok:false, busy:true, retry:true, message:'잠시 후 다시 시도하세요.' };
+  try {
+    r15Forget_('ProductionPallets'); r15Forget_('Production'); delete R15_MEM_.__pp;
+    const prod = r15ProductionRowObj_(pid); if (!prod) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
+    const i = prod.idx, st = r15S_(prod.values[i['상태']]);
+    if (st === '삭제') return { ok:true, already:true };
+    const hit = r15ProdPallets_().filter(function(x) { return x.productionId === pid; });
+    const mgr = atLeastV24_(auth, 'manager');
+    if (!mgr && hit.length) return { ok:false, code:'ROLE_REQUIRED', message:'Pallet가 투입된 작업은 중간관리자 이상만 삭제할 수 있습니다. 먼저 투입을 모두 취소하세요.' };
+    if (!mgr && st !== '진행중') return { ok:false, code:'ROLE_REQUIRED', message:'종료된 작업은 중간관리자 이상만 삭제할 수 있습니다.' };
+    if (hit.length) { const sh = getSs_().getSheetByName('ProductionPallets'); hit.map(function(x) { return x.row; }).sort(function(a, b) { return b - a; }).forEach(function(r) { sh.deleteRow(r); }); }
+    const v = prod.values; v[i['상태']] = '삭제'; v[i['투입파레트수']] = 0; v[i['투입총수량']] = 0; v[i['최종수정']] = new Date();
+    v[i['비고']] = [r15S_(v[i['비고']]), '삭제: ' + reason + ' (' + actorLabelV24_(auth) + ')'].filter(String).join(' / ');
+    prod.sheet.getRange(prod.row, 1, 1, PRODUCTION_HEADERS.length).setValues([v]);
+    r15Forget_('Production'); r15Forget_('ProductionPallets'); delete R15_MEM_.__pp;
+    appendAudit_('R15작업삭제', pid, { actor: actorLabelV24_(auth), reason: reason, before: { productName: v[i['제품명']], lotNo: v[i['제조번호']], status: st, pallets: hit.map(function(x) { return x.inboundNo + '-P' + x.pallet; }) } });
+    return { ok:true, released: hit.length };
+  } finally { lock.releaseLock(); }
+}
+
 /* ---------- 기준정보 ---------- */
 function r15ItemSave_(p, auth) {
   if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
@@ -2389,11 +2417,28 @@ function r15RecordEdit_(p, auth) {
 }
 function r15RecordDelete_(p, auth) {
   const reason = r15S_(p.reason); if (!reason) return { ok:false, message:'삭제 사유를 적어 주세요.' };
+  if (Array.isArray(p.ids)) return r15RecordDeleteMany_(p.ids, reason, auth);
   const x = r15RecordAndPerm_(p.id, auth); if (x.error) return x.error;
   if (!x.perm.del) return { ok:false, code:'ROLE_REQUIRED', message:x.perm.why || '삭제할 수 없는 기록입니다.' };
   const res = v58SoftDeleteCore_({ ids:[x.rec.id], reason:reason, actor:actorLabelV24_(auth) }, auth);
   if (res.ok && res.failed && res.failed.length) return { ok:false, message:'삭제하지 못했습니다: ' + res.failed[0].reason };
   return res;
+}
+// 여러 건을 한 번에: 건마다 권한을 확인하고, 되는 것만 한 번에 지운다 (한 건씩 부르면 GAS 왕복이 건수만큼 걸린다)
+function r15RecordDeleteMany_(ids, reason, auth) {
+  ids = ids.map(r15S_).filter(String).slice(0, 300); if (!ids.length) return { ok:false, message:'삭제할 기록을 고르세요.' };
+  const okIds = [], failed = [];
+  ids.forEach(function(id) {
+    const x = r15RecordAndPerm_(id, auth);
+    if (x.error) failed.push({ id:id, reason:x.error.message || '찾을 수 없음' });
+    else if (!x.perm.del) failed.push({ id:id, reason:x.perm.why || '삭제할 수 없는 기록' });
+    else okIds.push(x.rec.id);
+  });
+  if (!okIds.length) return { ok:false, code: failed.length ? 'ROLE_REQUIRED' : '', message:'삭제할 수 있는 기록이 없습니다: ' + (failed[0] ? failed[0].reason : ''), failed:failed };
+  const res = v58SoftDeleteCore_({ ids:okIds, reason:reason, actor:actorLabelV24_(auth) }, auth);
+  if (!res.ok) return res;
+  const f2 = failed.concat(res.failed || []);
+  return { ok:true, deleted: okIds.length - (res.failed || []).length, failed: f2 };
 }
 // 작업자는 본인이 오늘 지운 기록을 되살릴 수 있다 (잘못 지운 경우). 그 밖의 복구는 중간관리자 이상.
 function r15RecordRestore_(p, auth) {
@@ -2420,7 +2465,7 @@ function r15Mine_(auth) {
   });
   return { ok:true, today:today, items:items, deleted:deleted };
 }
-const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
 function r15AuditRows_() {
   const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
   const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
