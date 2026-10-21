@@ -53,6 +53,13 @@
     $('jDel').onclick = async () => { if (!confirm('이 건을 버리면 사진과 입력값이 단말에서 지워집니다. 버릴까요?')) return; await R.queue.remove(j.id); $('dialog').hidden = true; };
   };
 
+  // 사진처럼 무늬가 있는 시험 이미지 (단색이면 JPEG가 너무 작아져 실제 업로드보다 빨리 나온다)
+  function speedImage() {
+    const c = document.createElement('canvas'); c.width = 1400; c.height = 1050; const x = c.getContext('2d');
+    for (let i = 0; i < 2500; i++) { x.fillStyle = `hsl(${(i * 37) % 360},${30 + (i % 50)}%,${30 + (i * 7) % 50}%)`; x.fillRect((i * 97) % 1400, (i * 61) % 1050, 8 + (i % 40), 8 + (i * 3) % 40); }
+    x.fillStyle = '#000'; x.font = '28px sans-serif'; for (let y = 40; y < 1050; y += 44) x.fillText('R15 SPEED TEST 26004733-0030 판콜액 병 21320 EA ' + y, 20, y);
+    return c.toDataURL('image/jpeg', 0.72);
+  }
   // 내 정보: 이름·권한·할 수 있는 일, PIN 변경, 로그아웃
   const CAN = {
     viewer: ['보고서·추적 보기', '인쇄·엑셀(CSV) 내려받기'],
@@ -85,6 +92,15 @@
         const t = performance.now(); let ok = true;
         try { const r = await R.apiGet(action, q || {}); ok = !!(r && r.ok !== false); } catch (_) { ok = false; }
         rows.push(`${label}: ${((performance.now() - t) / 1000).toFixed(1)}초${ok ? '' : ' (실패)'}`); out.innerHTML = rows.join('<br>');
+      }
+      // 업로드: 실제 저장 사진과 비슷한 크기(긴 변 1400px, 품질 0.72)를 만들어 올렸다가 서버가 바로 지운다
+      if (R.rank() >= 0) {
+        const img = speedImage();
+        const up = async () => { const t = performance.now(); try { const r = await R.apiPost('r15SpeedUpload', { image: img }, window.R15_CONFIG.TIMEOUT.upload); return [performance.now() - t, r && r.ok, r && r.serverMs]; } catch (_) { return [performance.now() - t, false, 0]; } };
+        const kb = Math.round(img.length * 0.75 / 1024);
+        for (let i = 1; i <= 2; i++) { const [ms, ok, sv] = await up(); rows.push(`사진 업로드 ${i} (${kb}KB): ${(ms / 1000).toFixed(1)}초${ok ? ` · 서버 처리 ${(sv / 1000).toFixed(1)}초` : ' (실패)'}`); out.innerHTML = rows.join('<br>'); }
+        const t = performance.now(), both = await Promise.all([up(), up()]);
+        rows.push(`사진 2장 동시: ${((performance.now() - t) / 1000).toFixed(1)}초${both.every((x) => x[1]) ? '' : ' (실패 있음)'}`); out.innerHTML = rows.join('<br>');
       }
       R.busy(btn, false); R.rec.note('서버 속도 확인', rows.join(' / '));
     };

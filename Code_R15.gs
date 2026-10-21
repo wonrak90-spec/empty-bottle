@@ -281,7 +281,7 @@ function doPost(e) {
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
     const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
-    const viewerActions = ['r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
+    const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
     const auth = authorizeSessionV24_(session, needRole);
     if (!auth.ok) return jsonOut_(auth);
@@ -1917,6 +1917,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15AuditNote') return r15AuditNote_(p, auth);
   if (action === 'r15IssueAck') return r15IssueAck_(p, auth);
   if (action === 'r15AttachPhoto') return r15AttachPhoto_(p, auth);
+  if (action === 'r15SpeedUpload') return r15SpeedUpload_(p);
   if (action === 'r15RecordEdit') return r15RecordEdit_(p, auth);
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
@@ -2081,6 +2082,16 @@ function r15Ctx_(records) {
   const dup = {}; records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) dup[k] = (dup[k] || 0) + 1; });
   const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
   return { dup:dup, used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+}
+// 폰 '서버 속도 확인'의 업로드 시험: 실제 크기 사진을 사진 폴더 안 '_속도시험'에 만들고 바로 휴지통으로 보낸다. 기록은 남기지 않는다.
+function r15SpeedUpload_(p) {
+  const a = Date.now(), m = String(p.image || '').match(/^data:image\/jpeg;base64,([\s\S]+)$/);
+  if (!m || m[1].length > 3000000) return { ok:false, message:'시험 사진 형식이 아닙니다.' };
+  const bytes = Utilities.base64Decode(m[1]), root = getPhotoFolder_(), it = root.getFoldersByName('_속도시험');
+  const dir = it.hasNext() ? it.next() : root.createFolder('_속도시험');
+  const f = dir.createFile(Utilities.newBlob(bytes, 'image/jpeg', 'speed_' + Date.now() + '.jpg'));
+  try { f.setTrashed(true); } catch (e) {}
+  return { ok:true, bytes: bytes.length, serverMs: Date.now() - a };
 }
 // 저장할 때 업체 사진 없이 고른 사유 (inspect.js가 특이사항에 '업체사진 없음: …'으로 남김). '나중에 찍기'는 점검에 남는다.
 const R15_NOVENDOR_OK = ['라벨 없음', '라벨 손상', '높아서 못 찍음'];
