@@ -1962,7 +1962,7 @@ function r15SheetValues_(name) {
   const vals = sh && sh.getLastRow() >= 1 ? sh.getDataRange().getValues() : [];
   R15_MEM_[name] = vals; return vals;
 }
-function r15Forget_(name) { delete R15_MEM_[name]; }
+function r15Forget_(name) { delete R15_MEM_[name]; if (name === 'Records') Object.keys(R15_MEM_).forEach(function(k) { if (k === '__records' || k.indexOf('__col_') === 0) delete R15_MEM_[k]; }); }
 function r15HeaderIdx_(vals, fallback) {
   // 시트 첫 줄 실제 헤더 기준으로 찾는다. 열 순서가 바뀌어도 맞게 읽기 위함
   const x = {}; const head = vals[0] || fallback; head.forEach(function(h, i) { x[String(h).trim()] = i; });
@@ -1996,11 +1996,14 @@ function r15Records_() {
   const vals = r15SheetValues_('Records'), out = [];
   if (vals.length < 2) { R15_MEM_.__records = out; return out; }
   const i = r15HeaderIdx_(vals, RECORD_HEADERS), deleted = v58SoftDeletedMap_(), items = r15ItemMap_();
-  for (let n = 1; n < vals.length; n++) {
-    const r = vals[n], id = r15S_(r[i['ID']]); if (!id || deleted[id]) continue;
+  for (let n = 1; n < vals.length; n++) { const o = r15ParseRecord_(vals[n], n + 1, i, deleted, items); if (o) out.push(o); }
+  R15_MEM_.__records = out; return out;
+}
+function r15ParseRecord_(r, rowNo, i, deleted, items) {
+    const id = r15S_(r[i['ID']]); if (!id || deleted[id]) return null;
     const at = r15Date_(r[i['등록일시']]), itemCode = r15Digits_(r[i['품목코드']]), item = items[itemCode];
-    out.push({
-      id: id, row: n + 1, at: at ? at.getTime() : 0, atText: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : r15S_(r[i['등록일시']]),
+    return {
+      id: id, row: rowNo, at: at ? at.getTime() : 0, atText: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : r15S_(r[i['등록일시']]),
       day: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd') : '',
       mode: r15S_(r[i['모드']]), inboundNo: r15Digits_(r[i['입고번호']]), pallet: r15Pallet_(r[i['용기번호시작']]),
       inboundDate: r15Fmt_(r[i['입고일자']]), expiryDate: r15Fmt_(r[i['사용기한']]),
@@ -2013,9 +2016,41 @@ function r15Records_() {
       vendorProduct: r15S_(r[i['업체라벨품명']]), vendorQty: r15Num_(r[i['업체라벨수량']]),
       vendorProdDate: r15Fmt_(r[i['업체생산일자']]), vendorProdTime: r15Fmt_(r[i['업체생산시간']], 'HH:mm'),
       vendorLotNo: r15S_(r[i['업체Lot번호']]), vendorLine: r15S_(r[i['업체생산라인']]), vendorPalletNo: r15S_(r[i['업체파레트No']])
-    });
-  }
-  R15_MEM_.__records = out; return out;
+    };
+}
+// 기록이 쌓여도 느려지지 않게: 필요한 열만 먼저 읽고, 맞는 줄이 있는 구간만 읽는다.
+// 이미 전체를 읽었으면(R15_MEM_.__records) 그것을 그대로 쓴다.
+function r15Col_(name) {
+  const key = '__col_' + name; if (R15_MEM_[key]) return R15_MEM_[key];
+  const sh = getSs_().getSheetByName('Records'), last = sh ? sh.getLastRow() : 0;
+  if (last < 2) return R15_MEM_[key] = { head:{}, vals:[] };
+  const head = r15HeaderIdx_(sh.getRange(1, 1, 1, sh.getLastColumn()).getValues(), RECORD_HEADERS);
+  const vals = sh.getRange(2, head[name] + 1, last - 1, 1).getValues().map(function(x) { return x[0]; });
+  return R15_MEM_[key] = { head:head, vals:vals };
+}
+function r15RecordsWhere_(colName, test) {
+  if (R15_MEM_.__records) return R15_MEM_.__records.filter(function(r) { return test(r[colName === '입고번호' ? 'inboundNo' : colName === 'ID' ? 'id' : 'at']); });
+  const c = r15Col_(colName), rows = [];
+  c.vals.forEach(function(v, k) {
+    const x = colName === '입고번호' ? r15Digits_(v) : colName === 'ID' ? r15S_(v) : (r15Date_(v) ? r15Date_(v).getTime() : 0);
+    if (test(x)) rows.push(k + 2);
+  });
+  if (!rows.length) return [];
+  const sh = getSs_().getSheetByName('Records'), a = rows[0], b = rows[rows.length - 1];
+  const block = sh.getRange(a, 1, b - a + 1, sh.getLastColumn()).getValues(), deleted = v58SoftDeletedMap_(), items = r15ItemMap_(), out = [];
+  rows.forEach(function(n) { const o = r15ParseRecord_(block[n - a], n, c.head, deleted, items); if (o) out.push(o); });
+  return out;
+}
+// 중복 Pallet 판정은 전체 기록이 필요하지만 입고번호·Pallet 두 열이면 충분하다.
+function r15DupMap_() {
+  if (R15_MEM_.__records) { const d = {}; R15_MEM_.__records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) d[k] = (d[k] || 0) + 1; }); return d; }
+  const ids = r15Col_('ID').vals, ib = r15Col_('입고번호').vals, pl = r15Col_('용기번호시작').vals, deleted = v58SoftDeletedMap_(), d = {};
+  ib.forEach(function(v, k) { if (!r15S_(ids[k]) || deleted[r15S_(ids[k])]) return; const key = r15Key_(r15Digits_(v), r15Pallet_(pl[k])); if (key) d[key] = (d[key] || 0) + 1; });
+  return d;
+}
+function r15CtxLite_() {
+  const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
+  return { dup:r15DupMap_(), used:used, items:r15ItemMap_(), acks:r15AckMap_() };
 }
 
 function r15ProdPallets_() {
@@ -2222,8 +2257,8 @@ function r15Report_(from, to) {
 
 function r15Inbound_(inboundNo) {
   const no = r15Digits_(inboundNo); if (!no) return { ok:false, message:'입고번호가 없습니다.' };
-  const all = r15Records_(), ctx = r15Ctx_(all);
-  const recs = all.filter(function(r) { return r.inboundNo === no; }).map(function(r) { return r15Public_(r, ctx); });
+  const ctx = r15CtxLite_();
+  const recs = r15RecordsWhere_('입고번호', function(v) { return v === no; }).map(function(r) { return r15Public_(r, ctx); });
   if (!recs.length) return { ok:true, found:false, inboundNo:no, records:[] };
   return { ok:true, found:true, summary: r15InboundSummary_(no, recs), records: recs };
 }
@@ -2471,7 +2506,7 @@ function r15RecordPerm_(rec, auth, used) {
   return { edit:true, del:true, fields:R15_WORKER_FIELDS, why:'' };
 }
 function r15RecordAndPerm_(id, auth) {
-  const rec = r15Records_().filter(function(r) { return r.id === String(id || ''); })[0];
+  const rec = r15RecordsWhere_('ID', function(v) { return v === String(id || ''); })[0];
   if (!rec) return { error:{ ok:false, message:'기록을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.' } };
   const k = r15Key_(rec.inboundNo, rec.pallet);
   const used = r15ProdPallets_().some(function(pp) { return pp.recordId === rec.id || (k && r15Key_(pp.inboundNo, pp.pallet) === k); });
@@ -2529,7 +2564,8 @@ function r15RecordRestore_(p, auth) {
 }
 // 오늘 내가 저장한 기록과 오늘 내가 지운 기록 (검수 탭 "오늘 내 기록")
 function r15Mine_(auth) {
-  const today = r15Today_(), name = r15S_(auth.name), all = r15Records_(), ctx = r15Ctx_(all);
+  const today = r15Today_(), name = r15S_(auth.name), t0 = r15DayStart_(today).getTime(), ctx = r15CtxLite_();
+  const all = r15RecordsWhere_('등록일시', function(v) { return v >= t0; });
   const items = all.filter(function(r) { return r.day === today && r.inspector === name; }).sort(function(a, b) { return b.at - a.at; }).map(function(r) { return r15Public_(r, ctx); });
   const del = v58SoftDeletedMap_(), me = actorLabelV24_(auth), deleted = [];
   Object.keys(del).forEach(function(id) {

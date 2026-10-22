@@ -13,7 +13,11 @@
   function persist() { try { localStorage.setItem(KEY, JSON.stringify({ base: S.base, cur: S.cur ? Object.assign({}, S.cur, { photos: undefined }) : null })); } catch (_) {} }
   // 사진은 크기가 커서 localStorage 대신 메모리에만 둔다 (저장 버튼을 누르면 대기열(IndexedDB)로 넘어간다)
   const photos = { wms: '', vendor: '' };
-  const busy = { wms: false, vendor: false }; // 글자 읽는 중인 사진 (둘 다 끝나야 저장)
+  // Pallet 입력(cur)마다 '글자 읽는 중'과 그 작업(Promise)을 따로 둔다: 저장 뒤에도 앞 Pallet 인식이 이어질 수 있다
+  const BZ = new WeakMap();
+  const busyOf = (c) => { let x = c && BZ.get(c); if (!x) { x = { wms: false, vendor: false, prep: 0, jobs: [] }; if (c) BZ.set(c, x); } return x; };
+  const reading = (c) => { const x = busyOf(c); return x.wms || x.vendor; };
+  const AUTO = 'r15.autocam'; const autoCam = () => { try { return localStorage.getItem(AUTO) !== '0'; } catch (_) { return true; } };
 
   /* ---------- 기준정보 ---------- */
   async function loadItems() {
@@ -37,8 +41,8 @@
   }
 
   /* ---------- 현재 Pallet 판정 ---------- */
-  function checks() {
-    const b = S.base, c = S.cur || {}, out = [];
+  function checks(cIn, selfJob) {
+    const b = S.base, c = cIn || S.cur || {}, out = [];
     if (!b) return out;
     const add = (ok, label, hard) => out.push({ ok, label, hard: !!hard });
     if (c.inboundNo) add(c.inboundNo === b.inboundNo, c.inboundNo === b.inboundNo ? '입고번호 일치' : `입고번호 다름 (${c.inboundNo})`, c.inboundNo !== b.inboundNo);
@@ -52,8 +56,8 @@
     else if (num(c.vQty) && num(b.qty) && num(c.vQty) !== num(b.qty)) stop(`업체 수량 ${fmt(c.vQty)} (기준 ${fmt(b.qty)}) · WMS 수량 없음`);
     const vm = vendorMatch(S.items[b.itemCode], c.vProduct);
     if (c.vProduct) add(vm.result === '일치', vm.result === '일치' ? '업체 품명 일치' : `업체 품명 ${vm.result}${vm.note ? ' · ' + vm.note : ''}`, vm.hard);
-    if (!photos.vendor && !c.vendorPhotoKept) add(false, '업체 라벨 사진 없음', false);
-    const ss = c.pallet ? savedState(Number(c.pallet)) : '';
+    if (!c.vendorDone && !c.vendorPhotoKept) add(false, '업체 라벨 사진 없음', false);
+    const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
     // 대기열에 아직 있는 번호(전송 중·확인 필요)도 같은 번호를 두 번 넣는 실수다
     if (ss) add(false, ss === 'done' ? `P${c.pallet}는 이미 저장됨` : `P${c.pallet}는 이미 이 폰 대기열에 있음`, true);
     // Pallet 번호는 기준값과 비교하지 않아 오독이 그대로 저장되던 칸: 라벨의 총수(용기번호 뒤 숫자)와 저장 순서로 검산한다
@@ -67,10 +71,10 @@
   }
 
   /* ---------- 진행 표시 ---------- */
-  function savedState(n) {
+  function savedState(n, selfJob) {
     const b = S.base; if (!b) return '';
-    const j = R.queue.find(b.inboundNo + '|' + n, 'inspect');
-    if (j) return j.state === 'sending' ? 'pending' : j.state;
+    const j = R.queue.list((x) => x.type === 'inspect' && x.key === b.inboundNo + '|' + n && x.id !== selfJob).pop();
+    if (j) return j.state === 'sending' || j.state === 'hold' ? 'pending' : j.state;
     return S.saved[n] ? 'done' : '';
   }
   async function refreshSaved() {
@@ -115,6 +119,7 @@
       <section>
         <div class="shead"><h2>${c.pallet ? 'P' + esc(c.pallet) : '다음 Pallet'}</h2><span class="sub" id="ocrStatus">${esc(c.status || '')}</span></div>
         <div class="steps">
+          ${R.zoomcam && R.zoomcam.supported ? `<button type="button" class="shot seq" id="seqBtn"><span class="ic">📷</span><span>연속 촬영 · WMS 1배 → 업체 확대</span></button>` : ''}
           ${shotBtn('wms', '① WMS 라벨', c.wmsDone)}
           ${shotBtn('vendor', '② 업체 라벨', c.vendorDone)}
         </div>
@@ -130,6 +135,7 @@
         </div>
         <div class="fixes" id="fixBox"></div>
         <div class="checks" id="checksBox"></div>
+        ${R.zoomcam && R.zoomcam.supported ? `<label class="chk"><input type="checkbox" id="autoCam" ${autoCam() ? 'checked' : ''}> 저장하면 다음 Pallet 카메라 자동으로 열기</label>` : ''}
         <label>특이사항<input id="cNote" value="${esc(c.note || '')}" placeholder="필요할 때만"></label>
         <details class="raw"><summary>OCR 원문</summary><pre>${esc((c.ocrRaw || '') + (c.vOcrRaw ? '\n---\n' + c.vOcrRaw : ''))}</pre></details>
       </section>
@@ -146,7 +152,7 @@
   // 몰래 채우지 않고 사람이 누른 것만 바꾸며, 누른 내역(읽은 값)은 특이사항에 남아 감사 추적에 보인다.
   const FIX = [['inboundNo', 'inboundNo', '입고번호', 'cInbound'], ['itemCode', 'itemCode', '품목코드', 'cItem'], ['qty', 'qty', 'WMS 수량', 'cQty']];
   function fixesHtml() {
-    const b = S.base, c = S.cur || {}; if (!b || !c.wmsDone || busy.wms) return '';
+    const b = S.base, c = S.cur || {}; if (!b || !c.wmsDone || busyOf(c).wms) return '';
     return FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk]).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
   }
   function refreshFixes() {
@@ -163,7 +169,7 @@
     const ck = checks(), hard = ck.some((x) => !x.ok && x.hard), c = S.cur || {};
     box.innerHTML = checksHtml(ck);
     btn.disabled = !canSave(); btn.classList.toggle('warn', hard);
-    btn.textContent = busy.wms || busy.vendor ? '글자 읽는 중…' : (hard ? '확인필요로 저장' : '저장') + (c.pallet ? ' · P' + c.pallet : '');
+    btn.textContent = reading(c) && !canSave() ? '글자 읽는 중…' : reading(c) ? '저장 · 인식은 이어서' + (c.pallet ? ' · P' + c.pallet : '') : (hard ? '확인필요로 저장' : '저장') + (c.pallet ? ' · P' + c.pallet : '');
   }
   function refreshProgress() {
     const box = $('progBox'); if (!box) return;
@@ -173,9 +179,9 @@
 
   function shotBtn(kind, label, done) {
     // 업체 라벨은 높이 붙어 있어 확대 카메라로 찍는다 (안 되면 그 안의 '기본 카메라')
-    if (kind === 'vendor' && R.zoomcam && R.zoomcam.supported) return `<button type="button" class="shot ${done ? 'done' : ''}" data-zoom="vendor"><span class="ic">${busy[kind] ? '…' : done ? '✓' : '🔍'}</span><span>${label}${busy[kind] ? ' 읽는 중' : done ? ' 다시' : ' 확대 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</button><input type="file" accept="image/*" capture="environment" data-shot="vendor" id="vendorFile" hidden>`;
-    return `<label class="shot ${done ? 'done' : ''}"><input type="file" accept="image/*" capture="environment" data-shot="${kind}" hidden>
-      <span class="ic">${busy[kind] ? '…' : done ? '✓' : '📷'}</span><span>${label}${busy[kind] ? ' 읽는 중' : done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
+    if (kind === 'vendor' && R.zoomcam && R.zoomcam.supported) return `<button type="button" class="shot ${done ? 'done' : ''}" data-zoom="vendor"><span class="ic">${busyOf(S.cur)[kind] ? '…' : done ? '✓' : '🔍'}</span><span>${label}${busyOf(S.cur)[kind] ? ' 읽는 중' : done ? ' 다시' : ' 확대 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</button><input type="file" accept="image/*" capture="environment" data-shot="vendor" id="vendorFile" hidden>`;
+    return `<label class="shot ${done ? 'done' : ''}"><input type="file" accept="image/*" capture="environment" data-shot="${kind}" id="${kind}File" hidden>
+      <span class="ic">${busyOf(S.cur)[kind] ? '…' : done ? '✓' : '📷'}</span><span>${label}${busyOf(S.cur)[kind] ? ' 읽는 중' : done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
   }
   function lastSaved() { return Math.max(0, ...Object.keys(S.saved).map(Number), ...R.queue.list((j) => S.base && j.key.indexOf(S.base.inboundNo + '|') === 0).map((j) => Number(j.key.split('|')[1]))); }
   function hintNext() {
@@ -183,7 +189,12 @@
     return n ? '다음은 아마 ' + (n + 1) : '';
   }
   function blankCur() { return { pallet: '', palletTo: '', palletNote: '', palletNoteFor: '', inboundNo: '', itemCode: '', qty: '', vProduct: '', vQty: '', vDate: '', vTime: '', vLot: '', vLine: '', vPallet: '', note: '', ocrRaw: '', vOcrRaw: '', codeRaw: '', wmsDone: false, vendorDone: false, status: '', supplier: '', manufacturer: '', unit: '', inboundDate: '', expiryDate: '', productOcr: '' }; }
-  function canSave() { const c = S.cur || {}; return !!(Number(digits(c.pallet)) && c.inboundNo && photos.wms && !busy.wms && !busy.vendor && (S.base || c.itemCode)); }
+  // 바코드로 입고번호·Pallet를 읽었고 차량 기준과 같으면, 글자 인식이 끝나기 전에도 저장할 수 있다 (나머지 대조는 이어서)
+  function canSave() {
+    const c = S.cur || {}, x = busyOf(c);
+    if (!(Number(digits(c.pallet)) && c.inboundNo && photos.wms && !x.prep && (S.base || c.itemCode))) return false;
+    return !reading(c) || !!(S.base && c.bc && c.inboundNo === S.base.inboundNo);
+  }
 
   function readCur() {
     const c = S.cur; if (!c || !$('cPallet')) return;
@@ -194,6 +205,8 @@
   }
   function bindPallet() {
     bindShots();
+    if ($('seqBtn')) $('seqBtn').onclick = startSequence;
+    if ($('autoCam')) $('autoCam').onchange = (e) => { try { localStorage.setItem(AUTO, e.target.checked ? '1' : '0'); } catch (_) {} };
     ['cPallet', 'cInbound', 'cItem', 'cQty', 'cVProduct', 'cVQty', 'cVDate', 'cVPallet', 'cNote'].forEach((id) => $(id).addEventListener('input', () => { readCur(); refreshChecks(); }));
 
     $('saveBtn').onclick = savePallet;
@@ -214,21 +227,56 @@
       inp.onchange = () => { const file = inp.files && inp.files[0]; inp.value = ''; if (file) handleShot(inp.dataset.shot, file); };
     });
   }
-  async function handleShot(kind, file) {
-        const st = $('ocrStatus');
-        if (st) { st.textContent = '사진 준비 중…'; st.dataset.type = 'warn'; } // OCR 파일(전역 setStatus)이 안 읽혀도 촬영은 되게
-        const forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72) : '';
-        if (!forOcr || !stored) { if (st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); return; }
-        photos[kind] = stored;
-        readCur(); const cur = S.cur; cur[kind + 'Done'] = true; cur.status = '글자 읽는 중…'; busy[kind] = true; render();
-        try {
-          const r = await R.ocr.read(forOcr, kind === 'vendor' ? 'vendor' : 'wms', $('ocrStatus'));
-          busy[kind] = false;
-          if (S.cur === cur) applyOcr(kind, r); // 그 사이 저장·다시 찍기를 했으면 버린다
-        } catch (e) {
-          busy[kind] = false;
-          if (S.cur === cur) { cur.status = e.message; R.toast(e.message, 'warn'); render(); }
-        }
+  // 연속 촬영: 앱 카메라 하나로 WMS(1배) → 업체(확대). 사진은 찍는 즉시 읽기 시작한다.
+  function startSequence() {
+    const cur = S.cur;
+    R.zoomcam.sequence((kind, url) => {
+      if (url) handleShot(kind, url, cur);
+      else if (kind === 'vendor' && S.cur === cur) { cur.vendorSkipped = true; render(); }
+    }).then((r) => { if (r === 'fallback') { const f = $('wmsFile'); if (f) f.click(); } });
+  }
+
+  // WMS 라벨 바코드(Code39 "260047330030" = 입고번호 8자리 + Pallet 4자리)를 사진에서 바로 읽는다.
+  // BarcodeDetector가 있는 폰(안드로이드 크롬 등)만. 없으면 글자 인식으로 읽는다.
+  async function readBarcode(dataUrl) {
+    if (!('BarcodeDetector' in window)) return null;
+    try {
+      let det; try { det = new BarcodeDetector({ formats: ['code_39', 'code_128', 'qr_code', 'data_matrix'] }); } catch (_) { det = new BarcodeDetector(); }
+      const img = await createImageBitmap(await (await fetch(dataUrl)).blob());
+      for (const b of await det.detect(img)) {
+        const v = String(b.rawValue || '').replace(/\s/g, ''), m = v.match(/(\d{8})-?(\d{4})$/);
+        if (m && Number(m[2])) return { inboundNo: m[1], pallet: String(Number(m[2])), raw: v };
+      }
+    } catch (_) {}
+    return null;
+  }
+
+  async function handleShot(kind, file, curIn) {
+    const cur = curIn || S.cur, x = busyOf(cur), here = () => S.cur === cur, st = $('ocrStatus');
+    if (here() && st) { st.textContent = '사진 준비 중…'; st.dataset.type = 'warn'; } // OCR 파일(전역 setStatus)이 안 읽혀도 촬영은 되게
+    x.prep++;
+    const forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72) : '';
+    x.prep--;
+    if (!forOcr || !stored) { if (here() && st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); if (here()) refreshChecks(); return; }
+    if (!here()) return; // 그 사이 저장·다시 찍기를 했으면 버린다
+    photos[kind] = stored;
+    readCur(); cur[kind + 'Done'] = true; cur.status = '글자 읽는 중…'; x[kind] = true;
+    if (kind === 'vendor') cur.vendorSkipped = false;
+    if (kind === 'wms') {
+      const bc = await readBarcode(forOcr);
+      if (bc && here()) { Object.assign(cur, { inboundNo: bc.inboundNo, pallet: bc.pallet, codeRaw: bc.raw, bc: true }); cur.status = '바코드 읽음 · 글자 확인 중'; }
+    }
+    if (here()) render();
+    const job = (async () => {
+      try {
+        const r = await R.ocr.read(forOcr, kind === 'vendor' ? 'vendor' : 'wms', here() ? $('ocrStatus') : null);
+        x[kind] = false; applyOcr(kind, r, cur);
+      } catch (e) {
+        x[kind] = false; cur.status = e.message;
+        if (here()) { R.toast(e.message, 'warn'); render(); }
+      }
+    })();
+    x.jobs.push(job); return job;
   }
 
   // 용기번호(0029/0042)와 바코드 글자(26004733-0029)에서 Pallet 후보를 모은다 (라벨은 4자리로 인쇄된다).
@@ -248,19 +296,25 @@
     return { pallet, to: to && to <= 9999 ? String(to) : '', note };
   }
 
-  function applyOcr(kind, r) {
+  function applyOcr(kind, r, curIn) {
     const p = r.parsed || {};
     const pc = palletCheck(p, r.text), pal = pc.pallet;
-    const c = S.cur;
+    const c = curIn || S.cur;
     if (kind === 'wms') {
-      // 읽지 못한 칸은 비워 둔다. 기준값으로 채우지 않는다.
+      // 읽지 못한 칸은 비워 둔다. 기준값으로 채우지 않는다. 바코드로 읽은 입고번호·Pallet는 글자 인식보다 믿는다.
+      const keep = c.bc ? { inboundNo: c.inboundNo, pallet: c.pallet, codeRaw: c.codeRaw } : null;
       Object.assign(c, { pallet: pal || '', palletTo: pc.to, palletNote: pal ? pc.note : '', palletNoteFor: pal, inboundNo: digits(p.inboundNo), itemCode: digits(p.itemCode), qty: digits(p.displayQty), ocrRaw: r.text, codeRaw: p.codeRaw || '',
         supplier: p.supplier || '', manufacturer: p.manufacturer || '', unit: p.unit || '', inboundDate: p.inboundDate || '', expiryDate: p.expiryDate || '', productOcr: p.product || '' });
       c.status = `${R.ocr.lastEngine} 완료` + (pal ? (pc.note ? ' · ' + pc.note : '') : pc.note ? ` · Pallet 번호 확인 필요 (${pc.note}), 직접 입력` : ' · Pallet 번호를 못 읽음, 직접 입력');
+      if (keep) {
+        if ((digits(p.inboundNo) && digits(p.inboundNo) !== keep.inboundNo) || (pal && pal !== keep.pallet)) c.bcNote = `글자로는 ${digits(p.inboundNo) || '?'} P${pal || '?'} · 바코드 값 사용`;
+        Object.assign(c, keep, { palletNote: '' }); c.status = `바코드 + ${R.ocr.lastEngine} 완료${c.bcNote ? ' · ' + c.bcNote : ''}`;
+      }
     } else {
       Object.assign(c, { vProduct: p.product || '', vQty: digits(p.qty), vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
       c.status = `업체 라벨 ${R.ocr.lastEngine} 완료`;
     }
+    if (S.cur !== c) return; // 이미 저장한 Pallet: 저장 쪽에서 마무리한다
     persist(); render();
     if (navigator.vibrate) try { navigator.vibrate(60); } catch (_) {}
   }
@@ -277,33 +331,55 @@
         inboundDate: c0.inboundDate || today(), expiryDate: c0.expiryDate, total: c0.palletTo || '', palletTo: c0.palletTo || '', startedAt: Date.now() };
       persist(); refreshSaved();
     }
-    const b = S.base, c = S.cur, ck = checks(), bad = ck.filter((x) => !x.ok && x.hard), warn = ck.filter((x) => !x.ok && !x.hard);
+    const b = S.base, c = S.cur, late = reading(c);
     if (!canSave()) return;
     if (savedState(Number(c.pallet)) && !confirm(`P${c.pallet}는 이미 ${savedState(Number(c.pallet)) === 'done' ? '저장되어' : '이 폰 대기열에'} 있습니다. 그래도 보낼까요? (서버가 중복으로 막습니다)`)) return;
-    if (bad.length && !confirm('기준과 다른 값이 있습니다.\n\n' + bad.map((x) => '· ' + x.label).join('\n') + '\n\n확인필요로 저장할까요? (값을 고치려면 취소)')) return;
-    const stops = warn.filter((x) => x.stop);
-    if (stops.length && !confirm('저장 전에 확인하세요.\n\n' + stops.map((x) => '· ' + x.label).join('\n') + '\n\n이대로 저장할까요? (값을 고치려면 취소)')) return;
+    if (!late) {
+      const ck = checks(c), bad = ck.filter((x) => !x.ok && x.hard), stops = ck.filter((x) => !x.ok && !x.hard && x.stop);
+      if (bad.length && !confirm('기준과 다른 값이 있습니다.\n\n' + bad.map((x) => '· ' + x.label).join('\n') + '\n\n확인필요로 저장할까요? (값을 고치려면 취소)')) return;
+      if (stops.length && !confirm('저장 전에 확인하세요.\n\n' + stops.map((x) => '· ' + x.label).join('\n') + '\n\n이대로 저장할까요? (값을 고치려면 취소)')) return;
+    }
     // 업체 사진 없이 저장하면 이유를 고른다. '나중에 찍기'만 점검에 남고, 보고서에서 사진을 붙일 수 있다.
     let noVendor = '';
-    if (!photos.vendor && !c.vendorPhotoKept) { noVendor = await askNoVendor(); if (!noVendor) return; }
+    if (!c.vendorDone && !c.vendorPhotoKept) { noVendor = await askNoVendor(); if (!noVendor) return; }
+    const label = `${c.inboundNo} P${c.pallet}`, shots = { wms: photos.wms, vendor: photos.vendor };
+    if (!late) {
+      await R.queue.addInspect(buildPayload(c, checks(c), noVendor), shots, { label });
+      R.toast(`P${c.pallet} 단말에 보관 · 서버로 보내는 중`, 'ok');
+    } else {
+      // 인식이 끝나기 전 저장: 사진은 바로 올리기 시작하고, 인식이 끝나면 대조해서 보낸다. 기준과 다르면 확인필요로 저장하고 알린다.
+      const job = await R.queue.addInspect(buildPayload(c, checks(c), noVendor), shots, { label, hold: true });
+      R.toast(`P${c.pallet} 저장 · 업체 라벨 대조는 이어서 합니다`, 'ok');
+      Promise.allSettled(busyOf(c).jobs).then(async () => {
+        const ck = checks(c, job.id), bad = ck.filter((x) => !x.ok && x.hard), stops = ck.filter((x) => !x.ok && !x.hard && x.stop);
+        await R.queue.release(job.id, buildPayload(c, ck, noVendor, true));
+        if (bad.length || stops.length) {
+          R.toast(`${label} ${bad.length ? '확인필요로 저장' : '확인'}: ${bad.concat(stops).map((x) => x.label).join(', ')} · 보고서에서 고칠 수 있습니다`, bad.length ? 'crit' : 'warn');
+          if (navigator.vibrate) try { navigator.vibrate([120, 80, 120]); } catch (_) {}
+        }
+      });
+    }
+    S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render();
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    if (R.zoomcam && R.zoomcam.supported && autoCam()) setTimeout(startSequence, 250);
+  }
+
+  function buildPayload(c, ck, noVendor, late) {
+    const b = S.base, bad = ck.filter((x) => !x.ok && x.hard), warn = ck.filter((x) => !x.ok && !x.hard);
     const item = S.items[b.itemCode] || S.items[c.itemCode], vm = vendorMatch(item, c.vProduct);
     const qtyResult = num(c.vQty) && num(c.qty) ? (num(c.vQty) === num(c.qty) ? '일치' : '불일치') : '';
     const reasons = bad.concat(warn).map((x) => x.label);
-    const payload = {
+    return {
       inboundNo: c.inboundNo, inboundDate: b.inboundDate, product: (S.items[c.itemCode] || item || {}).itemName || b.product, itemCode: c.itemCode || b.itemCode,
       manufacturer: b.manufacturer, supplier: b.supplier, displayQty: c.qty, unit: b.unit || 'EA', expiryDate: b.expiryDate,
       containerFrom: c.pallet, containerTo: c.pallet, codeRaw: c.codeRaw || (c.inboundNo + '-' + String(c.pallet).padStart(4, '0')),
       infoMatch: c.inboundNo === b.inboundNo && (!c.itemCode || c.itemCode === b.itemCode) ? '일치' : '불일치', mixed: c.itemCode && c.itemCode !== b.itemCode ? '있음' : '없음',
       actualQty: c.vQty || c.qty, qtyResult, finalResult: bad.length ? '확인필요' : '적합',
-      note: [c.note, (c.confirmed || []).join(', '), noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
+      note: [c.note, (c.confirmed || []).join(', '), c.bc ? '바코드' + (c.bcNote ? '(' + c.bcNote + ')' : '') : '', late ? '저장 후 대조' : '', noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
       ocrRaw: c.ocrRaw, labelMatch: vm.result,
       vendorProduct: c.vProduct, vendorQty: c.vQty, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,
       vendorOcrRaw: c.vOcrRaw, vendorPalletNo: c.vPallet, dateKey: today().replace(/-/g, '')
     };
-    await R.queue.addInspect(payload, { wms: photos.wms, vendor: photos.vendor }, { label: `${c.inboundNo} P${c.pallet}` });
-    R.toast(`P${c.pallet} 단말에 보관 · 서버로 보내는 중`, 'ok');
-    S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render();
-    window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   function askNoVendor() {

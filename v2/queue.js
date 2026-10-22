@@ -4,7 +4,7 @@
  *  - 요청마다 시간 제한이 있어 응답 없는 요청 하나가 대기열 전체를 멈추지 않는다.
  *  - 다시 보내도 안 되는 실패(중복 Pallet 등)는 '확인 필요'로 빼고 다음 건을 계속 보낸다.
  *  - 같은 요청 ID로 다시 보내므로 응답만 끊긴 경우에도 서버에 두 번 저장되지 않는다.
- * 상태: pending(단말 보관) → done(서버 완료) / blocked(확인 필요)
+ * 상태: hold(사진 인식 마무리 중, 사진은 먼저 올림) → pending(단말 보관) → done(서버 완료) / blocked(확인 필요)
  */
 (function () {
   'use strict';
@@ -52,6 +52,8 @@
     const now = Date.now();
     for (const j of Q.jobs) {
       if (j.state === 'sending') { j.state = 'pending'; await Q.store.put(j); } // 앱이 보내는 중에 꺼졌던 건
+      // 인식이 끝나기 전에 앱이 꺼진 건: 기록을 잃지 않게 확인필요로 보낸다
+      if (j.state === 'hold') { j.state = 'pending'; j.payload.finalResult = '확인필요'; j.payload.note = [j.payload.note, '확인: 사진 인식 완료 전 앱 종료'].filter(Boolean).join(' / '); await Q.store.put(j); }
       if (j.state === 'done' && now - (j.doneAt || 0) > KEEP_DONE_MS) await Q.store.del(j.id);
     }
     Q.jobs = (await Q.store.all()) || [];
@@ -67,7 +69,7 @@
   function changed() { R.emit('queue', Q.summary()); }
   Q.summary = function () {
     const c = { pending: 0, sending: 0, blocked: 0, done: 0 };
-    Q.jobs.forEach((j) => { c[j.state] = (c[j.state] || 0) + 1; });
+    Q.jobs.forEach((j) => { const st = j.state === 'hold' ? 'pending' : j.state; c[st] = (c[st] || 0) + 1; });
     return c;
   };
   Q.list = (filter) => Q.jobs.filter(filter || (() => true)).sort((a, b) => a.createdAt - b.createdAt);
@@ -88,9 +90,16 @@
 
   // 검수 기록 추가. photos: {wms, vendor} dataURL. 반환: job
   Q.addInspect = async function (payload, photos, meta) {
-    const job = { id: uuid(), type: 'inspect', state: 'pending', createdAt: Date.now(), attempts: 0, nextAt: 0,
+    const job = { id: uuid(), type: 'inspect', state: meta && meta.hold ? 'hold' : 'pending', createdAt: Date.now(), attempts: 0, nextAt: 0,
       key: payload.inboundNo + '|' + Number(R.util.digits(payload.containerFrom)), label: meta && meta.label || '',
       payload, photos: photos || {}, urls: {}, lastError: '', result: null };
+    await save(job); Q.kick(); return job;
+  };
+  // 인식이 끝나 값이 채워지면 보내기 시작한다
+  Q.release = async function (id, payload) {
+    const job = Q.jobs.find((j) => j.id === id); if (!job || job.state !== 'hold') return null;
+    job.payload = Object.assign({}, job.payload, payload); job.state = 'pending'; job.nextAt = 0;
+    job.key = job.payload.inboundNo + '|' + Number(R.util.digits(job.payload.containerFrom));
     await save(job); Q.kick(); return job;
   };
   // 생산 투입 추가
@@ -130,12 +139,13 @@
         const now = Date.now();
         const ready = Q.list((j) => j.state === 'pending' && (j.nextAt || 0) <= now);
         if (!ready.length) {
+          prefetch(Q.list((j) => j.state === 'hold').slice(0, 3));
           const next = Q.list((j) => j.state === 'pending').reduce((m, j) => Math.min(m, j.nextAt || 0), Infinity);
           if (next === Infinity) break;
           await sleepUntilKick(Math.max(200, next - Date.now()));
           continue;
         }
-        prefetch(ready.slice(1, 3));
+        prefetch(ready.slice(1, 3).concat(Q.list((j) => j.state === 'hold')).slice(0, 4));
         await process(ready[0]);
       }
     } finally { Q.running = false; }

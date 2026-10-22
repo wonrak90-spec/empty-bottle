@@ -195,3 +195,7 @@ details.aurow summary::-webkit-details-marker{display:none}
 .audet{padding:6px 0 2px 12px;font-size:14px;display:grid;gap:4px}
 .fixes{display:flex;flex-wrap:wrap;gap:6px;margin:6px 0}
 .fix{border-color:var(--ink2)}
+.zcam-frame.near{left:6%;right:6%;top:30%;bottom:30%}
+.zcam-frame.flash{background:rgba(255,255,255,.5)}
+.zcam-step{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;padding:6px 10px;border-radius:8px;font-weight:700}
+.shot.seq{grid-column:1/-1;background:var(--ink);color:#fff}
