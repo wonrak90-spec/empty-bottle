@@ -283,7 +283,7 @@ function doPost(e) {
 
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
-    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave'];
+    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave','r15ArchiveRun'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
@@ -1964,7 +1964,8 @@ function r15Get_(action, q, auth) {
   if (action === 'r15Report') return r15Report_(q.from, q.to);
   if (action === 'r15Inbound') return r15Inbound_(q.inboundNo);
   if (action === 'r15Stock') return r15Stock_(q.days, q.itemCode);
-  if (action === 'r15Trace') return r15Trace_(q.q);
+  if (action === 'r15Trace') return r15TraceAll_(q);
+  if (action === 'r15ArchiveInfo') { if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 볼 수 있습니다.' }; return r15ArchiveInfo_(); }
   if (action === 'r15Lots') return r15Lots_();
   if (action === 'r15Lot') return r15Lot_(q.id);
   if (action === 'r15Items') return r15Items_();
@@ -1991,6 +1992,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
   if (action === 'r15ItemSave') return r15ItemSave_(p, auth);
   if (action === 'r15VendorSave') return r15VendorSave_(p, auth);
+  if (action === 'r15ArchiveRun') return r15ArchiveRun_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
 }
@@ -2587,6 +2589,105 @@ function r15Trace_(query) {
   const inbounds = [];
   if (inRecs.length) { const recs = inRecs.map(function(r) { return r15Public_(r, ctx); }); inbounds.push({ summary: r15InboundSummary_(m[1], recs), records: recs }); }
   return { ok:true, query:raw, lots:lots, inbounds:inbounds };
+}
+
+/* ---------- 보관(아카이브) ----------
+   구글 시트 한 파일은 1,000만 칸이 한도라 3년쯤 쌓이면 저장이 막히고, 그 전에 조회가 느려진다.
+   생산에 다 투입되고 끝난 작업 중 기준일(기본 1년)보다 오래된 것은 '작업 단위'로 보관 파일로 옮긴다:
+   작업(Production) + 그 투입(ProductionPallets) + 그 Pallet들의 검수 기록(Records, 중복 저장 포함).
+   아직 재고인 Pallet, 진행 중 작업, 기준일 이후 기록은 그대로 둔다. 사진은 Drive에 그대로라 링크가 안 바뀐다.
+   순서: 보관 파일에 붙이기 → 붙은 것 확인 → 지금 파일에서 빼기. 이미 보관 파일에 있는 줄은 다시 붙이지 않아 중간에 멈춰도 다시 누르면 된다. */
+const R15_ARCH_SHEETS = [['Production', 'ID'], ['ProductionPallets', null], ['Records', 'ID']];
+function r15ArchiveSs_(create) {
+  const id = scriptProp_('R15_ARCHIVE_ID');
+  if (id) { try { return SpreadsheetApp.openById(id); } catch (e) { if (!create) return null; } }
+  if (!create) return null;
+  const live = getSs_(), arch = SpreadsheetApp.create((live.getName ? live.getName() : '공병_입고확인') + '_보관');
+  try { const f = DriveApp.getFileById(arch.getId()), par = DriveApp.getFileById(live.getId()).getParents(); if (par.hasNext()) f.moveTo(par.next()); } catch (e) {}
+  PropertiesService.getScriptProperties().setProperty('R15_ARCHIVE_ID', arch.getId()); if (PROPS_MEM_) PROPS_MEM_.R15_ARCHIVE_ID = arch.getId();
+  return arch;
+}
+function r15PPKeyOf_(r, i) { return r15S_(r[i['Production ID']]) + '|' + r15Digits_(r[i['입고번호']]) + '|' + r15Pallet_(r[i['용기번호']]); }
+function r15ArchivePlan_(p) {
+  const days = Math.max(180, Number(p && p.days) || 365), cutoff = Date.now() - days * 86400000, max = Math.max(1, Number(p && p.max) || 3000);
+  const ix = r15PPIndex_(), kx = r15KeyIndex_(), recsByKey = {};
+  kx.rows.forEach(function(x) { if (x.key) (recsByKey[x.key] = recsByKey[x.key] || []).push(x); });
+  const lots = r15Productions_().filter(function(l) { return l.status !== '진행중' && l.at && l.at < cutoff; }).sort(function(a, b) { return a.at - b.at; });
+  const take = [], ppRows = [], recRows = []; let blocked = 0;
+  lots.forEach(function(l) {
+    if (take.length >= max) return;
+    const pps = ix.byPid[l.id] || []; let ok = true; const rr = [];
+    pps.forEach(function(x) {
+      if (!ok) return;
+      if ((ix.byKey[x.key] || []).some(function(y) { return y.pid !== l.id; })) { ok = false; return; } // 다른 작업에도 걸린 Pallet
+      (recsByKey[x.key] || []).forEach(function(rx) { if (rx.at >= cutoff) ok = false; else rr.push(rx.row); });
+    });
+    if (!ok) { blocked++; return; }
+    take.push(l); pps.forEach(function(x) { ppRows.push(x.row); }); rr.forEach(function(n) { recRows.push(n); });
+  });
+  const remaining = lots.length - blocked - take.length;
+  return { cutoff:cutoff, days:days, lots:take, ppRows:ppRows, recRows:recRows, remaining:Math.max(0, remaining), blocked:blocked };
+}
+function r15ArchiveInfo_() {
+  const pl = r15ArchivePlan_({}), arch = r15ArchiveSs_(false);
+  const sizes = {}; ['Records', 'ProductionPallets', 'Production', 'AuditLog'].forEach(function(n) { const sh = getSs_().getSheetByName(n); sizes[n] = sh ? { rows: sh.getLastRow(), cells: (sh.getMaxRows ? sh.getMaxRows() : sh.getLastRow()) * Math.max(1, sh.getLastColumn()) } : null; });
+  const cells = Object.keys(sizes).reduce(function(t, k) { return t + (sizes[k] ? sizes[k].cells : 0); }, 0);
+  return { ok:true, cutoff: Utilities.formatDate(new Date(pl.cutoff), R15_TZ, 'yyyy-MM-dd'), days:pl.days,
+    lots:pl.lots.length, pallets:pl.ppRows.length, records:pl.recRows.length, remaining:pl.remaining, blocked:pl.blocked,
+    oldest: pl.lots.length ? pl.lots[0].atText.slice(0, 10) : '', newest: pl.lots.length ? pl.lots[pl.lots.length - 1].atText.slice(0, 10) : '',
+    sizes:sizes, cells:cells, cellLimit:10000000, archiveUrl: arch ? arch.getUrl() : '' };
+}
+function r15ArchiveRun_(p, auth) {
+  if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 할 수 있습니다.' };
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(30000)) return { ok:false, busy:true, message:'다른 작업이 진행 중입니다. 잠시 후 다시 누르세요.' };
+  try {
+    const pl = r15ArchivePlan_(p); if (!pl.lots.length) return { ok:true, moved:{ Production:0, ProductionPallets:0, Records:0 }, remaining:0, message:'옮길 기록이 없습니다.' };
+    const rowsOf = { Production: pl.lots.map(function(l) { return l.row; }), ProductionPallets: pl.ppRows, Records: pl.recRows };
+    const live = getSs_(), arch = r15ArchiveSs_(true), moved = {};
+    R15_ARCH_SHEETS.forEach(function(def) {
+      const name = def[0], sh = live.getSheetByName(name); if (!sh) return;
+      const vals = sh.getDataRange().getValues(), head = vals[0], i = r15HeaderIdx_(vals, name === 'Records' ? RECORD_HEADERS : name === 'Production' ? PRODUCTION_HEADERS : PRODUCTION_PALLET_HEADERS);
+      const keyOf = def[1] ? function(r) { return r15S_(r[i[def[1]]]); } : function(r) { return r15PPKeyOf_(r, i); };
+      const pick = {}; rowsOf[name].forEach(function(n) { pick[n] = 1; });
+      const out = vals.filter(function(r, k) { return k > 0 && pick[k + 1]; });
+      // 1) 보관 파일에 붙이기 (이미 있는 줄은 건너뜀)
+      let ash = arch.getSheetByName(name); if (!ash) { ash = arch.insertSheet(name); ash.getRange(1, 1, 1, head.length).setValues([head]); }
+      const al = ash.getLastRow(), have = {};
+      if (al >= 2) ash.getRange(2, 1, al - 1, head.length).getValues().forEach(function(r) { have[keyOf(r)] = 1; });
+      const add = out.filter(function(r) { return !have[keyOf(r)]; });
+      if (add.length) ash.getRange(al + 1, 1, add.length, head.length).setValues(add.map(function(r) { const x = r.slice(0, head.length); while (x.length < head.length) x.push(''); return x; }));
+      // 2) 붙은 것 확인
+      const check = {}; const al2 = ash.getLastRow();
+      if (al2 >= 2) ash.getRange(2, 1, al2 - 1, head.length).getValues().forEach(function(r) { check[keyOf(r)] = 1; });
+      if (out.some(function(r) { return !check[keyOf(r)]; })) throw new Error(name + ' 보관 확인 실패 · 지금 파일은 바꾸지 않았습니다');
+      // 3) 지금 파일에서 빼기 (남길 줄만 다시 쓰고 빈 줄은 지워 칸 수를 줄인다)
+      const keep = vals.filter(function(r, k) { return k > 0 && !pick[k + 1] && r.some(function(v) { return v !== '' && v != null; }); }), w = vals[0].length;
+      sh.getRange(2, 1, vals.length - 1, w).clearContent();
+      if (keep.length) sh.getRange(2, 1, keep.length, w).setValues(keep);
+      const maxRows = sh.getMaxRows ? sh.getMaxRows() : vals.length, spare = 200;
+      if (maxRows > keep.length + 1 + spare) sh.deleteRows(keep.length + 2 + spare, maxRows - (keep.length + 1 + spare));
+      moved[name] = out.length; r15Forget_(name);
+    });
+    try { CacheService.getScriptCache().remove('V58_SOFT_DELETED'); } catch (e) {}
+    appendAudit_('R15보관이동', 'ARCHIVE', { actor: actorLabelV24_(auth), reason: '기준일 ' + Utilities.formatDate(new Date(pl.cutoff), R15_TZ, 'yyyy-MM-dd'), after: moved });
+    return { ok:true, moved:moved, remaining:pl.remaining, archiveUrl: arch.getUrl() };
+  } finally { lock.releaseLock(); }
+}
+// 보관 파일에서도 찾기: 같은 함수를 보관 파일을 연 상태로 한 번 더 돌린다 (품목·확인 처리는 지금 파일 것을 쓴다)
+function r15InArchive_(fn) {
+  const arch = r15ArchiveSs_(false); if (!arch) return null;
+  const items = r15ItemMap_(), acks = r15AckMap_(), save = { ss:SS_MEM_, sh:SHEET_MEM_, m:Object.assign({}, R15_MEM_) };
+  SS_MEM_ = arch; SHEET_MEM_ = {}; Object.keys(R15_MEM_).forEach(function(k) { delete R15_MEM_[k]; });
+  R15_MEM_.__items = items; R15_MEM_.__acks = acks; R15_MEM_.__auth = save.m.__auth; R15_MEM_.__archived = true;
+  try { return fn(); } catch (e) { return null; }
+  finally { SS_MEM_ = save.ss; SHEET_MEM_ = save.sh; Object.keys(R15_MEM_).forEach(function(k) { delete R15_MEM_[k]; }); Object.assign(R15_MEM_, save.m); }
+}
+function r15TraceAll_(q) {
+  const live = r15Trace_(q.q); if (!live.ok || String(q.arch) !== '1') return live;
+  const a = r15InArchive_(function() { return r15Trace_(q.q); });
+  if (a && a.ok) { a.lots.forEach(function(l) { l.archived = true; }); a.inbounds.forEach(function(g) { g.archived = true; }); live.lots = live.lots.concat(a.lots); live.inbounds = live.inbounds.concat(a.inbounds); live.archiveSearched = true; }
+  else live.archiveSearched = !!a;
+  return live;
 }
 
 /* ---------- 생산 투입 ---------- */

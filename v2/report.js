@@ -308,6 +308,7 @@
     $('traceView').innerHTML = `<section><div class="shead"><h2>추적</h2></div>
       <div class="trmodes">${Object.keys(MODES).map((k) => `<button type="button" class="trmode" data-m="${k}"><b>${MODES[k].t}</b><small>${MODES[k].d}</small></button>`).join('')}</div>
       <div class="searchrow"><input id="trQ" type="search" enterkeyhint="search"><button type="button" class="btn" id="trGo">찾기</button></div>
+      <label class="chk" style="margin-top:8px"><input type="checkbox" id="trArch"> 보관 기록도 찾기 <span class="muted">(1년 지난 기록 · 조금 느림)</span></label>
       <div id="trPick"></div></section><div id="trOut"></div>`;
     $('traceView').querySelectorAll('.trmode').forEach((b) => { b.onclick = () => setMode(b.dataset.m, true); });
     $('trGo').onclick = () => go(); $('trQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
@@ -335,11 +336,12 @@
   async function go() {
     const q = $('trQ').value.trim(); if (!q) return;
     const out = $('trOut'); out.innerHTML = '<div class="muted pad">찾는 중…</div>';
-    const r = await R.tryGet('r15Trace', { q }); if (!r) { out.innerHTML = ''; return; }
+    const arch = $('trArch') && $('trArch').checked;
+    const r = await R.tryGet('r15Trace', arch ? { q, arch: '1' } : { q }); if (!r) { out.innerHTML = ''; return; }
     const lots = r.lots || [], inbs = r.inbounds || [];
     const want = T.mode === 'prod' ? lots : inbs, other = T.mode === 'prod' ? inbs : lots;
     if (!want.length) {
-      out.innerHTML = `<section><div class="muted">${T.mode === 'prod' ? '이 제품·제조번호로 찾은 생산 작업이 없습니다.' : '이 번호로 찾은 공병이 없습니다.'}</div>${other.length ? `<button type="button" class="btn ghost" id="trSwap" style="margin-top:10px">${T.mode === 'prod' ? '공병으로 찾기' : '제품으로 찾기'}에서는 ${other.length}건이 있습니다 → 보기</button>` : ''}</section>`;
+      out.innerHTML = `<section><div class="muted">${T.mode === 'prod' ? '이 제품·제조번호로 찾은 생산 작업이 없습니다.' : '이 번호로 찾은 공병이 없습니다.'}${arch ? '' : ' 1년 지난 기록이면 "보관 기록도 찾기"를 켜고 다시 찾으세요.'}</div>${other.length ? `<button type="button" class="btn ghost" id="trSwap" style="margin-top:10px">${T.mode === 'prod' ? '공병으로 찾기' : '제품으로 찾기'}에서는 ${other.length}건이 있습니다 → 보기</button>` : ''}</section>`;
       const sw = $('trSwap'); if (sw) sw.onclick = () => { const v = q; setMode(T.mode === 'prod' ? 'bottle' : 'prod'); $('trQ').value = v; go(); };
       return;
     }
@@ -350,7 +352,7 @@
   function lotCard(l) {
     const groups = {}; l.pallets.forEach((p) => { (groups[p.inboundNo] = groups[p.inboundNo] || []).push(p); });
     const bad = l.pallets.filter((p) => p.unverified || (p.record && p.record.level !== 'ok')).length;
-    return `<section><div class="shead"><div><div class="sub">제품 → 들어간 공병</div><div class="big">${esc(l.productName)} <span class="muted">제조번호</span> ${esc(l.lotNo)}</div></div>${R.pill(l.status === '진행중' ? 'warn' : 'idle', l.status)}</div>
+    return `<section><div class="shead"><div><div class="sub">제품 → 들어간 공병${l.archived ? ' · 보관 기록' : ''}</div><div class="big">${esc(l.productName)} <span class="muted">제조번호</span> ${esc(l.lotNo)}</div></div>${R.pill(l.status === '진행중' ? 'warn' : 'idle', l.status)}</div>
       <div class="trsum">공병 <b>${l.pallets.length} Pallet</b> (입고 ${Object.keys(groups).length}대)가 들어갔습니다. ${bad ? `<span class="crit">확인 필요 ${bad}건</span>` : '검수 이상 없음'} <span class="muted">· ${esc(l.at)} · ${esc(l.workers || '')}</span></div>
       ${Object.keys(groups).map((no) => { const g = groups[no], r0 = (g.find((p) => p.record) || {}).record;
         return `<div class="trgrp"><div class="trgh"><button type="button" class="linkbtn" data-find="bottle" data-q="${esc(no)}"><b>입고번호 ${esc(no)}</b></button> <span class="muted">${r0 ? esc(r0.product + ' · ' + r0.supplier + ' · 검수 ' + r0.atText.slice(0, 10)) : ''} · ${g.length} Pallet</span></div>
@@ -360,7 +362,7 @@
     const used = g.records.filter((r) => r.usedIn.length), lots = {};
     used.forEach((r) => r.usedIn.forEach((u) => { const k = u.productName + '|' + u.lotNo; lots[k] = (lots[k] || 0) + 1; }));
     const left = g.records.length - used.length;
-    return `<section><div class="shead"><div><div class="sub">공병 → 쓰인 제품</div><div class="big">입고번호 ${esc(g.summary.inboundNo)}</div></div></div>
+    return `<section><div class="shead"><div><div class="sub">공병 → 쓰인 제품${g.archived ? ' · 보관 기록' : ''}</div><div class="big">입고번호 ${esc(g.summary.inboundNo)}</div></div></div>
       <div class="trsum">${esc(g.summary.product)} · ${esc(g.summary.supplier)}<br>${g.records.length} Pallet 중 <b>${used.length} Pallet</b>가 제품에 쓰였고, <b>${left} Pallet</b>는 아직 재고입니다.</div>
       ${Object.keys(lots).length ? `<div class="sub" style="margin:8px 0 6px">쓰인 제품 · 눌러서 그 제품의 공병 전체 보기</div><div class="chips">${Object.keys(lots).map((k) => { const [n, lot] = k.split('|'); return `<button type="button" class="chipbtn" data-find="prod" data-q="${esc(lot)}">${esc(n)} ${esc(lot)}<small>${lots[k]} Pallet</small></button>`; }).join('')}</div>` : ''}
       <div class="list" style="margin-top:10px">${g.records.map((rec) => `<div class="row"><span><b>P${esc(rec.pallet)}</b> <span class="muted">${esc(rec.atText)} · ${esc(rec.inspector)}</span></span>

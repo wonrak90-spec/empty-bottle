@@ -3,7 +3,7 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
   const A = R.admin = { sub: 'audit', items: [], plan: null, users: [], deleted: [], audit: [], q: '' };
-  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3], ['tabs', '화면 권한', 3]];
+  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3], ['tabs', '화면 권한', 3], ['archive', '보관', 3]];
 
   function render() {
     const root = $('adminView'); if (!root) return;
@@ -11,7 +11,7 @@
     const subs = SUBS.filter((x) => R.rank() >= x[2]); if (!subs.some((x) => x[0] === A.sub)) A.sub = subs[0][0];
     root.innerHTML = `<section style="padding:10px 14px"><div class="tabs" id="admSub">${subs.map(([v, t]) => `<button type="button" data-a="${v}" aria-pressed="${A.sub === v}">${t}</button>`).join('')}</div></section><div id="admBody"><div class="muted pad">불러오는 중…</div></div>`;
     document.querySelectorAll('#admSub [data-a]').forEach((b) => { b.onclick = () => { A.sub = b.dataset.a; render(); }; });
-    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit, tabs: tabs })[A.sub]();
+    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit, tabs: tabs, archive: archive })[A.sub]();
   }
 
   /* ---------- 변경 이력 ---------- */
@@ -199,6 +199,31 @@
       R.busy($('tabsSave'), true, '저장 중…');
       const r = await R.tryPost('r15TabsSave', { tabs: next }); R.busy($('tabsSave'), false);
       if (r && r.ok) { R.setConfig(r); $('tabsMsg').textContent = '저장했습니다. 다른 사람 화면은 앱을 다시 열면 바뀝니다.'; R.toast('화면 권한을 저장했습니다', 'ok'); }
+    };
+  }
+  /* ---------- 보관 (1년 지난 기록을 보관 파일로) ---------- */
+  async function archive() {
+    $('admBody').innerHTML = '<div class="muted pad">옮길 기록을 세는 중…</div>';
+    const r = await R.tryGet('r15ArchiveInfo'); if (!r) { $('admBody').innerHTML = '<div class="muted pad">읽지 못했습니다. 서버 코드(Code_R15.gs)를 새 버전으로 배포했는지 확인하세요.</div>'; return; }
+    const pct = Math.round(r.cells / r.cellLimit * 100), fmt = R.util.fmt;
+    $('admBody').innerHTML = `<section><div class="shead"><h2>보관 파일로 옮기기</h2></div>
+      <div class="sub">구글 시트 한 파일은 1,000만 칸이 한도라, 오래된 기록을 보관 파일로 옮겨 지금 파일을 가볍게 유지합니다.
+      <b>생산 투입이 끝났고 ${esc(r.cutoff)} 이전</b>인 작업만 그 작업의 투입·검수 기록과 함께 옮깁니다. 아직 재고인 Pallet와 진행 중 작업은 그대로 둡니다. 사진은 Drive에 그대로라 링크가 바뀌지 않습니다.</div>
+      <div class="kpis" style="margin:12px 0">
+        <div class="kpi ${pct >= 70 ? 'crit' : pct >= 50 ? 'warn' : ''}"><div class="l">지금 파일 크기</div><div class="v">${pct}<small>%</small></div><div class="d">${fmt(Math.round(r.cells / 1e4))}만 / 1,000만 칸</div></div>
+        <div class="kpi"><div class="l">옮길 작업</div><div class="v">${fmt(r.lots)}<small> 건</small></div><div class="d">${r.lots ? esc(r.oldest + ' ~ ' + r.newest) : '없음'}</div></div>
+        <div class="kpi"><div class="l">옮길 검수 기록</div><div class="v">${fmt(r.records)}<small> 행</small></div><div class="d">투입 ${fmt(r.pallets)} Pallet</div></div>
+        ${r.remaining ? `<div class="kpi"><div class="l">다음 번에 옮길 작업</div><div class="v">${fmt(r.remaining)}<small> 건</small></div><div class="d">한 번에 3,000건까지</div></div>` : ''}
+      </div>
+      ${r.blocked ? `<div class="sub">기준일 이후 기록이 섞인 작업 ${fmt(r.blocked)}건은 옮기지 않습니다.</div>` : ''}
+      <div class="savebar"><button type="button" class="btn" id="arRun" ${r.lots ? '' : 'disabled'}>보관 파일로 옮기기</button>${r.archiveUrl ? `<a class="btn ghost sm" href="${esc(r.archiveUrl)}" target="_blank" rel="noopener">보관 파일 열기</a>` : ''}<span class="msg" id="arMsg"></span></div>
+      <div class="sub">옮긴 기록은 추적 화면의 "보관 기록도 찾기"로 볼 수 있습니다. 옮기는 동안(몇 분) 다른 저장은 잠시 기다렸다가 자동으로 다시 보냅니다. 검수가 없는 시간에 누르세요.</div></section>`;
+    if (!r.lots) return;
+    $('arRun').onclick = async () => {
+      if (!confirm(`작업 ${r.lots}건 · 검수 기록 ${r.records}행을 보관 파일로 옮길까요?\n\n보관 파일에 먼저 붙이고 확인한 뒤에 지금 파일에서 뺍니다.`)) return;
+      R.busy($('arRun'), true, '옮기는 중… (몇 분 걸릴 수 있음)');
+      const x = await R.tryPost('r15ArchiveRun', {}); R.busy($('arRun'), false);
+      if (x && x.ok) { R.toast(`옮겼습니다 · 기록 ${fmt(x.moved.Records || 0)}행`, 'ok'); archive(); }
     };
   }
   function roleOpts(cur) { return Object.keys(R.ROLES).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(R.roleName(k))}</option>`).join(''); }
