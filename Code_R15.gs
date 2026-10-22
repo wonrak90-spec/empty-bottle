@@ -2116,22 +2116,29 @@ function r15VendorSave_(p, auth) {
     return { ok:true, saved:add.length };
   } finally { lock.releaseLock(); }
 }
-// 지금까지 저장된 기록에서 품목·공급업체별로 자주 나온 업체 품명과 수량을 후보로 뽑는다 (OCR 잡글자는 뺀다)
+// 지금까지 저장된 기록에서 품목·공급업체별로 자주 나온 업체 품명과 수량을 후보로 뽑는다.
+// OCR이 같은 품명을 조금씩 다르게 읽으므로 비슷한 이름은 가장 많이 나온 표기로 묶고, 드문 이름·잡글자·시험 기록은 뺀다.
 function r15VendorSuggest_(p) {
   const want = r15Digits_(p.itemCode);
   const it = r15ColVals_('Records', '품목코드'), sp = r15ColVals_('Records', '공급업체'), nm = r15ColVals_('Records', '업체라벨품명'), q = r15ColVals_('Records', '업체라벨수량');
+  const nt = r15ColVals_('Records', '특이사항'), ib = r15ColVals_('Records', '입고번호'), ids = r15ColVals_('Records', 'ID'), del = v58SoftDeletedMap_();
   const g = {};
   for (let k = 0; k < it.length; k++) {
-    const code = r15Digits_(it[k]); if (!code || (want && code !== want)) continue;
+    const code = r15Digits_(it[k]); if (!code || (want && code !== want) || del[r15S_(ids[k])]) continue;
+    if (/시험|테스트|test/i.test(r15S_(nt[k])) || /^2699/.test(r15Digits_(ib[k]))) continue;
     const key = code + '|' + r15S_(sp[k]), x = g[key] = g[key] || { code:code, supplier:r15S_(sp[k]), names:{}, qty:{}, n:0 }; x.n++;
     const name = r15S_(nm[k]).replace(/\s+/g, ' ');
     if (name && (name.match(/[가-힣]/g) || []).length >= 2 && name.length <= 30) { const nk = r15VnNorm_(name); (x.names[nk] = x.names[nk] || { name:name, n:0 }).n++; }
     const qq = r15Num_(q[k]); if (qq) x.qty[qq] = (x.qty[qq] || 0) + 1;
   }
-  return { ok:true, groups:Object.keys(g).map(function(key) { const x = g[key];
-    const names = Object.keys(x.names).map(function(k) { return x.names[k]; }).filter(function(o) { return o.n >= 2; }).sort(function(a, b) { return b.n - a.n; }).slice(0, 6);
+  return { ok:true, groups:Object.keys(g).map(function(key) {
+    const x = g[key], raw = Object.keys(x.names).map(function(k) { return x.names[k]; }).sort(function(a, b) { return b.n - a.n; }), clusters = [];
+    raw.forEach(function(o) { const c = clusters.filter(function(c) { return r15VnSim_(c.name, o.name) >= 0.8; })[0]; if (c) { c.n += o.n; c.alts.push(o.name); } else clusters.push({ name:o.name, n:o.n, alts:[] }); });
+    const named = clusters.reduce(function(t, c) { return t + c.n; }, 0);
+    const names = clusters.filter(function(c) { return c.n >= 3 && c.n >= named * 0.1; }).slice(0, 4);
     const qs = Object.keys(x.qty).sort(function(a, b) { return x.qty[b] - x.qty[a]; });
-    return { itemCode:x.code, supplier:x.supplier, records:x.n, names:names, qty:qs.length ? Number(qs[0]) : 0, qtyCount:qs.length ? x.qty[qs[0]] : 0 }; }).sort(function(a, b) { return b.records - a.records; }) };
+    return { itemCode:x.code, supplier:x.supplier, records:x.n, names:names, dropped:clusters.length - names.length, qty:qs.length ? Number(qs[0]) : 0, qtyCount:qs.length ? x.qty[qs[0]] : 0 }; })
+    .filter(function(gr) { return gr.supplier && gr.records >= 3; }).sort(function(a, b) { return b.records - a.records; }) };
 }
 function r15ItemMap_() {
   if (R15_MEM_.__items) return R15_MEM_.__items;

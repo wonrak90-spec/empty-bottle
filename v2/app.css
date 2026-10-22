@@ -229,3 +229,4 @@ body[data-role=guest] [data-ph],body[data-role=guest] [data-dsel],body[data-role
 .pmsum{display:grid;gap:4px;margin:6px 0 12px;font-size:14px}.pmsum div{display:grid;grid-template-columns:92px 1fr;gap:8px}.pmsum span{color:var(--ink2)}
 .vnrow{display:grid;grid-template-columns:minmax(90px,1fr) 2fr 90px auto;gap:6px;margin-top:6px}.vnrow input{min-width:0}
 @media (max-width:560px){.vnrow{grid-template-columns:1fr 90px;}.vnrow input[data-vk=names]{grid-column:1/-1;order:-1}}
+.vnsug{display:grid;gap:8px;margin-top:6px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--sunken)}.vnsug .chk{margin:4px 0}

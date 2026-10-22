@@ -93,12 +93,19 @@
     if ($('vnSug')) $('vnSug').onclick = async () => {
       $('vnMsg').textContent = '기록 읽는 중…';
       const r = await R.tryGet('r15VendorSuggest', { itemCode: d.itemCode }); if (!r) { $('vnMsg').textContent = ''; return; }
-      let n = 0;
-      r.groups.forEach((g) => { if (!g.names.length) return; const row = rows.find((x) => x.supplier === g.supplier);
-        const names = g.names.map((x) => x.name);
-        if (row) { const have = row.names.split(',').map((x) => x.trim()).filter(Boolean); row.names = [...new Set(have.concat(names))].join(', '); if (!row.qty) row.qty = g.qty || ''; }
-        else rows.push({ supplier: g.supplier, names: names.join(', '), qty: g.qty || '' }); n++; });
-      draw(); $('vnMsg').textContent = n ? `후보 ${n}줄을 채웠습니다 · 틀린 품명은 지우고 저장하세요` : '기록에서 찾은 후보가 없습니다';
+      // 후보는 바로 넣지 않고 체크해서 고른다 (비슷한 표기는 서버가 하나로 묶었고, 드문 이름·시험 기록은 뺐다)
+      const gs = r.groups.filter((g) => g.names.length);
+      if (!gs.length) { $('vnMsg').textContent = '기록에서 믿을 만한 후보를 찾지 못했습니다 · 직접 넣어 주세요'; return; }
+      $('vnMsg').innerHTML = `<div class="vnsug">${gs.map((g, gi) => `<div><b>${esc(g.supplier)}</b> <span class="muted">기록 ${g.records}건${g.qty ? ` · 가장 많은 수량 ${R.util.fmt(g.qty)} (${g.qtyCount}건)` : ''}${g.dropped ? ` · 드문 표기 ${g.dropped}개 뺌` : ''}</span>
+        ${g.names.map((x, ni) => `<label class="chk"><input type="checkbox" data-sg="${gi}|${ni}"> ${esc(x.name)} <span class="muted">${x.n}건${x.alts.length ? ' · 비슷한 표기 ' + x.alts.length + '개 포함' : ''}</span></label>`).join('')}</div>`).join('')}
+        <button type="button" class="btn sm" id="vnTake">고른 후보 넣기</button></div>`;
+      $('vnTake').onclick = () => {
+        let n = 0;
+        document.querySelectorAll('[data-sg]:checked').forEach((el) => { const [gi, ni] = el.dataset.sg.split('|').map(Number), g = gs[gi], name = g.names[ni].name;
+          let row = rows.find((x) => x.supplier === g.supplier); if (!row) { row = { supplier: g.supplier, names: '', qty: g.qty || '' }; rows.push(row); }
+          const have = row.names.split(',').map((x) => x.trim()).filter(Boolean); if (have.indexOf(name) < 0) { have.push(name); n++; } row.names = have.join(', '); if (!row.qty) row.qty = g.qty || ''; });
+        draw(); $('vnMsg').textContent = n ? `${n}개를 넣었습니다 · 저장을 눌러야 반영됩니다` : '고른 후보가 없습니다';
+      };
     };
     $('ifSave').onclick = async () => {
       const r = await R.tryPost('r15ItemSave', { itemCode: $('ifCode').value, category: $('ifCat').value, itemName: $('ifName').value, volume: $('ifVol').value, suppliers: $('ifSup').value, aliases: $('ifAli').value });
