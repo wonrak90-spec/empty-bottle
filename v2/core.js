@@ -70,17 +70,19 @@
     return res;
   }
 
+  // 기록 전체를 훑는 읽기는 1년치가 쌓이면 25초를 넘을 수 있다. 서버는 끝까지 계산하므로 앱이 먼저 포기하지 않게 더 기다린다.
+  const SLOW = { r15Report: 60000, r15Stock: 60000, r15Trace: 45000, r15Audit: 45000, r15Lots: 45000, r15LotAdd: 60000 };
   R.apiGet = async function (action, params, ms) {
     const s = R.session || loadSession(); if (!s && !R.isGuest()) { showLogin(); throw new ApiError('로그인이 필요합니다', 'auth'); }
     // Guest는 세션 없이 보낸다. 서버가 화면 권한에서 Guest에게 연 탭의 읽기만 받아준다.
     const qs = new URLSearchParams(Object.assign({ action }, s ? { session: s.session } : {}, params || {}));
-    return checkAuth(await request(C.API_URL + '?' + qs.toString(), { method: 'GET' }, ms || C.TIMEOUT.get));
+    return checkAuth(await request(C.API_URL + '?' + qs.toString(), { method: 'GET' }, ms || SLOW[action] || C.TIMEOUT.get));
   };
   R.apiPost = async function (action, payload, ms) {
     const s = R.session || loadSession(); if (!s) { showLogin(); throw new ApiError('로그인이 필요합니다', 'auth'); }
     // text/plain 이어야 브라우저가 사전 요청(CORS preflight) 없이 Apps Script로 바로 보낸다
     const body = JSON.stringify({ action, payload: payload || {}, session: s.session });
-    return checkAuth(await request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body }, ms || C.TIMEOUT.post));
+    return checkAuth(await request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body }, ms || SLOW[action] || C.TIMEOUT.post));
   };
   // 화면에서 바로 쓰는 호출: 실패하면 문구를 띄우고 null
   R.tryGet = async function (action, params) {
