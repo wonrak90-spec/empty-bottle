@@ -127,7 +127,7 @@
   };
   Q.remove = async function (id) { await Q.store.del(id); Q.jobs = Q.jobs.filter((x) => x.id !== id); changed(); };
 
-  Q.kick = function () { if (Q.wake) { const w = Q.wake; Q.wake = null; w(); } if (!Q.running) run().catch((e) => { console.warn('[R15 queue]', e); }); };
+  Q.kick = function () { if (R.isGuest && R.isGuest()) return; /* Guest는 보낼 권한이 없다. 로그인하면 다시 보낸다 */ if (Q.wake) { const w = Q.wake; Q.wake = null; w(); } if (!Q.running) run().catch((e) => { console.warn('[R15 queue]', e); }); };
 
   function sleepUntilKick(ms) { return new Promise((res) => { const t = setTimeout(() => { Q.wake = null; res(); }, ms); Q.wake = () => { clearTimeout(t); res(); }; }); }
 

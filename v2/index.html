@@ -28,14 +28,16 @@
   </header>
 
   <nav class="tabs nav" id="nav">
-    <button type="button" data-tab="inspect" data-min="1"><span class="l">1. 입고 검수</span><span class="s">검수</span></button>
-    <button type="button" data-tab="lot" data-min="1"><span class="l">2. 생산 투입</span><span class="s">투입</span></button>
-    <button type="button" data-tab="trace" data-min="0"><span class="l">3. 추적</span><span class="s">추적</span></button>
-    <button type="button" data-tab="report" data-min="0"><span class="l">4. 보고서</span><span class="s">보고서</span></button>
-    <button type="button" data-tab="admin" data-min="2" class="adm"><span class="l">5. 관리</span><span class="s">관리</span></button>
+    <button type="button" data-tab="dash" data-min="-1"><span class="l">현황</span><span class="s">현황</span></button>
+    <button type="button" data-tab="inspect" data-min="1"><span class="l">입고 검수</span><span class="s">검수</span></button>
+    <button type="button" data-tab="lot" data-min="1"><span class="l">생산 투입</span><span class="s">투입</span></button>
+    <button type="button" data-tab="trace" data-min="0"><span class="l">추적</span><span class="s">추적</span></button>
+    <button type="button" data-tab="report" data-min="0"><span class="l">보고서</span><span class="s">보고서</span></button>
+    <button type="button" data-tab="admin" data-min="2" class="adm"><span class="l">관리</span><span class="s">관리</span></button>
   </nav>
 
   <main>
+    <div class="page" data-page="dash" id="dashView" hidden></div>
     <div class="page" data-page="inspect" id="inspectView"></div>
     <div class="page" data-page="inspect" id="mineView" hidden></div>
     <div class="page" data-page="lot" id="lotView" hidden></div>
@@ -54,6 +56,7 @@
     <label>PIN 6자리<input id="loginPin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label>
     <button type="button" class="btn" id="loginBtn">로그인</button>
     <div class="msg" id="loginMsg"></div>
+    <button type="button" class="btn ghost" id="guestBtn" hidden>로그인 없이 보기 (Guest)</button>
   </div>
 </div>
 <div class="overlay" id="dialog" hidden><div class="card wide" id="dialogBody"></div></div>
@@ -78,6 +81,7 @@
 <script src="records.js"></script>
 <script src="report.js"></script>
 <script src="admin.js"></script>
+<script src="dash.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

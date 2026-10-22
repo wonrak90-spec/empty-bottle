@@ -162,11 +162,11 @@
     const det = root.querySelector('details.mine'); try { det.open = localStorage.getItem('r15.mineOpen') === '1'; det.ontoggle = () => { try { localStorage.setItem('r15.mineOpen', det.open ? '1' : '0'); } catch (_) {} }; } catch (_) {}
   }
   function afterChange() { loadMine(); if (R.inspect && R.inspect.refreshSaved) R.inspect.refreshSaved(); if (R.report && R.report.reload) R.report.reload(); }
-  function soon() { clearTimeout(M.timer); M.timer = setTimeout(loadMine, 1500); }
+  function soon() { if (R.rank() < 1) return; clearTimeout(M.timer); M.timer = setTimeout(loadMine, 1500); }
 
   R.on('login', soon);
   R.on('queue', (s) => { if (s && s.done !== M.lastDone) { M.lastDone = s.done; if (document.body.dataset.tab === 'inspect') soon(); } });
   // 인쇄·내려받기도 감사 추적에 남긴다 (실패해도 화면 동작은 막지 않음)
-  function note(kind, target, count) { try { R.apiPost('r15AuditNote', { kind, target, count: count || 0 }).catch(() => null); } catch (_) {} }
+  function note(kind, target, count) { if (R.isGuest()) return; try { R.apiPost('r15AuditNote', { kind, target, count: count || 0 }).catch(() => null); } catch (_) {} }
   R.rec = { attach, ack, note, changesHtml, actionsHtml, bind, edit, del, delMany, restore, history, loadMine };
 })();

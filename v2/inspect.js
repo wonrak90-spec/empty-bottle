@@ -179,7 +179,7 @@
 
   function shotBtn(kind, label, done) {
     // 업체 라벨은 높이 붙어 있어 확대 카메라로 찍는다 (안 되면 그 안의 '기본 카메라')
-    if (kind === 'vendor' && R.zoomcam && R.zoomcam.supported) return `<button type="button" class="shot ${done ? 'done' : ''}" data-zoom="vendor"><span class="ic">${busyOf(S.cur)[kind] ? '…' : done ? '✓' : '🔍'}</span><span>${label}${busyOf(S.cur)[kind] ? ' 읽는 중' : done ? ' 다시' : ' 확대 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</button><input type="file" accept="image/*" capture="environment" data-shot="vendor" id="vendorFile" hidden>`;
+    if (kind === 'vendor' && R.zoomcam && R.zoomcam.supported) return `<button type="button" class="shot ${done ? 'done' : ''}" data-zoom="vendor"><span class="ic">${busyOf(S.cur)[kind] ? '…' : done ? '✓' : '🔍'}</span><span>${label}${busyOf(S.cur)[kind] ? ' 읽는 중' : done ? ' 다시' : ' 확대'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</button><input type="file" accept="image/*" capture="environment" data-shot="vendor" id="vendorFile" hidden>`;
     return `<label class="shot ${done ? 'done' : ''}"><input type="file" accept="image/*" capture="environment" data-shot="${kind}" id="${kind}File" hidden>
       <span class="ic">${busyOf(S.cur)[kind] ? '…' : done ? '✓' : '📷'}</span><span>${label}${busyOf(S.cur)[kind] ? ' 읽는 중' : done ? ' 다시' : ' 촬영'}</span>${photos[kind] ? `<img src="${photos[kind]}" alt="">` : ''}</label>`;
   }
@@ -410,7 +410,7 @@
   }
 
   R.on('queue', refreshProgress);
-  R.on('login', () => { loadItems().then(render); if (S.base) refreshSaved(); });
+  R.on('login', () => { if (R.rank() < 1) return; loadItems().then(render); if (S.base) refreshSaved(); });
   R.inspect.init = function () { load(); render(); };
   R.inspect.render = render;
   R.inspect.refreshSaved = refreshSaved;

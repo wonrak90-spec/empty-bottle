@@ -31,7 +31,7 @@
     else { const len = Math.round((parse(P.to) - parse(P.from)) / 86400000) + 1; a.setDate(a.getDate() + len * dir); const b = new Date(a); b.setDate(a.getDate() + len - 1); P.from = ymd(a); P.to = ymd(b); return; }
     setPeriod(P.view, ymd(a));
   }
-  const label = () => P.from === P.to ? P.from : `${P.from} ~ ${P.to}`;
+  const label = () => { const md = (d) => d.slice(5).replace('-', '.'); return P.from === P.to ? P.from : P.from.slice(0, 4) === P.to.slice(0, 4) ? `${P.from.slice(0, 4)}. ${md(P.from)} ~ ${md(P.to)}` : `${P.from} ~ ${P.to}`; };
 
   // 마지막으로 본 기간은 폰에 남겨 두고 먼저 보여 준 뒤, 서버 응답이 오면 바꾼다 (Apps Script 응답이 몇 초씩 걸린다)
   const CK = 'r15.report';

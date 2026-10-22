@@ -63,6 +63,7 @@
 
   function checkAuth(res) {
     if (res && (res.code === 'AUTH_REQUIRED' || res.code === 'USER_DISABLED')) {
+      if (R.isGuest()) { showLogin('이 화면은 로그인해야 볼 수 있습니다.'); throw new ApiError('로그인이 필요합니다', 'auth', res); }
       R.session = null; clearSession(); showLogin(res.message || '다시 로그인하세요.');
       throw new ApiError(res.message || '로그인이 필요합니다', 'auth', res);
     }
@@ -70,8 +71,9 @@
   }
 
   R.apiGet = async function (action, params, ms) {
-    const s = R.session || loadSession(); if (!s) { showLogin(); throw new ApiError('로그인이 필요합니다', 'auth'); }
-    const qs = new URLSearchParams(Object.assign({ action, session: s.session }, params || {}));
+    const s = R.session || loadSession(); if (!s && !R.isGuest()) { showLogin(); throw new ApiError('로그인이 필요합니다', 'auth'); }
+    // Guest는 세션 없이 보낸다. 서버가 화면 권한에서 Guest에게 연 탭의 읽기만 받아준다.
+    const qs = new URLSearchParams(Object.assign({ action }, s ? { session: s.session } : {}, params || {}));
     return checkAuth(await request(C.API_URL + '?' + qs.toString(), { method: 'GET' }, ms || C.TIMEOUT.get));
   };
   R.apiPost = async function (action, payload, ms) {
@@ -94,6 +96,7 @@
   function showLogin(msg) {
     const ov = $('login'); if (!ov) return;
     ov.hidden = false; $('loginMsg').textContent = msg || '사번과 PIN 6자리로 로그인하세요.';
+    const g = $('guestBtn'); if (g) g.hidden = !(R.config && R.config.guest);
     setTimeout(() => { try { $('loginEmp').focus(); } catch (_) {} }, 50);
   }
   R.showLogin = showLogin;
@@ -107,7 +110,7 @@
       if (!res.ok) { $('loginMsg').textContent = res.message || '로그인 실패'; return; }
       $('loginPin').value = '';
       R.session = { session: res.session, expiresAt: res.expiresAt, user: res.user, role: res.user && res.user.role || 'worker' };
-      saveSession(R.session); applyUser(res.user); $('login').hidden = true; R.emit('login', res.user);
+      setGuest(false); saveSession(R.session); applyUser(res.user); $('login').hidden = true; R.emit('login', res.user);
     } catch (e) { $('loginMsg').textContent = '로그인 실패: ' + e.message; }
     finally { R.busy(btn, false); }
   }
@@ -115,7 +118,7 @@
   async function logout() {
     const s = R.session; R.session = null; R.user = null; clearSession();
     try { if (s) await request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'authLogout', payload: {}, session: s.session }) }, 8000); } catch (_) {}
-    document.body.dataset.role = 'guest'; showLogin('로그아웃했습니다.');
+    setGuest(false); applyUser(null); showLogin('로그아웃했습니다.');
   }
   R.logout = logout;
 
@@ -123,11 +126,23 @@
   R.ROLES = { viewer: [0, '조회'], worker: [1, '작업자'], manager: [2, '중간관리자'], admin: [3, '관리자'] };
   R.roleOf = (role) => (R.ROLES[role] ? role : 'worker');
   R.roleName = (role) => R.ROLES[R.roleOf(role)][1];
-  R.rank = () => (R.user ? R.ROLES[R.roleOf(R.user.role)][0] : -1);
+  R.rank = () => (R.user && !R.user.guest ? R.ROLES[R.roleOf(R.user.role)][0] : -1);
+  R.isGuest = () => !!(R.user && R.user.guest);
+  // 화면 권한: 탭마다 어느 권한부터 보이는지 (-1 Guest). 서버 r15Config, 못 읽으면 마지막 값
+  const CFG = 'r15.config', GUEST = 'r15.guest', GUEST_USER = { name: 'Guest', role: 'guest', guest: true };
+  try { R.config = JSON.parse(localStorage.getItem(CFG) || 'null'); } catch (_) { R.config = null; }
+  R.tabMin = (tab, fallback) => (R.config && R.config.tabs && R.config.tabs[tab] !== undefined ? Number(R.config.tabs[tab]) : fallback);
+  R.loadConfig = async function () {
+    try { const c = await request(C.API_URL + '?action=r15Config', { method: 'GET' }, C.TIMEOUT.get); if (c && c.ok) { R.config = c; try { localStorage.setItem(CFG, JSON.stringify(c)); } catch (_) {} R.emit('config', c); } } catch (_) {}
+    return R.config;
+  };
+  R.setConfig = (c) => { R.config = c; try { localStorage.setItem(CFG, JSON.stringify(c)); } catch (_) {} R.emit('config', c); };
+  function setGuest(on) { try { if (on) localStorage.setItem(GUEST, '1'); else localStorage.removeItem(GUEST); } catch (_) {} }
+  function enterGuest() { setGuest(true); applyUser(GUEST_USER); $('login').hidden = true; R.emit('login', R.user); }
   function applyUser(u) {
     R.user = u || null;
-    document.body.dataset.role = u ? R.roleOf(u.role) : 'guest';
-    const chip = $('roleChip'); if (chip) chip.textContent = u ? `${u.name} · ${R.roleName(u.role)}` : '로그인 전';
+    document.body.dataset.role = u && !u.guest ? R.roleOf(u.role) : 'guest';
+    const chip = $('roleChip'); if (chip) chip.textContent = u ? (u.guest ? 'Guest · 로그인' : `${u.name} · ${R.roleName(u.role)}`) : '로그인 전';
     R.emit('role', u);
   }
   R.isAdmin = () => R.rank() >= 3;
@@ -136,8 +151,17 @@
   R.boot = async function () {
     $('loginBtn').onclick = doLogin;
     $('loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
-    const s = loadSession();
-    if (!s) { applyUser(null); showLogin(); return; }
+    if ($('guestBtn')) $('guestBtn').onclick = enterGuest;
+    const s = loadSession(), wasGuest = (() => { try { return localStorage.getItem(GUEST) === '1'; } catch (_) { return false; } })();
+    if (!s) {
+      if (wasGuest && R.config && R.config.guest) enterGuest(); else { applyUser(null); showLogin(); }
+      // 화면 권한은 매번 새로 읽는다. Guest가 닫혔으면 로그인 화면으로
+      const c = await R.loadConfig();
+      if (R.isGuest() && c && !c.guest) { setGuest(false); applyUser(null); showLogin('Guest 보기가 닫혔습니다. 로그인하세요.'); }
+      else if (!R.user) showLogin();
+      return;
+    }
+    R.loadConfig();
     // 저장된 로그인으로 화면을 바로 연다. 서버 확인(whoami)은 뒤에서 하고, 로그인이 풀렸으면 그때 로그인 화면을 띄운다.
     R.session = s; applyUser(s.user); R.emit('login', R.user);
     try {
@@ -178,6 +202,7 @@
   // Drive 사진 URL → 화면에 띄울 dataURL (서버가 12장씩 보내준다)
   const photoCache = new Map();
   R.loadPhotos = async function (urls) {
+    if (R.isGuest()) return {}; // Guest는 사진을 받지 않는다 (로그인 창이 뜨지 않게)
     const need = [...new Set(urls.filter(Boolean))].filter((u) => !photoCache.has(u));
     for (let i = 0; i < need.length; i += 12) {
       try {

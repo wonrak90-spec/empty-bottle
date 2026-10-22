@@ -3,13 +3,15 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
 
-  // 권한별로 보이는 탭: 조회=추적·보고서, 작업자=+검수·투입, 중간관리자 이상=+관리
-  const allowed = (tab) => { const b = document.querySelector(`#nav [data-tab="${tab}"]`); return !!b && R.rank() >= Number(b.dataset.min || 0); };
+  // 권한별로 보이는 탭: 관리 → 화면 권한에서 탭마다 정한다 (못 읽으면 data-min 기본값)
+  const minOf = (b) => R.tabMin(b.dataset.tab, Number(b.dataset.min || 0));
+  const allowed = (tab) => { const b = document.querySelector(`#nav [data-tab="${tab}"]`); return !!b && R.rank() >= minOf(b); };
+  const firstAllowed = () => { const b = [...document.querySelectorAll('#nav [data-tab]')].find((x) => R.rank() >= minOf(x)); return b ? b.dataset.tab : 'dash'; };
   function applyNav() {
-    document.querySelectorAll('#nav [data-tab]').forEach((b) => { b.hidden = !!R.user && R.rank() < Number(b.dataset.min || 0); });
+    document.querySelectorAll('#nav [data-tab]').forEach((b) => { b.hidden = !!R.user && R.rank() < minOf(b); });
   }
   function showTab(tab) {
-    if (R.user && !allowed(tab)) tab = R.rank() >= 1 ? 'inspect' : 'report';
+    if (R.user && !allowed(tab)) tab = R.rank() >= 1 && allowed('inspect') ? 'inspect' : firstAllowed();
     document.body.dataset.tab = tab;
     document.querySelectorAll('#nav [data-tab]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.tab === tab)));
     document.querySelectorAll('.page').forEach((p) => { p.hidden = p.dataset.page !== tab; });
@@ -18,6 +20,7 @@
     if (tab === 'report') R.report.show();
     if (tab === 'inspect' && R.rec) R.rec.loadMine();
     if (tab === 'admin') R.admin.show();
+    if (tab === 'dash') R.dash.show();
     window.scrollTo({ top: 0 });
   }
 
@@ -69,7 +72,7 @@
   };
   R.CAN = CAN;
   function meDialog() {
-    if (!R.user) return R.showLogin();
+    if (!R.user || R.isGuest()) return R.showLogin('사번과 PIN 6자리로 로그인하세요. 로그인하면 권한에 맞는 탭이 열립니다.');
     const u = R.user, role = R.roleOf(u.role);
     $('dialogBody').innerHTML = `<h3>내 정보</h3>
       <div class="me-grid"><span>이름</span><b>${esc(u.name)}</b><span>사번</span><span>${esc(u.employeeNo || '')}</span><span>부서</span><span>${esc(u.department || '-')}</span><span>권한</span><b>${esc(R.roleName(role))}</b></div>
@@ -135,7 +138,8 @@
     $('foot').textContent = `새 화면 ${window.R15_CONFIG.RELEASE} · 기존 화면은 상위 주소에서 그대로 사용 가능`;
     R.on('queue', queueChip);
     R.on('role', applyNav);
-    R.on('login', () => { R.queue.kick(); R.ocr.warmup(); applyNav(); showTab(document.body.dataset.tab); });
+    R.on('login', () => { if (!R.isGuest()) { R.queue.kick(); R.ocr.warmup(); } applyNav(); showTab(document.body.dataset.tab); });
+    R.on('config', () => { if (!R.user) return; applyNav(); if (!allowed(document.body.dataset.tab)) showTab(document.body.dataset.tab); });
     await R.queue.init();
     R.inspect.init(); R.lot.init(); R.trace.init(); R.report.init();
     let tab = 'inspect'; try { tab = localStorage.getItem('r15.tab') || 'inspect'; } catch (_) {}

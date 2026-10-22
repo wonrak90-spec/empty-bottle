@@ -3,7 +3,7 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
   const A = R.admin = { sub: 'audit', items: [], plan: null, users: [], deleted: [], audit: [], q: '' };
-  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3]];
+  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3], ['tabs', '화면 권한', 3]];
 
   function render() {
     const root = $('adminView'); if (!root) return;
@@ -11,7 +11,7 @@
     const subs = SUBS.filter((x) => R.rank() >= x[2]); if (!subs.some((x) => x[0] === A.sub)) A.sub = subs[0][0];
     root.innerHTML = `<section style="padding:10px 14px"><div class="tabs" id="admSub">${subs.map(([v, t]) => `<button type="button" data-a="${v}" aria-pressed="${A.sub === v}">${t}</button>`).join('')}</div></section><div id="admBody"><div class="muted pad">불러오는 중…</div></div>`;
     document.querySelectorAll('#admSub [data-a]').forEach((b) => { b.onclick = () => { A.sub = b.dataset.a; render(); }; });
-    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit })[A.sub]();
+    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit, tabs: tabs })[A.sub]();
   }
 
   /* ---------- 변경 이력 ---------- */
@@ -138,6 +138,23 @@
     $('nuAdd').onclick = async () => { const r = await R.tryPost('createUser', { employeeNo: $('nuEmp').value, name: $('nuName').value, department: $('nuDept').value, role: $('nuRole').value }); if (r && r.ok) { alert(`추가했습니다. 임시 PIN: ${r.tempPin}`); users(); } };
   }
 
+  // 화면 권한: 탭마다 어느 권한부터 보이는지. Guest는 로그인 없이 보기 (사내 누구나 주소만 알면 볼 수 있음)
+  const LEVELS = [[-1, 'Guest (로그인 없이)'], [0, '조회 이상'], [1, '작업자 이상'], [2, '중간관리자 이상'], [3, '관리자만']];
+  async function tabs() {
+    const c = await R.loadConfig();
+    if (!c || !c.tabs) { $('admBody').innerHTML = '<div class="muted pad">화면 권한을 읽지 못했습니다. 서버 코드(Code_R15.gs)를 새 버전으로 배포했는지 확인하세요.</div>'; return; }
+    $('admBody').innerHTML = `<section><div class="shead"><h2>화면 권한</h2></div>
+      <div class="sub">탭마다 어느 권한부터 보이는지 정합니다. 검수·투입은 저장이 있어 작업자 이상, 관리는 중간관리자 이상으로만 정할 수 있습니다.
+      Guest로 연 탭은 로그인 화면의 "로그인 없이 보기"로 누구나 볼 수 있습니다(보기만 가능, 사진·고치기·삭제 없음).</div>
+      <div class="list">${Object.keys(c.tabs).map((k) => `<div class="row"><b>${esc(c.labels[k] || k)}</b><select data-tabmin="${k}" aria-label="${esc(c.labels[k] || k)} 보이는 권한">${LEVELS.filter(([v]) => v >= c.limits[k]).map(([v, t]) => `<option value="${v}" ${v === c.tabs[k] ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div>
+      <div class="savebar"><button type="button" class="btn" id="tabsSave">저장</button><span class="msg" id="tabsMsg"></span></div></section>`;
+    $('tabsSave').onclick = async () => {
+      const next = {}; document.querySelectorAll('[data-tabmin]').forEach((s) => { next[s.dataset.tabmin] = Number(s.value); });
+      R.busy($('tabsSave'), true, '저장 중…');
+      const r = await R.tryPost('r15TabsSave', { tabs: next }); R.busy($('tabsSave'), false);
+      if (r && r.ok) { R.setConfig(r); $('tabsMsg').textContent = '저장했습니다. 다른 사람 화면은 앱을 다시 열면 바뀝니다.'; R.toast('화면 권한을 저장했습니다', 'ok'); }
+    };
+  }
   function roleOpts(cur) { return Object.keys(R.ROLES).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(R.roleName(k))}</option>`).join(''); }
 
   /* ---------- 삭제 기록 ---------- */

@@ -199,3 +199,14 @@ details.aurow summary::-webkit-details-marker{display:none}
 .zcam-frame.flash{background:rgba(255,255,255,.5)}
 .zcam-step{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;padding:6px 10px;border-radius:8px;font-weight:700}
 .shot.seq{grid-column:1/-1;background:var(--ink);color:#fff}
+
+/* 짧은 버튼·기간 글자가 두 줄로 꺾이지 않게 */
+.searchrow .btn,.btn.sm,td .btn,.ract .btn{white-space:nowrap;flex:0 0 auto}
+.wk b{white-space:nowrap}
+/* 현황 */
+.dveh{align-items:center}.dname{min-width:0;flex:1 1 260px}.dprog{display:flex;align-items:center;gap:6px;flex:0 1 auto;white-space:nowrap}
+.dbar{display:inline-block;width:110px;height:10px;background:var(--sunken);border-radius:5px;overflow:hidden}.dbar i{display:block;height:100%;background:var(--good)}
+.dbar i.warn{background:var(--warn)}.dbar i.error{background:var(--crit)}
+#guestBtn{margin-top:4px}
+/* Guest: 사진·선택·처리 버튼 숨김 (보기만) */
+body[data-role=guest] [data-ph],body[data-role=guest] [data-dsel],body[data-role=guest] #detAll,body[data-role=guest] #detDelSel,body[data-role=guest] #qChip{display:none!important}

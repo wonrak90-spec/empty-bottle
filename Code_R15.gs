@@ -236,7 +236,11 @@ function doGet(e) {
   try {
     if (action === 'securityInfo') return jsonOut_(securityInfoV24_());
 
+    // 화면 권한(탭별 최소 권한)은 로그인 전에도 읽는다. Guest 보기 버튼을 띄울지 정하기 위함
+    if (action === 'r15Config') return jsonOut_(r15Config_());
     const session = (e && e.parameter && (e.parameter.session || e.parameter.token)) || '';
+    // 로그인하지 않은 Guest: 관리자가 Guest에게 연 탭에 필요한 읽기만 허용
+    if (!session && r15GuestActions_().indexOf(action) >= 0) return jsonOut_(r15Get_(action, e.parameter || {}, r15GuestAuth_()));
     // 읽기는 조회 권한부터. 삭제 보관함·변경 이력은 중간관리자, DB 상태는 관리자.
     const needRole = action === 'dbStatus' ? 'admin' : (action === 'listDeletedRecords' || action === 'r15Audit') ? 'manager' : 'viewer';
     const auth = authorizeSessionV24_(session, needRole);
@@ -279,7 +283,7 @@ function doPost(e) {
 
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
-    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin'];
+    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
@@ -519,9 +523,38 @@ function authorizeSessionV24_(token,needRole){
 }
 // 권한 4단계. 예전 계정의 빈 값이나 모르는 값은 작업자로 본다.
 const ROLE_RANK_V24 = { viewer:0, worker:1, manager:2, admin:3 };
+/* ---------- 화면 권한 (탭별로 어느 권한부터 보이는지) ---------- */
+// -1 = Guest(로그인 없이 보기), 0 조회, 1 작업자, 2 중간관리자, 3 관리자. 검수·투입은 저장이 있어 작업자 이상, 관리는 중간관리자 이상.
+const R15_TABS = { dash:{ label:'현황', def:-1, min:-1 }, inspect:{ label:'입고 검수', def:1, min:1 }, lot:{ label:'생산 투입', def:1, min:1 },
+  trace:{ label:'추적', def:0, min:-1 }, report:{ label:'보고서', def:0, min:-1 }, admin:{ label:'관리', def:2, min:2 } };
+const R15_GUEST_READS = { dash:['r15Report','r15Lots'], trace:['r15Trace','r15Inbound','r15Pallet','r15Lot'], report:['r15Report','r15Inbound','r15Lot'] };
+function r15TabMins_() {
+  let saved = {}; try { saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_TABS') || '{}'); } catch (e) {}
+  const out = {}; Object.keys(R15_TABS).forEach(function(k) { const t = R15_TABS[k], v = Number(saved[k]); out[k] = isFinite(v) && saved[k] !== undefined ? Math.max(t.min, Math.min(3, v)) : t.def; });
+  return out;
+}
+function r15Config_() {
+  const tabs = r15TabMins_();
+  return { ok:true, tabs:tabs, labels:Object.keys(R15_TABS).reduce(function(o, k) { o[k] = R15_TABS[k].label; return o; }, {}),
+    limits:Object.keys(R15_TABS).reduce(function(o, k) { o[k] = R15_TABS[k].min; return o; }, {}),
+    guest:Object.keys(tabs).some(function(k) { return tabs[k] < 0; }), backendVersion:BACKEND_VERSION };
+}
+function r15GuestActions_() {
+  const tabs = r15TabMins_(), out = [];
+  Object.keys(R15_GUEST_READS).forEach(function(k) { if (tabs[k] < 0) R15_GUEST_READS[k].forEach(function(a) { if (out.indexOf(a) < 0) out.push(a); }); });
+  return out;
+}
+function r15GuestAuth_() { return { ok:true, guest:true, role:'guest', name:'Guest', userId:'', employeeNo:'' }; }
+function r15TabsSave_(p, auth) {
+  const before = r15TabMins_(), next = {};
+  Object.keys(R15_TABS).forEach(function(k) { const v = Number((p.tabs || {})[k]); next[k] = isFinite(v) ? Math.max(R15_TABS[k].min, Math.min(3, Math.round(v))) : before[k]; });
+  PropertiesService.getScriptProperties().setProperty('R15_TABS', JSON.stringify(next));
+  appendAudit_('화면권한변경', '', { actor:actorLabelV24_(auth), before:before, after:next });
+  return r15Config_();
+}
 const ROLE_LABEL_V24 = { viewer:'조회', worker:'작업자', manager:'중간관리자', admin:'관리자' };
 function roleOfV24_(role){ role = String(role || '').trim(); return Object.prototype.hasOwnProperty.call(ROLE_RANK_V24, role) ? role : 'worker'; }
-function roleRankV24_(role){ return ROLE_RANK_V24[roleOfV24_(role)]; }
+function roleRankV24_(role){ return String(role || '').trim() === 'guest' ? -1 : ROLE_RANK_V24[roleOfV24_(role)]; } // guest는 로그인 없는 보기 전용(사용자 권한으로는 줄 수 없음)
 function roleLabelV24_(role){ return ROLE_LABEL_V24[roleOfV24_(role)]; }
 function atLeastV24_(auth, role){ return !!auth && roleRankV24_(auth.role) >= roleRankV24_(role); }
 function authLogoutV24_(token){const hash=sha256V24_(String(token||''));try{CacheService.getScriptCache().remove('V24SESS_'+hash);}catch(e){}try{const ss=getSs_(),sh=ss.getSheetByName('Sessions');if(sh&&sh.getLastRow()>=2){const hit=sh.getRange(2,1,sh.getLastRow()-1,1).createTextFinder(hash).matchEntireCell(true).findNext();if(hit)sh.getRange(hit.getRow(),9).setValue('REVOKED');}}catch(e){}return {ok:true};}
@@ -1910,6 +1943,7 @@ function r15Get_(action, q, auth) {
 function r15Post_(action, p, auth) {
   p = p || {};
   if (action === 'r15LotStart') { p.worker = auth.name || ''; const r = startProduction_(p); if (r && r.ok) appendAudit_(r.joined ? 'R15작업참여' : 'R15작업시작', r.id || '', { actor: actorLabelV24_(auth), after: { productName: r15S_(p.productName), lotNo: r15S_(p.lotNo) } }); return r; }
+  if (action === 'r15TabsSave') return r15TabsSave_(p, auth);
   if (action === 'r15LotAdd') return r15LotAdd_(p, auth);
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
   if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
@@ -2576,7 +2610,7 @@ function r15Mine_(auth) {
   });
   return { ok:true, today:today, items:items, deleted:deleted };
 }
-const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '사진추가':'사진 추가', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화' };
+const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '사진추가':'사진 추가', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화', '화면권한변경':'화면 권한 변경' };
 function r15AuditRows_() {
   const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
   const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
@@ -2603,7 +2637,7 @@ function r15History_(id) {
 const R15_AUDIT_KIND = { '저장':'기록', '수정':'기록', '삭제':'기록', '복구':'기록', '영구 삭제':'기록', '삭제 실패':'기록', '삭제 일부 실패':'기록', '점검 확인':'기록', '사진 추가':'기록', '점검 확인 취소':'기록',
   '생산 투입':'생산', '투입 취소':'생산', '작업 시작':'생산', '작업 참여':'생산', '작업 종료':'생산', '작업 삭제':'생산',
   '품목 수정':'기준정보', '품목 추가':'기준정보', '계획표 저장':'기준정보',
-  '로그인':'로그인·사용자', '로그아웃':'로그인·사용자', '로그인 실패':'로그인·사용자', 'PIN 변경':'로그인·사용자', 'PIN 초기화':'로그인·사용자', '사용자 추가':'로그인·사용자', '사용자 수정':'로그인·사용자',
+  '로그인':'로그인·사용자', '로그아웃':'로그인·사용자', '로그인 실패':'로그인·사용자', 'PIN 변경':'로그인·사용자', 'PIN 초기화':'로그인·사용자', '사용자 추가':'로그인·사용자', '사용자 수정':'로그인·사용자', '화면 권한 변경':'로그인·사용자',
   '내보내기':'내보내기' };
 // 감사 추적: 기간·종류·사람·검색어로 거른다. 저장·로그인까지 모두 포함 (최대 2000건, 최신순)
 function r15Audit_(q, auth) {
