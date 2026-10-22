@@ -1638,10 +1638,43 @@ function v58FolderCacheKey_(parentId,name){
 }
 function v58GetOrCreateChildCached_(parent,name){
   const safe=v58SafeName_(name)||'UNKNOWN',key=v58FolderCacheKey_(parent.getId(),safe);
-  try{const id=CacheService.getScriptCache().get(key);if(id)return DriveApp.getFolderById(id);}catch(e){}
-  const it=parent.getFoldersByName(safe),folder=it.hasNext()?it.next():parent.createFolder(safe);
-  try{CacheService.getScriptCache().put(key,folder.getId(),21600);}catch(e){}
-  return folder;
+  try{const id=CacheService.getScriptCache().get(key);if(id){const f=DriveApp.getFolderById(id);if(!f.isTrashed())return f;}}catch(e){}
+  // 사진 두 장(WMS·업체)이 동시에 올라오면 둘 다 '폴더 없음'을 보고 같은 이름 폴더를 두 개 만들었다.
+  // 그래서 만들기 전후를 잠그고(저장용 Script 잠금과 겹치지 않게 User 잠금), 그래도 둘이 생기면 먼저 만든 폴더를 쓰고 방금 만든 빈 폴더는 지운다.
+  let lock=null;try{lock=LockService.getUserLock();if(!lock.tryLock(10000))lock=null;}catch(e){lock=null;}
+  try{
+    const it=parent.getFoldersByName(safe);let folder=it.hasNext()?it.next():null,made=false;
+    if(!folder){folder=parent.createFolder(safe);made=true;}
+    const all=[];const it2=parent.getFoldersByName(safe);while(it2.hasNext())all.push(it2.next());
+    if(all.length>1){
+      all.sort(function(a,b){return a.getDateCreated()-b.getDateCreated();});
+      const keep=all[0];
+      if(made&&keep.getId()!==folder.getId()&&!folder.getFiles().hasNext()&&!folder.getFolders().hasNext()){try{folder.setTrashed(true);}catch(e){}}
+      folder=keep;
+    }
+    try{CacheService.getScriptCache().put(key,folder.getId(),21600);}catch(e){}
+    return folder;
+  }finally{if(lock)try{lock.releaseLock();}catch(e){}}
+}
+// 이미 생긴 같은 이름 사진 폴더 합치기 (Apps Script 편집기에서 한 번 실행). 파일을 옮기기만 하므로 기록의 사진 링크는 그대로 열린다.
+function r15MergePhotoFolders() {
+  let moved=0,merged=0;
+  const walk=function(parent,depth){
+    const groups={};const it=parent.getFolders();
+    while(it.hasNext()){const f=it.next();(groups[f.getName()]=groups[f.getName()]||[]).push(f);}
+    Object.keys(groups).forEach(function(n){
+      const g=groups[n].sort(function(a,b){return a.getDateCreated()-b.getDateCreated();}),keep=g[0];
+      g.slice(1).forEach(function(d){
+        const fs=d.getFiles();while(fs.hasNext()){fs.next().moveTo(keep);moved++;}
+        const ds=d.getFolders();while(ds.hasNext())ds.next().moveTo(keep);
+        d.setTrashed(true);merged++;
+      });
+      if(depth<2)walk(keep,depth+1);
+    });
+  };
+  walk(getPhotoFolder_(),0);
+  Logger.log('합친 폴더 '+merged+'개 · 옮긴 사진 '+moved+'장');
+  return {merged:merged,moved:moved};
 }
 function v58PhotoFolder_(meta){
   const root=getPhotoFolder_(),tz=Session.getScriptTimeZone()||'Asia/Seoul';
