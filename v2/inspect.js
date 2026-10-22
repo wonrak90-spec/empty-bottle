@@ -125,7 +125,7 @@
         </div>
         <div class="grid g2">
           ${field('cPallet', 'Pallet 번호', c.pallet, { num: true, ph: hintNext(), cls: 'key' + (c.pallet ? '' : ' need') })}
-          ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: b && c.inboundNo && c.inboundNo !== b.inboundNo ? 'bad' : '' })}
+          ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: 'key' + (b && c.inboundNo && c.inboundNo !== b.inboundNo ? ' bad' : '') })}
           ${field('cItem', '품목코드', c.itemCode, { num: true })}
           ${field('cQty', 'WMS 수량', c.qty, { num: true })}
           ${field('cVProduct', '업체 품명', c.vProduct)}

@@ -290,8 +290,8 @@
   /* ---------- 추적 탭 ---------- */
   const T = R.trace = {};
   T.init = function () {
-    $('traceView').innerHTML = `<section><div class="shead"><h2>추적</h2><span class="sub">제조번호, 입고번호, 26004733-0042 같은 라벨 번호 어느 것이든</span></div>
-      <div class="searchrow"><input id="trQ" type="search" placeholder="예: 2F205 또는 26004733" enterkeyhint="search"><button type="button" class="btn" id="trGo">찾기</button></div></section><div id="trOut"></div>`;
+    $('traceView').innerHTML = `<section><div class="shead"><h2>추적</h2><span class="sub">제품명, 제조번호, 입고번호, 26004733-0042 같은 라벨 번호 어느 것이든</span></div>
+      <div class="searchrow"><input id="trQ" type="search" placeholder="예: 제품명, 2F205, 26004733" enterkeyhint="search"><button type="button" class="btn" id="trGo">찾기</button></div></section><div id="trOut"></div>`;
     $('trGo').onclick = go; $('trQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   };
   async function go() {
@@ -304,7 +304,7 @@
         <div class="list">${l.pallets.map((p) => { const rec = p.record; return `<div class="row"><span><b>${esc(p.inboundNo)}</b> P${esc(p.pallet)} <span class="muted">${rec ? esc(rec.product + ' · ' + rec.supplier + ' · 검수 ' + rec.atText.slice(0, 10)) : ''}</span></span>
           <span>${p.unverified ? R.pill('error', '미검수 투입') : R.pill(rec.level, rec.level === 'ok' ? '검수 이상 없음' : rec.finalResult)} ${rec && rec.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.wmsPhoto)}" data-cap="${esc(p.inboundNo)} P${esc(p.pallet)} WMS">WMS</button>` : ''}${rec && rec.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.vendorPhoto)}" data-cap="${esc(p.inboundNo)} P${esc(p.pallet)} 업체">업체</button>` : ''}</span></div>`; }).join('') || '<div class="muted">투입 기록 없음</div>'}</div></section>`).join('') +
       r.inbounds.map((g) => `<section><div class="shead"><div><div class="sub">입고번호 → 사용된 제조번호</div><div class="big">${esc(g.summary.inboundNo)}</div></div></div>
-        <div class="vline">${esc(g.summary.product)} · ${esc(g.summary.supplier)} · ${g.records.length} Pallet · 투입 ${g.summary.usedCount}</div>
+        <div class="vline">${esc(g.summary.product)} · ${esc(g.summary.supplier)} · ${g.records.length} Pallet · 투입 ${g.summary.usedCount}${(() => { const n = [...new Set(g.records.flatMap((rec) => rec.usedIn.map((u) => u.productName)).filter(Boolean))]; return n.length ? ' · 사용 제품 <b>' + esc(n.join(', ')) + '</b>' : ''; })()}</div>
         <div class="list">${g.records.map((rec) => `<div class="row"><span><b>P${esc(rec.pallet)}</b> <span class="muted">${esc(rec.atText)} · ${esc(rec.inspector)}</span></span>
           <span>${rec.usedIn.length ? rec.usedIn.map((u) => R.pill('idle', u.productName + ' ' + u.lotNo)).join(' ') : '<span class="muted">미투입</span>'} ${rec.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.wmsPhoto)}" data-cap="${esc(rec.inboundNo)} P${esc(rec.pallet)} WMS">WMS</button>` : ''}${rec.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.vendorPhoto)}" data-cap="${esc(rec.inboundNo)} P${esc(rec.pallet)} 업체">업체</button>` : ''}</span></div>`).join('')}</div></section>`).join('');
     bindPhotoButtons(out);
