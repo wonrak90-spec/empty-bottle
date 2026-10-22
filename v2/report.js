@@ -290,7 +290,7 @@
   /* ---------- 추적 탭 ---------- */
   const T = R.trace = {};
   T.init = function () {
-    $('traceView').innerHTML = `<section><div class="shead"><h2>추적</h2><span class="sub">제품명, 제조번호, 입고번호, 26004733-0042 같은 라벨 번호 어느 것이든</span></div>
+    $('traceView').innerHTML = `<section><div class="shead"><h2>추적</h2><span class="sub">제품명·제조번호 → 그 제품에 들어간 공병 · 입고번호·라벨 번호(26004733-0042) → 그 공병이 들어간 제품</span></div>
       <div class="searchrow"><input id="trQ" type="search" placeholder="예: 제품명, 2F205, 26004733" enterkeyhint="search"><button type="button" class="btn" id="trGo">찾기</button></div></section><div id="trOut"></div>`;
     $('trGo').onclick = go; $('trQ').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
   };

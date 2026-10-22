@@ -6,7 +6,7 @@
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
   color-scheme:light;
 }
-:root[data-theme="dark"]{--bg:#0f1317;--surface:#181d23;--sunken:#222932;--ink:#e8ecf0;--ink2:#aab4bf;--ink3:#7d8894;--line:#2e3640;--accent:#ff7a70;--accent-soft:#3a1d1b;
+:root[data-theme="dark"]{--bg:#14100d;--surface:#1e1814;--sunken:#2a221c;--ink:#f0e9e2;--ink2:#bfb2a6;--ink3:#8f8276;--line:#3a3029;--accent:#ff7a70;--accent-soft:#3a1d1b;
   --brand:#e6c9ad;--brand-ink:#1a120c;--good-bg:#16301a;--warn-bg:#3a2f10;--crit-bg:#3a1b1b;--idle-bg:#262d35;color-scheme:dark}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
@@ -199,7 +199,7 @@ details.aurow summary::-webkit-details-marker{display:none}
 .zcam-frame.near{left:6%;right:6%;top:30%;bottom:30%}
 .zcam-frame.flash{background:rgba(255,255,255,.5)}
 .zcam-step{position:absolute;top:12px;left:12px;background:rgba(0,0,0,.6);color:#fff;padding:6px 10px;border-radius:8px;font-weight:700}
-.shot.seq{grid-column:1/-1;background:var(--ink);color:#fff}
+.shot.seq{grid-column:1/-1;background:var(--brand);color:var(--brand-ink);border-style:solid}
 
 /* 짧은 버튼·기간 글자가 두 줄로 꺾이지 않게 */
 .searchrow .btn,.btn.sm,td .btn,.ract .btn{white-space:nowrap;flex:0 0 auto}
