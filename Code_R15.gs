@@ -1011,7 +1011,7 @@ function recentProducts_() {
   const sheet = ss.getSheetByName('Production');
   if (!sheet || sheet.getLastRow() < 2) return { ok: true, products: [], lastLot: '' };
 
-  const data = sheet.getDataRange().getValues();
+  const data = r15SheetValues_('Production'); // R15: 작업 목록(r15Lots)과 같은 실행에서 Production을 두 번 읽지 않게
   const idx = {};
   PRODUCTION_HEADERS.forEach((h, i) => idx[h] = i);
 
@@ -1996,7 +1996,11 @@ function r15SheetValues_(name) {
   const vals = sh && sh.getLastRow() >= 1 ? sh.getDataRange().getValues() : [];
   R15_MEM_[name] = vals; return vals;
 }
-function r15Forget_(name) { delete R15_MEM_[name]; if (name === 'Records') Object.keys(R15_MEM_).forEach(function(k) { if (k === '__records' || k.indexOf('__col_') === 0) delete R15_MEM_[k]; }); }
+function r15Forget_(name) {
+  delete R15_MEM_[name]; r15ForgetCols_(name);
+  if (name === 'Records') { delete R15_MEM_.__records; delete R15_MEM_.__kidx; }
+  if (name === 'ProductionPallets') { delete R15_MEM_.__pp; delete R15_MEM_.__ppidx; }
+}
 function r15HeaderIdx_(vals, fallback) {
   // 시트 첫 줄 실제 헤더 기준으로 찾는다. 열 순서가 바뀌어도 맞게 읽기 위함
   const x = {}; const head = vals[0] || fallback; head.forEach(function(h, i) { x[String(h).trim()] = i; });
@@ -2052,39 +2056,141 @@ function r15ParseRecord_(r, rowNo, i, deleted, items) {
       vendorLotNo: r15S_(r[i['업체Lot번호']]), vendorLine: r15S_(r[i['업체생산라인']]), vendorPalletNo: r15S_(r[i['업체파레트No']])
     };
 }
-// 기록이 쌓여도 느려지지 않게: 필요한 열만 먼저 읽고, 맞는 줄이 있는 구간만 읽는다.
-// 이미 전체를 읽었으면(R15_MEM_.__records) 그것을 그대로 쓴다.
-function r15Col_(name) {
-  const key = '__col_' + name; if (R15_MEM_[key]) return R15_MEM_[key];
-  const sh = getSs_().getSheetByName('Records'), last = sh ? sh.getLastRow() : 0;
-  if (last < 2) return R15_MEM_[key] = { head:{}, vals:[] };
-  const head = r15HeaderIdx_(sh.getRange(1, 1, 1, sh.getLastColumn()).getValues(), RECORD_HEADERS);
-  const vals = sh.getRange(2, head[name] + 1, last - 1, 1).getValues().map(function(x) { return x[0]; });
-  return R15_MEM_[key] = { head:head, vals:vals };
+
+
+
+
+
+/* ---------- 큰 시트를 필요한 열·줄만 읽기 ----------
+   1년이면 Records 4만 행 × 38열(160만 칸), ProductionPallets 4만 행이 쌓인다. 전체를 읽으면 15~60초라 앱 제한(25초)을 넘는다.
+   그래서 열(입고번호, 등록일시 …)만 먼저 읽어 필요한 줄을 고르고, 그 줄이 있는 구간만 읽는다. 한 실행 안에서는 R15_MEM_에 담아 다시 읽지 않는다. */
+function r15Head_(name) {
+  const key = '__h_' + name; if (R15_MEM_[key]) return R15_MEM_[key];
+  const fallback = name === 'Records' ? RECORD_HEADERS : name === 'ProductionPallets' ? PRODUCTION_PALLET_HEADERS : name === 'Production' ? PRODUCTION_HEADERS : name === 'AuditLog' ? AUDIT_LOG_HEADERS : [];
+  const sh = getSs_().getSheetByName(name), last = sh ? sh.getLastRow() : 0, ncol = sh ? Math.max(sh.getLastColumn(), fallback.length) : 0;
+  const head = last >= 1 ? sh.getRange(1, 1, 1, ncol).getValues() : [];
+  return R15_MEM_[key] = { sh:sh, last:last, ncol:ncol, idx:r15HeaderIdx_(head, fallback) };
+}
+// 한 열 전체 (2행부터). 시트 전체를 이미 읽었으면 그것을 쓴다.
+function r15ColVals_(name, col) {
+  const key = '__c_' + name + '|' + col; if (R15_MEM_[key]) return R15_MEM_[key];
+  const h = r15Head_(name), c = h.idx[col]; let vals = [];
+  if (R15_MEM_[name]) vals = R15_MEM_[name].slice(1).map(function(r) { return r[c]; });
+  else if (h.last >= 2 && c !== undefined) vals = h.sh.getRange(2, c + 1, h.last - 1, 1).getValues().map(function(x) { return x[0]; });
+  return R15_MEM_[key] = vals;
+}
+// 줄 번호 목록 → { 줄번호: 값 배열 }. 가까운 줄끼리 묶어 한 번에 읽는다. 시트 왕복 1번(0.05~0.5초)이 빈 줄 300개 읽기보다 비싸서 300줄 넘게 벌어질 때만 끊는다.
+function r15Rows_(name, rows) {
+  const h = r15Head_(name), out = {}, list = rows.filter(function(n) { return n >= 2 && n <= h.last; }).sort(function(a, b) { return a - b; });
+  if (!list.length) return out;
+  if (R15_MEM_[name]) { list.forEach(function(n) { out[n] = R15_MEM_[name][n - 1]; }); return out; }
+  let a = list[0], b = list[0];
+  let from = 0; // list[from..k-1]이 지금 묶음. 묶음 안의 요청한 줄만 돌려준다 (사이 줄은 버림)
+  const flush = function(to) { const v = h.sh.getRange(a, 1, b - a + 1, h.ncol).getValues(); for (let j = from; j < to; j++) out[list[j]] = v[list[j] - a]; from = to; };
+  for (let k = 1; k < list.length; k++) { if (list[k] - b > 300) { flush(k); a = list[k]; } b = list[k]; }
+  flush(list.length);
+  return out;
+}
+function r15ForgetCols_(name) { Object.keys(R15_MEM_).forEach(function(k) { if (k.indexOf('__c_' + name + '|') === 0 || k === '__h_' + name) delete R15_MEM_[k]; }); }
+
+// Records 열 색인: 줄마다 ID·시각·입고번호·Pallet·품목·수량. 같은 Pallet의 첫 저장 줄(first)과 저장 횟수(dup)
+function r15KeyIndex_() {
+  if (R15_MEM_.__kidx) return R15_MEM_.__kidx;
+  const ids = r15ColVals_('Records', 'ID'), at = r15ColVals_('Records', '등록일시'), ib = r15ColVals_('Records', '입고번호'), pl = r15ColVals_('Records', '용기번호시작');
+  const deleted = v58SoftDeletedMap_();
+  const rows = [], first = {}, dup = {};
+  for (let k = 0; k < ids.length; k++) {
+    const id = r15S_(ids[k]); if (!id || deleted[id]) continue;
+    const d = r15Date_(at[k]), no = r15Digits_(ib[k]), pal = r15Pallet_(pl[k]), key = r15Key_(no, pal);
+    const x = { row:k + 2, id:id, at:d ? d.getTime() : 0, no:no, pal:pal, key:key };
+    rows.push(x);
+    if (key) { dup[key] = (dup[key] || 0) + 1; if (!first[key]) first[key] = x; }
+  }
+  return R15_MEM_.__kidx = { rows:rows, first:first, dup:dup };
+}
+// 품목·수량은 수불·재고 계산 때만 읽어 붙인다 (입고번호 조회·오늘 내 기록에는 필요 없음)
+function r15KeyExtra_() {
+  const kx = r15KeyIndex_(); if (kx.extra) return kx;
+  const it = r15ColVals_('Records', '품목코드'), q1 = r15ColVals_('Records', '표시수량'), q2 = r15ColVals_('Records', '업체라벨수량');
+  kx.rows.forEach(function(x) { const k = x.row - 2; x.item = r15Digits_(it[k]); x.qty = r15Num_(q1[k]) || r15Num_(q2[k]); });
+  kx.extra = true; return kx;
+}
+function r15RecordsAtRows_(rows) {
+  const vals = r15Rows_('Records', rows), i = r15Head_('Records').idx, deleted = v58SoftDeletedMap_(), items = r15ItemMap_(), out = [];
+  Object.keys(vals).map(Number).sort(function(a, b) { return a - b; }).forEach(function(n) { const o = r15ParseRecord_(vals[n], n, i, deleted, items); if (o) out.push(o); });
+  return out;
 }
 function r15RecordsWhere_(colName, test) {
   if (R15_MEM_.__records) return R15_MEM_.__records.filter(function(r) { return test(r[colName === '입고번호' ? 'inboundNo' : colName === 'ID' ? 'id' : 'at']); });
-  const c = r15Col_(colName), rows = [];
-  c.vals.forEach(function(v, k) {
+  const vals = r15ColVals_('Records', colName), rows = [];
+  vals.forEach(function(v, k) {
     const x = colName === '입고번호' ? r15Digits_(v) : colName === 'ID' ? r15S_(v) : (r15Date_(v) ? r15Date_(v).getTime() : 0);
     if (test(x)) rows.push(k + 2);
   });
-  if (!rows.length) return [];
-  const sh = getSs_().getSheetByName('Records'), a = rows[0], b = rows[rows.length - 1];
-  const block = sh.getRange(a, 1, b - a + 1, sh.getLastColumn()).getValues(), deleted = v58SoftDeletedMap_(), items = r15ItemMap_(), out = [];
-  rows.forEach(function(n) { const o = r15ParseRecord_(block[n - a], n, c.head, deleted, items); if (o) out.push(o); });
+  return r15RecordsAtRows_(rows);
+}
+// 입고번호|Pallet 키들의 검수 기록 (같은 Pallet가 여러 번 저장됐으면 첫 기록)
+function r15RecordsByKeys_(keys) {
+  const kx = r15KeyIndex_(), rows = [];
+  keys.forEach(function(k) { const f = kx.first[k]; if (f) rows.push(f.row); });
+  const out = {}; r15RecordsAtRows_(rows).forEach(function(r) { out[r15Key_(r.inboundNo, r.pallet)] = r; });
   return out;
 }
-// 중복 Pallet 판정은 전체 기록이 필요하지만 입고번호·Pallet 두 열이면 충분하다.
-function r15DupMap_() {
-  if (R15_MEM_.__records) { const d = {}; R15_MEM_.__records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) d[k] = (d[k] || 0) + 1; }); return d; }
-  const ids = r15Col_('ID').vals, ib = r15Col_('입고번호').vals, pl = r15Col_('용기번호시작').vals, deleted = v58SoftDeletedMap_(), d = {};
-  ib.forEach(function(v, k) { if (!r15S_(ids[k]) || deleted[r15S_(ids[k])]) return; const key = r15Key_(r15Digits_(v), r15Pallet_(pl[k])); if (key) d[key] = (d[key] || 0) + 1; });
-  return d;
+function r15DupMap_() { return r15KeyIndex_().dup; }
+
+// ProductionPallets 색인: 줄마다 작업 ID·Pallet 키·검수기록ID·등록시각
+function r15PPIndex_() {
+  if (R15_MEM_.__ppidx) return R15_MEM_.__ppidx;
+  const pid = r15ColVals_('ProductionPallets', 'Production ID'), ib = r15ColVals_('ProductionPallets', '입고번호'), pl = r15ColVals_('ProductionPallets', '용기번호');
+  const rows = [], byKey = {}, byPid = {};
+  for (let k = 0; k < pid.length; k++) {
+    const p = r15S_(pid[k]); if (!p) continue;
+    const x = { row:k + 2, pid:p, key:r15Key_(ib[k], pl[k]) };
+    rows.push(x); if (x.key) (byKey[x.key] = byKey[x.key] || []).push(x); (byPid[p] = byPid[p] || []).push(x);
+  }
+  return R15_MEM_.__ppidx = { rows:rows, byKey:byKey, byPid:byPid };
 }
-function r15CtxLite_() {
-  const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
-  return { dup:r15DupMap_(), used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+// 투입 시각(보고서 기간 투입)과 검수기록ID(권한 확인)는 필요할 때만 읽는다
+function r15PPAt_() {
+  const ix = r15PPIndex_(); if (ix.hasAt) return ix;
+  const at = r15ColVals_('ProductionPallets', '등록시각'); ix.rows.forEach(function(x) { const d = r15Date_(at[x.row - 2]); x.at = d ? d.getTime() : 0; });
+  ix.hasAt = true; return ix;
+}
+function r15PPRid_() {
+  const ix = r15PPIndex_(); if (ix.byRid) return ix.byRid;
+  const rid = r15ColVals_('ProductionPallets', '검수기록ID'), by = {}; ix.rows.forEach(function(x) { const v = r15S_(rid[x.row - 2]); if (v) by[v] = x; });
+  return ix.byRid = by;
+}
+function r15ParsePP_(r, rowNo, i) {
+  const pid = r15S_(r[i['Production ID']]); if (!pid) return null;
+  const at = r15Date_(r[i['등록시각']]);
+  return { row: rowNo, productionId: pid, productName: r15S_(r[i['제품명']]), lotNo: r15S_(r[i['제조번호']]), seq: r15Num_(r[i['순번']]),
+    inboundNo: r15Digits_(r[i['입고번호']]), pallet: r15Pallet_(r[i['용기번호']]), code: r15S_(r[i['Barcode/QR']]),
+    product: r15S_(r[i['품명']]), itemCode: r15Digits_(r[i['품목코드']]), qty: r15Num_(r[i['수량']]), unit: r15S_(r[i['단위']]),
+    result: r15S_(r[i['검수결과']]), recordId: r15S_(r[i['검수기록ID']]), worker: r15S_(r[i['작업자']]),
+    at: at ? at.getTime() : 0, atText: at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '' };
+}
+function r15PPAtRows_(rows) {
+  const vals = r15Rows_('ProductionPallets', rows), i = r15Head_('ProductionPallets').idx, out = [];
+  Object.keys(vals).map(Number).sort(function(a, b) { return a - b; }).forEach(function(n) { const o = r15ParsePP_(vals[n], n, i); if (o) out.push(o); });
+  return out;
+}
+function r15PPOfLot_(pid) { return r15PPAtRows_((r15PPIndex_().byPid[pid] || []).map(function(x) { return x.row; })); }
+// 보여줄 기록들의 Pallet가 어느 작업에 들어갔는지만 읽는다
+function r15UsedFor_(keys) {
+  const ix = r15PPIndex_(), rows = [];
+  keys.forEach(function(k) { (ix.byKey[k] || []).forEach(function(x) { rows.push(x.row); }); });
+  const used = {}; r15PPAtRows_(rows).forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
+  return used;
+}
+function r15CtxFor_(records) {
+  return { dup:r15DupMap_(), used:r15UsedFor_(records.map(function(r) { return r15Key_(r.inboundNo, r.pallet); }).filter(String)), items:r15ItemMap_(), acks:r15AckMap_() };
+}
+// 아직 투입 안 된 Pallet (검수 첫 기록 기준, 기간 제한 없음)
+function r15StockKeys_(since, code) {
+  const kx = code ? r15KeyExtra_() : r15KeyIndex_(), ix = r15PPIndex_(), out = [];
+  Object.keys(kx.first).forEach(function(k) { const f = kx.first[k]; if (ix.byKey[k] || f.at < since || (code && f.item !== code)) return; out.push(f); });
+  return out;
 }
 
 function r15ProdPallets_() {
@@ -2171,7 +2277,7 @@ function r15AttachPhoto_(p, auth) {
   const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { ok:false, busy:true, retry:true, message:'잠시 후 다시 시도하세요.' };
   try {
     r15Forget_('Records'); delete R15_MEM_.__records;
-    const rec = r15Records_().filter(function(r) { return r.id === r15S_(p.id); })[0]; if (!rec) return { ok:false, message:'기록을 찾을 수 없습니다.' };
+    const rec = r15RecordsWhere_('ID', function(v) { return v === r15S_(p.id); })[0]; if (!rec) return { ok:false, message:'기록을 찾을 수 없습니다.' };
     const mgr = atLeastV24_(auth, 'manager'), mine = r15S_(rec.inspector) === r15S_(auth.name);
     if (!mgr && !mine) return { ok:false, code:'ROLE_REQUIRED', message:'본인이 검수한 기록에만 사진을 붙일 수 있습니다.' };
     if (!mgr && rec.vendorPhoto) return { ok:false, code:'ROLE_REQUIRED', message:'이미 업체 사진이 있습니다. 바꾸려면 중간관리자에게 요청하세요.' };
@@ -2199,7 +2305,8 @@ function r15IssueAck_(p, auth) {
   const reason = r15S_(p.reason), undo = !!p.undo; if (!reason) return { ok:false, message:'처리 사유를 적어 주세요.' };
   const ids = (p.ids || []).map(r15S_).filter(String).slice(0, 500), codes = (p.codes || []).map(r15S_).filter(String);
   if (!ids.length) return { ok:false, message:'처리할 기록을 고르세요.' };
-  const all = r15Records_(), ctx = r15Ctx_(all), byId = {}; all.forEach(function(r) { byId[r.id] = r; });
+  const want = {}; ids.forEach(function(id) { want[id] = 1; });
+  const recsA = r15RecordsWhere_('ID', function(v) { return !!want[v]; }), ctx = r15CtxFor_(recsA), byId = {}; recsA.forEach(function(r) { byId[r.id] = r; });
   const rows = [], now = new Date(), who = actorLabelV24_(auth);
   ids.forEach(function(id) {
     const rec = byId[id]; if (!rec) return;
@@ -2253,37 +2360,53 @@ function r15InboundSummary_(no, recs) {
 }
 
 /* ---------- 보고서 ---------- */
+function r15LotsInPeriod_(t0, end) {
+  const at = r15ColVals_('Production', '등록일시'), st = r15ColVals_('Production', '상태'); let n = 0;
+  at.forEach(function(v, k) { const d = r15Date_(v); if (d && d.getTime() >= t0 && d.getTime() < end && r15S_(st[k]) !== '삭제') n++; });
+  return n;
+}
+function r15AuditParse_(r, i) {
+  const at = r15Date_(r[i['일시']]); let changes = {}, before = {}, meta = {};
+  try { changes = JSON.parse(r[i['After JSON']] || '{}'); } catch (e) {}
+  try { before = JSON.parse(r[i['Before JSON']] || '{}'); } catch (e) {}
+  try { meta = JSON.parse(r[i['Meta JSON']] || '{}'); } catch (e) {}
+  return { at:at ? at.getTime() : 0, atText:at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '', action:r15S_(r[i['작업']]),
+    label:R15_AUDIT_LABEL[r15S_(r[i['작업']])] || r15S_(r[i['작업']]), recordId:r15S_(r[i['Record ID']]), actor:r15S_(r[i['Actor']]), reason:r15S_(r[i['Reason']]), changes:changes, before:before, meta:meta };
+}
 function r15Report_(from, to) {
   const start = r15DayStart_(from), endDay = r15DayStart_(to || from);
   if (!start || !endDay) return { ok:false, message:'기간(from, to)을 yyyy-MM-dd로 보내세요.' };
-  const end = endDay.getTime() + 24 * 3600 * 1000;
-  const all = r15Records_(), ctx = r15Ctx_(all), inPeriod = {};
-  all.forEach(function(r) { if (r.at >= start.getTime() && r.at < end) inPeriod[r.inboundNo || ('없음:' + r.id)] = 1; });
+  const t0 = start.getTime(), end = endDay.getTime() + 24 * 3600 * 1000, days = Math.round((end - t0) / 864e5);
+  const kx = r15KeyExtra_(), items = r15ItemMap_(), inPeriod = {}, rowsWanted = [];
   // 기간 안에 1건이라도 있는 입고번호는 그 입고번호의 기록 전체를 보여준다 (하루를 넘긴 차량도 한 장에)
-  const groups = {};
-  all.forEach(function(r) { const g = r.inboundNo || ('없음:' + r.id); if (inPeriod[g]) (groups[g] = groups[g] || []).push(r15Public_(r, ctx)); });
+  kx.rows.forEach(function(x) { if (x.at >= t0 && x.at < end) inPeriod[x.no || ('없음:' + x.id)] = 1; });
+  kx.rows.forEach(function(x) { if (inPeriod[x.no || ('없음:' + x.id)]) rowsWanted.push(x.row); });
+  const recs = r15RecordsAtRows_(rowsWanted), ctx = r15CtxFor_(recs), groups = {};
+  recs.forEach(function(r) { const g = r.inboundNo || ('없음:' + r.id); (groups[g] = groups[g] || []).push(r15Public_(r, ctx)); });
   const inbounds = Object.keys(groups).map(function(g) { return r15InboundSummary_(g.indexOf('없음:') === 0 ? '' : g, groups[g]); })
     .sort(function(a, b) { return b.firstAt - a.firstAt; });
-  const records = []; Object.keys(groups).forEach(function(g) { groups[g].forEach(function(r) { records.push(r); }); });
+  let records = []; Object.keys(groups).forEach(function(g) { groups[g].forEach(function(r) { records.push(r); }); });
 
-  // 수불: 품목별 기간 입고 / 기간 투입 / 현재 가용
-  const supply = {}, sup = function(code, name) { const k = code || name || '미상'; return supply[k] = supply[k] || { itemCode:code, product:name, inPallets:0, inQty:0, usedPallets:0, usedQty:0, stockPallets:0, stockQty:0 }; };
-  all.forEach(function(r) {
-    if (r.at >= start.getTime() && r.at < end) { const s = sup(r.itemCode, r.product); s.inPallets++; s.inQty += r.qty || r.vendorQty; }
-  });
-  const recByKey = {}; all.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k && !recByKey[k]) recByKey[k] = r; });
-  r15ProdPallets_().forEach(function(pp) {
-    if (pp.at >= start.getTime() && pp.at < end) { const rec = recByKey[r15Key_(pp.inboundNo, pp.pallet)]; const s = sup(rec ? rec.itemCode : pp.itemCode, rec ? rec.product : pp.product); s.usedPallets++; s.usedQty += pp.qty || (rec ? rec.qty : 0); }
-  });
-  r15Stock_(180).groups.forEach(function(g) { const s = sup(g.itemCode, g.product); s.stockPallets += g.palletCount; s.stockQty += g.qtyTotal; });
+  // 수불: 품목별 기간 입고 / 기간 투입 / 현재 가용. 같은 Pallet를 두 번 저장한 기록은 한 번만 센다.
+  const supply = {}, sup = function(code) { const k = code || '미상'; return supply[k] = supply[k] || { itemCode:code, product:(items[code] && items[code].itemName) || '', inPallets:0, inQty:0, usedPallets:0, usedQty:0, stockPallets:0, stockQty:0 }; };
+  kx.rows.forEach(function(x) { if (x.at >= t0 && x.at < end && (!x.key || kx.first[x.key] === x)) { const s = sup(x.item); s.inPallets++; s.inQty += x.qty; } });
+  const ix = r15PPAt_(), usedRows = ix.rows.filter(function(x) { return x.at >= t0 && x.at < end; });
+  // 투입 행 내용은 기간이 짧으면 행을 읽고, 길면 검수 기록의 품목·수량으로 센다 (1년치 투입 행을 다 읽지 않게)
+  usedRows.forEach(function(x) { const f = kx.first[x.key]; const s = sup(f ? f.item : ''); s.usedPallets++; s.usedQty += f ? f.qty : 0; });
+  r15StockKeys_(0).forEach(function(f) { const s = sup(f.item); s.stockPallets++; s.stockQty += f.qty; });
+  Object.keys(supply).forEach(function(k) { if (!supply[k].product && supply[k].itemCode === '') supply[k].product = '품목 없음'; });
 
   const issueCounts = {}; records.forEach(function(r) { r.issues.forEach(function(x) { if (!x.acked) issueCounts[x.code] = (issueCounts[x.code] || 0) + 1; }); });
-  const lotsInPeriod = r15Productions_().filter(function(p) { return p.at >= start.getTime() && p.at < end; }).length;
+  const lotIds = {}; usedRows.forEach(function(x) { lotIds[x.pid] = 1; });
+  const kpi = { inbounds: inbounds.length, pallets: records.length, qty: records.reduce(function(t, r) { return t + (r.qty || r.vendorQty); }, 0),
+    errorRecords: records.filter(function(r) { return r.level === 'error'; }).length, warnRecords: records.filter(function(r) { return r.level === 'warn'; }).length,
+    gapPallets: inbounds.reduce(function(t, x) { return t + x.gaps.missing.length; }, 0), lots: r15LotsInPeriod_(t0, end) };
+  // 한 달이 넘는 기간은 문제 있는 기록만 보낸다 (1년치 전체는 60MB가 넘어 폰이 못 받는다). 차량 상세는 입고번호 조회로 연다.
+  let trimmed = false;
+  if (days > 31) { trimmed = records.length; records = records.filter(function(r) { return r.level !== 'ok'; }).slice(0, 3000); }
   return {
     ok:true, from:from, to:to || from, generatedAt: Utilities.formatDate(new Date(), R15_TZ, 'yyyy-MM-dd HH:mm'), backendVersion:BACKEND_VERSION,
-    kpi: { inbounds: inbounds.length, pallets: records.length, qty: records.reduce(function(t, r) { return t + (r.qty || r.vendorQty); }, 0),
-      errorRecords: records.filter(function(r) { return r.level === 'error'; }).length, warnRecords: records.filter(function(r) { return r.level === 'warn'; }).length,
-      gapPallets: inbounds.reduce(function(t, x) { return t + x.gaps.missing.length; }, 0), lots: lotsInPeriod },
+    kpi: kpi, trimmed: trimmed,
     supply: Object.keys(supply).map(function(k) { return supply[k]; }).sort(function(a, b) { return (b.inQty + b.stockQty) - (a.inQty + a.stockQty); }),
     inbounds: inbounds, records: records, issueCounts: issueCounts
   };
@@ -2291,19 +2414,18 @@ function r15Report_(from, to) {
 
 function r15Inbound_(inboundNo) {
   const no = r15Digits_(inboundNo); if (!no) return { ok:false, message:'입고번호가 없습니다.' };
-  const ctx = r15CtxLite_();
-  const recs = r15RecordsWhere_('입고번호', function(v) { return v === no; }).map(function(r) { return r15Public_(r, ctx); });
+  const kx = r15KeyIndex_(), rows = kx.rows.filter(function(x) { return x.no === no; }).map(function(x) { return x.row; });
+  const recsRaw = r15RecordsAtRows_(rows), ctx = r15CtxFor_(recsRaw), recs = recsRaw.map(function(r) { return r15Public_(r, ctx); });
   if (!recs.length) return { ok:true, found:false, inboundNo:no, records:[] };
   return { ok:true, found:true, summary: r15InboundSummary_(no, recs), records: recs };
 }
 
 /* ---------- 가용 재고 (검수 완료, 아직 투입 안 됨) ---------- */
 function r15Stock_(days, itemCode) {
-  const d = Math.max(1, Math.min(730, Number(days) || 120)), since = Date.now() - d * 24 * 3600 * 1000, code = r15Digits_(itemCode);
-  const all = r15Records_(), ctx = r15Ctx_(all), seen = {}, groups = {};
-  all.forEach(function(r) {
-    const k = r15Key_(r.inboundNo, r.pallet); if (!k || seen[k] || ctx.used[k] || r.at < since) return; seen[k] = 1;
-    if (code && r.itemCode !== code) return;
+  // 기본은 기간 제한 없이 투입 안 된 Pallet 전부 (오래 묵은 재고가 화면에서 사라지지 않게)
+  const d = Math.max(1, Math.min(3650, Number(days) || 3650)), since = Date.now() - d * 24 * 3600 * 1000, code = r15Digits_(itemCode);
+  const keys = r15StockKeys_(since, code), recs = r15RecordsAtRows_(keys.map(function(f) { return f.row; })), ctx = r15CtxFor_(recs), groups = {};
+  recs.forEach(function(r) {
     const g = groups[r.inboundNo] = groups[r.inboundNo] || { inboundNo:r.inboundNo, itemCode:r.itemCode, product:r.product, supplier:r.supplier, inboundDate:r.inboundDate || r.day, palletCount:0, qtyTotal:0, pallets:[] };
     const pub = r15Public_(r, ctx);
     g.palletCount++; g.qtyTotal += r.qty || r.vendorQty;
@@ -2316,44 +2438,48 @@ function r15Stock_(days, itemCode) {
 
 function r15PalletInfo_(inboundNo, pallet) {
   const k = r15Key_(inboundNo, pallet); if (!k) return { ok:false, message:'입고번호와 Pallet 번호가 필요합니다.' };
-  const all = r15Records_(), ctx = r15Ctx_(all), hit = all.filter(function(r) { return r15Key_(r.inboundNo, r.pallet) === k; });
+  const kx = r15KeyIndex_(), hit = r15RecordsAtRows_(kx.rows.filter(function(x) { return x.key === k; }).map(function(x) { return x.row; }));
+  const ctx = r15CtxFor_(hit);
   return { ok:true, found:hit.length > 0, record: hit.length ? r15Public_(hit[0], ctx) : null, usedIn: (ctx.used[k] || []).map(function(pp) { return { lotNo:pp.lotNo, productName:pp.productName, at:pp.atText }; }) };
 }
 
 /* ---------- 양방향 추적 ---------- */
 function r15Trace_(query) {
   const raw = r15S_(query); if (!raw) return { ok:false, message:'검색어를 입력하세요.' };
-  const low = raw.toLowerCase(), all = r15Records_(), ctx = r15Ctx_(all), pp = r15ProdPallets_();
-  const recByKey = {}; all.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k && !recByKey[k]) recByKey[k] = r; });
+  const low = raw.toLowerCase();
   // 제조번호 → 투입 Pallet → 입고 검수 기록
-  const lots = r15Productions_().filter(function(p) { const lot = p.lotNo.toLowerCase(); return lot === low || (low.length >= 3 && lot.indexOf(low) >= 0) || (low.length >= 2 && p.productName.toLowerCase().indexOf(low) >= 0); })
-    .sort(function(a, b) { return b.at - a.at; }).slice(0, 30).map(function(p) {
-      const rows = pp.filter(function(x) { return x.productionId === p.id; }).sort(function(a, b) { return a.seq - b.seq; });
-      return { id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, prodDate:p.prodDate, at:p.atText, workers:p.workers,
-        pallets: rows.map(function(x) { const rec = recByKey[r15Key_(x.inboundNo, x.pallet)]; return { seq:x.seq, inboundNo:x.inboundNo, pallet:x.pallet, at:x.atText, worker:x.worker, unverified:!rec, record: rec ? r15Public_(rec, ctx) : null }; }) };
-    });
-  // 입고번호(또는 26004733-0042) → 검수 기록 → 사용된 제조번호
-  const m = raw.match(/^(\d{8})(\d{4})$/) || raw.match(/(\d{6,12})(?:\s*[-\/ ]\s*0*(\d{1,4}))?/), inbounds = []; // 바코드 값 260047330030도 찾는다
-  if (m) {
-    const no = m[1], only = m[2] ? Number(m[2]) : 0;
-    const recs = all.filter(function(r) { return r.inboundNo === no && (!only || r.pallet === only); }).map(function(r) { return r15Public_(r, ctx); });
-    if (recs.length) inbounds.push({ summary: r15InboundSummary_(no, recs), records: recs });
-  }
+  const lotList = r15Productions_().filter(function(p) { const lot = p.lotNo.toLowerCase(); return lot === low || (low.length >= 3 && lot.indexOf(low) >= 0) || (low.length >= 2 && p.productName.toLowerCase().indexOf(low) >= 0); })
+    .sort(function(a, b) { return b.at - a.at; }).slice(0, 30);
+  const ppRows = []; lotList.forEach(function(p) { (r15PPIndex_().byPid[p.id] || []).forEach(function(x) { ppRows.push(x.row); }); });
+  const pps = r15PPAtRows_(ppRows), recByKey = r15RecordsByKeys_(pps.map(function(x) { return r15Key_(x.inboundNo, x.pallet); }).filter(String));
+  const shown = Object.keys(recByKey).map(function(k) { return recByKey[k]; });
+  // 입고번호(또는 26004733-0042, 바코드 값 260047330030) → 검수 기록 → 사용된 제조번호
+  const m = raw.match(/^(\d{8})(\d{4})$/) || raw.match(/(\d{6,12})(?:\s*[-\/ ]\s*0*(\d{1,4}))?/);
+  let inRecs = [];
+  if (m) { const no = m[1], only = m[2] ? Number(m[2]) : 0; inRecs = r15RecordsAtRows_(r15KeyIndex_().rows.filter(function(x) { return x.no === no && (!only || x.pal === only); }).map(function(x) { return x.row; })); }
+  const ctx = r15CtxFor_(shown.concat(inRecs));
+  const lots = lotList.map(function(p) {
+    const rows = pps.filter(function(x) { return x.productionId === p.id; }).sort(function(a, b) { return a.seq - b.seq; });
+    return { id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, prodDate:p.prodDate, at:p.atText, workers:p.workers,
+      pallets: rows.map(function(x) { const rec = recByKey[r15Key_(x.inboundNo, x.pallet)]; return { seq:x.seq, inboundNo:x.inboundNo, pallet:x.pallet, at:x.atText, worker:x.worker, unverified:!rec, record: rec ? r15Public_(rec, ctx) : null }; }) };
+  });
+  const inbounds = [];
+  if (inRecs.length) { const recs = inRecs.map(function(r) { return r15Public_(r, ctx); }); inbounds.push({ summary: r15InboundSummary_(m[1], recs), records: recs }); }
   return { ok:true, query:raw, lots:lots, inbounds:inbounds };
 }
 
 /* ---------- 생산 투입 ---------- */
 function r15Lots_() {
-  const pp = r15ProdPallets_(), cnt = {};
-  pp.forEach(function(x) { cnt[x.productionId] = (cnt[x.productionId] || 0) + 1; });
+  const ix = r15PPIndex_(), cnt = {};
+  Object.keys(ix.byPid).forEach(function(p) { cnt[p] = ix.byPid[p].length; });
   const list = r15Productions_().sort(function(a, b) { return (a.status === '진행중' ? 0 : 1) - (b.status === '진행중' ? 0 : 1) || b.at - a.at; }).slice(0, 40)
     .map(function(p) { return { id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, at:p.atText, workers:p.workers, palletCount:cnt[p.id] || 0 }; });
   return { ok:true, lots:list, products: recentProducts_().products || [], plan: r15PlanToday_() };
 }
 function r15Lot_(id) {
   const p = r15Productions_().filter(function(x) { return x.id === String(id || ''); })[0]; if (!p) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
-  const all = r15Records_(), recByKey = {}; all.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k && !recByKey[k]) recByKey[k] = r; });
-  const rows = r15ProdPallets_().filter(function(x) { return x.productionId === p.id; }).sort(function(a, b) { return a.seq - b.seq; })
+  const pps = r15PPOfLot_(p.id), recByKey = r15RecordsByKeys_(pps.map(function(x) { return r15Key_(x.inboundNo, x.pallet); }).filter(String));
+  const rows = pps.sort(function(a, b) { return a.seq - b.seq; })
     .map(function(x) { const rec = recByKey[r15Key_(x.inboundNo, x.pallet)]; return { seq:x.seq, inboundNo:x.inboundNo, pallet:x.pallet, qty:x.qty, at:x.atText, worker:x.worker, result:x.result, unverified:!rec, product: rec ? rec.product : x.product }; });
   return { ok:true, lot:{ id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, at:p.atText, workers:p.workers, prodDate:p.prodDate }, pallets:rows, total: rows.reduce(function(t, r) { return t + r.qty; }, 0) };
 }
@@ -2363,8 +2489,8 @@ function r15ProductionRowObj_(id) {
   return { sheet:sh, row:row, values: sh.getRange(row, 1, 1, PRODUCTION_HEADERS.length).getValues()[0], idx: r15Idx_(PRODUCTION_HEADERS) };
 }
 function r15RefreshProductionSummary_(prodObj, productionId) {
-  r15Forget_('ProductionPallets'); delete R15_MEM_.__pp;
-  return r15WriteProductionSummary_(prodObj, r15ProdPallets_().filter(function(x) { return x.productionId === productionId; }));
+  r15Forget_('ProductionPallets');
+  return r15WriteProductionSummary_(prodObj, r15PPOfLot_(productionId));
 }
 function r15WriteProductionSummary_(prodObj, list) {
   const rows = list.slice().sort(function(a, b) { return a.seq - b.seq; });
@@ -2384,15 +2510,18 @@ function r15LotAdd_(p, auth) {
   if (reqId) { try { const prior = cache.get('R15LOT_' + reqId); if (prior) { const o = JSON.parse(prior); o.duplicateRequest = true; return o; } } catch (e) {} }
   // 검수 기록(Records 전체)은 Lock 밖에서 읽는다. 기록은 추가만 되므로 잠깐 늦게 읽어도 안전하고,
   // Lock 안에서 읽으면 DB가 커질수록 그동안 모든 저장(saveSingle tryLock 8초)이 기다리다 '혼잡'이 된다.
-  const all = r15Records_(), recByKey = {}; all.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k && !recByKey[k]) recByKey[k] = r; });
+  const recByKey = r15RecordsByKeys_(items.map(function(it) { return r15Key_(it.inboundNo, it.pallet); }).filter(String));
   const lock = LockService.getScriptLock();
   if (!lock.tryLock(15000)) return { ok:false, busy:true, retry:true, message:'다른 작업자가 등록 중입니다 · 자동으로 다시 시도합니다.' };
   try {
-    r15Forget_('ProductionPallets'); delete R15_MEM_.__pp;
+    r15Forget_('ProductionPallets');
     const prod = r15ProductionRowObj_(pid); if (!prod) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
     const pi = prod.idx; if (r15S_(prod.values[pi['상태']]) !== '진행중') return { ok:false, code:'LOT_CLOSED', message:'이미 종료된 생산 작업입니다.' };
-    const pps = r15ProdPallets_(), used = {}; pps.forEach(function(x) { const k = r15Key_(x.inboundNo, x.pallet); if (k) used[k] = x; });
-    const mineBefore = pps.filter(function(x) { return x.productionId === pid; });
+    // 이미 투입된 Pallet: 열 색인으로 찾고, 다른 작업이면 그 행만 읽어 제품명·제조번호를 알린다
+    const ix = r15PPIndex_(), used = {}, other = [];
+    items.forEach(function(it) { const k = r15Key_(it.inboundNo, it.pallet), u = k && ix.byKey[k]; if (!u) return; const mine = u.filter(function(x) { return x.pid === pid; })[0]; if (mine) used[k] = { productionId: pid }; else other.push(u[0].row); });
+    r15PPAtRows_(other).forEach(function(x) { const k = r15Key_(x.inboundNo, x.pallet); if (k && !used[k]) used[k] = x; });
+    const mineBefore = r15PPOfLot_(pid);
     let seq = mineBefore.reduce(function(m, x) { return Math.max(m, x.seq); }, 0);
     const added = [], skipped = [], rejected = [], rows = [], now = new Date(), worker = auth.name || '';
     items.forEach(function(it) {
@@ -2431,10 +2560,10 @@ function r15LotRemove_(p, auth) {
   if (!reason) return { ok:false, message:'취소 사유를 입력하세요.' };
   const lock = LockService.getScriptLock(); if (!lock.tryLock(15000)) return { ok:false, busy:true, retry:true, message:'잠시 후 다시 시도하세요.' };
   try {
-    r15Forget_('ProductionPallets'); delete R15_MEM_.__pp;
+    r15Forget_('ProductionPallets');
     const prod = r15ProductionRowObj_(pid); if (!prod) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
     if (r15S_(prod.values[prod.idx['상태']]) !== '진행중' && !atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'종료된 작업의 투입 취소는 중간관리자 이상만 할 수 있습니다.' };
-    const hit = r15ProdPallets_().filter(function(x) { return x.productionId === pid && r15Key_(x.inboundNo, x.pallet) === k; });
+    const hit = r15PPOfLot_(pid).filter(function(x) { return r15Key_(x.inboundNo, x.pallet) === k; });
     if (!hit.length) return { ok:false, message:'이 작업에 투입된 Pallet가 아닙니다.' };
     const sh = getSs_().getSheetByName('ProductionPallets');
     hit.map(function(x) { return x.row; }).sort(function(a, b) { return b - a; }).forEach(function(r) { sh.deleteRow(r); });
@@ -2456,7 +2585,7 @@ function r15LotDelete_(p, auth) {
     const prod = r15ProductionRowObj_(pid); if (!prod) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
     const i = prod.idx, st = r15S_(prod.values[i['상태']]);
     if (st === '삭제') return { ok:true, already:true };
-    const hit = r15ProdPallets_().filter(function(x) { return x.productionId === pid; });
+    const hit = r15PPOfLot_(pid);
     const mgr = atLeastV24_(auth, 'manager');
     if (!mgr && hit.length) return { ok:false, code:'ROLE_REQUIRED', message:'Pallet가 투입된 작업은 중간관리자 이상만 삭제할 수 있습니다. 먼저 투입을 모두 취소하세요.' };
     if (!mgr && st !== '진행중') return { ok:false, code:'ROLE_REQUIRED', message:'종료된 작업은 중간관리자 이상만 삭제할 수 있습니다.' };
@@ -2542,8 +2671,8 @@ function r15RecordPerm_(rec, auth, used) {
 function r15RecordAndPerm_(id, auth) {
   const rec = r15RecordsWhere_('ID', function(v) { return v === String(id || ''); })[0];
   if (!rec) return { error:{ ok:false, message:'기록을 찾을 수 없습니다. 이미 삭제되었을 수 있습니다.' } };
-  const k = r15Key_(rec.inboundNo, rec.pallet);
-  const used = r15ProdPallets_().some(function(pp) { return pp.recordId === rec.id || (k && r15Key_(pp.inboundNo, pp.pallet) === k); });
+  const k = r15Key_(rec.inboundNo, rec.pallet), ix = r15PPIndex_();
+  const used = !!(k && ix.byKey[k]) || !!r15PPRid_()[rec.id];
   return { rec:rec, perm:r15RecordPerm_(rec, auth, used) };
 }
 function r15RecordEdit_(p, auth) {
@@ -2598,9 +2727,10 @@ function r15RecordRestore_(p, auth) {
 }
 // 오늘 내가 저장한 기록과 오늘 내가 지운 기록 (검수 탭 "오늘 내 기록")
 function r15Mine_(auth) {
-  const today = r15Today_(), name = r15S_(auth.name), t0 = r15DayStart_(today).getTime(), ctx = r15CtxLite_();
-  const all = r15RecordsWhere_('등록일시', function(v) { return v >= t0; });
-  const items = all.filter(function(r) { return r.day === today && r.inspector === name; }).sort(function(a, b) { return b.at - a.at; }).map(function(r) { return r15Public_(r, ctx); });
+  const today = r15Today_(), name = r15S_(auth.name), t0 = r15DayStart_(today).getTime();
+  const mineRaw = r15RecordsWhere_('등록일시', function(v) { return v >= t0; }).filter(function(r) { return r.day === today && r.inspector === name; });
+  const ctx = r15CtxFor_(mineRaw);
+  const items = mineRaw.sort(function(a, b) { return b.at - a.at; }).map(function(r) { return r15Public_(r, ctx); });
   const del = v58SoftDeletedMap_(), me = actorLabelV24_(auth), deleted = [];
   Object.keys(del).forEach(function(id) {
     const d = del[id], at = r15Date_(d.deletedAt);
@@ -2611,24 +2741,19 @@ function r15Mine_(auth) {
   return { ok:true, today:today, items:items, deleted:deleted };
 }
 const R15_AUDIT_LABEL = { '기록저장':'저장', 'V58저장':'저장', '기록수정':'수정', '기록SoftDelete':'삭제', '기록복구':'복구', '기록삭제':'영구 삭제', 'R15투입취소':'투입 취소', 'R15작업삭제':'작업 삭제', 'R15작업시작':'작업 시작', 'R15작업참여':'작업 참여', 'R15작업종료':'작업 종료', 'R15계획저장':'계획표 저장', '로그아웃':'로그아웃', '로그인실패':'로그인 실패', '기록삭제실패':'삭제 실패', '기록삭제부분실패':'삭제 일부 실패', '내보내기':'내보내기', '점검확인':'점검 확인', '사진추가':'사진 추가', '점검확인취소':'점검 확인 취소', 'R15생산투입':'생산 투입', 'R15기준정보수정':'품목 수정', 'R15기준정보추가':'품목 추가', 'PIN변경':'PIN 변경', '사용자생성':'사용자 추가', '사용자수정':'사용자 수정', 'PIN초기화':'PIN 초기화', '화면권한변경':'화면 권한 변경' };
-function r15AuditRows_() {
-  const vals = r15SheetValues_('AuditLog'); if (vals.length < 2) return [];
-  const i = r15HeaderIdx_(vals, AUDIT_LOG_HEADERS), out = [];
-  for (let n = 1; n < vals.length; n++) {
-    const r = vals[n], at = r15Date_(r[i['일시']]); let changes = {}, before = {}, meta = {};
-    try { changes = JSON.parse(r[i['After JSON']] || '{}'); } catch (e) {}
-    try { before = JSON.parse(r[i['Before JSON']] || '{}'); } catch (e) {}
-    try { meta = JSON.parse(r[i['Meta JSON']] || '{}'); } catch (e) {}
-    out.push({ at:at ? at.getTime() : 0, atText:at ? Utilities.formatDate(at, R15_TZ, 'yyyy-MM-dd HH:mm') : '', action:r15S_(r[i['작업']]),
-      label:R15_AUDIT_LABEL[r15S_(r[i['작업']])] || r15S_(r[i['작업']]), recordId:r15S_(r[i['Record ID']]), actor:r15S_(r[i['Actor']]), reason:r15S_(r[i['Reason']]), changes:changes, before:before, meta:meta });
-  }
-  return out;
+// test(줄 번호 → 그 줄의 일시(ms)·Record ID)로 고른 줄만 읽는다. AuditLog도 1년이면 수만 줄이 된다.
+function r15AuditRows_(test) {
+  const at = r15ColVals_('AuditLog', '일시'), rid = r15ColVals_('AuditLog', 'Record ID'), rows = [];
+  at.forEach(function(v, k) { const d = r15Date_(v); if (!test || test(d ? d.getTime() : 0, r15S_(rid[k]))) rows.push(k + 2); });
+  const vals = r15Rows_('AuditLog', rows), i = r15Head_('AuditLog').idx;
+  return Object.keys(vals).map(function(n) { return r15AuditParse_(vals[n], i); });
 }
+//@@END
 // 기록 1건의 변경 이력: 처음 저장 + AuditLog의 수정·삭제·복구
 function r15History_(id) {
   id = r15S_(id); if (!id) return { ok:false, message:'기록 ID가 없습니다.' };
-  const rec = r15Records_().filter(function(r) { return r.id === id; })[0];
-  const items = r15AuditRows_().filter(function(a) { return a.recordId === id && a.action !== '로그인'; }).sort(function(a, b) { return b.at - a.at; });
+  const rec = r15RecordsWhere_('ID', function(v) { return v === id; })[0];
+  const items = r15AuditRows_(function(at, rid) { return rid === id; }).filter(function(a) { return a.action !== '로그인'; }).sort(function(a, b) { return b.at - a.at; });
   if (rec && !items.some(function(a) { return a.label === '저장'; })) items.push({ at:rec.at, atText:rec.atText, action:'기록저장', label:'저장', actor:rec.inspector, reason:'', changes:{} });
   return { ok:true, id:id, items:items };
 }
@@ -2644,14 +2769,18 @@ function r15Audit_(q, auth) {
   if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
   const kw = r15S_(q.q), kind = r15S_(q.kind), actor = r15S_(q.actor), byId = {};
   const from = /^\d{4}-\d{2}-\d{2}$/.test(r15S_(q.from)) ? r15S_(q.from) : '', to = /^\d{4}-\d{2}-\d{2}$/.test(r15S_(q.to)) ? r15S_(q.to) : '';
-  r15Records_().forEach(function(r) { byId[r.id] = r; });
-  const all = r15AuditRows_().map(function(a) { a.kind = R15_AUDIT_KIND[a.label] || '기타'; a.day = a.atText.slice(0, 10); return a; })
+  const f0 = from ? r15DayStart_(from).getTime() : 0, t1 = to ? r15DayStart_(to).getTime() + 864e5 : Infinity;
+  const all = r15AuditRows_(function(at) { return at >= f0 && at < t1; }).map(function(a) { a.kind = R15_AUDIT_KIND[a.label] || '기타'; a.day = a.atText.slice(0, 10); return a; })
     .filter(function(a) { return (!from || a.day >= from) && (!to || a.day <= to); });
   const actors = {}; all.forEach(function(a) { if (a.actor) actors[a.actor] = 1; });
-  const items = all.filter(function(a) { return (!kind || a.kind === kind) && (!actor || a.actor === actor); }).sort(function(a, b) { return b.at - a.at; })
-    .map(function(a) { const r = byId[a.recordId]; a.inboundNo = r ? r.inboundNo : (a.before && a.before.inboundNo) || ''; a.pallet = r ? r.pallet : 0; return a; })
-    .filter(function(a) { return !kw || JSON.stringify(a).indexOf(kw) >= 0; });
-  return { ok:true, total:items.length, items:items.slice(0, 2000), actors:Object.keys(actors).sort(), kinds:['기록','생산','기준정보','로그인·사용자','내보내기','기타'] };
+  // 검색어가 입고번호면 그 입고번호 기록의 이력도 찾는다 (열 색인만 써서)
+  const kwIds = {}; if (/^\d{4,}$/.test(kw)) r15KeyIndex_().rows.forEach(function(x) { if (x.no.indexOf(kw) >= 0) kwIds[x.id] = 1; });
+  const items = all.filter(function(a) { return (!kind || a.kind === kind) && (!actor || a.actor === actor) && (!kw || kwIds[a.recordId] || JSON.stringify(a).indexOf(kw) >= 0); })
+    .sort(function(a, b) { return b.at - a.at; });
+  const shown = items.slice(0, 2000), want = {}; shown.forEach(function(a) { if (a.recordId) want[a.recordId] = 1; });
+  r15RecordsWhere_('ID', function(v) { return !!want[v]; }).forEach(function(r) { byId[r.id] = r; });
+  shown.forEach(function(a) { const r = byId[a.recordId]; a.inboundNo = r ? r.inboundNo : (a.before && a.before.inboundNo) || ''; a.pallet = r ? r.pallet : 0; });
+  return { ok:true, total:items.length, items:shown, actors:Object.keys(actors).sort(), kinds:['기록','생산','기준정보','로그인·사용자','내보내기','기타'] };
 }
 // 인쇄·CSV 내보내기를 남긴다 (조회 권한도 가능)
 function r15AuditNote_(p, auth) {
