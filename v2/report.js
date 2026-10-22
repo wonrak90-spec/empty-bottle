@@ -44,7 +44,7 @@
     if (seq !== P.seq) return; // 늦게 도착한 이전 기간 응답은 버린다
     if (!r || !r.ok) { const st = $('repStale'); if (st) st.textContent = '서버에 연결하지 못해 마지막으로 받은 내용을 보여 줍니다'; if (cached) return; }
     if (r && r.ok) try { localStorage.setItem(CK, JSON.stringify({ key, user: R.user && R.user.name, data: r })); } catch (_) {}
-    P.data = r; P.sel.clear(); if (P.detail) { const no = P.detail.summary && P.detail.summary.inboundNo; P.detail = null; if (no && r && r.inbounds && r.inbounds.some((x) => x.inboundNo === no)) { openDetail(no); return; } } renderBody();
+    P.data = r; P.inCache = {}; P.sel.clear(); if (P.detail) { const no = P.detail.summary && P.detail.summary.inboundNo; P.detail = null; if (no && r && r.inbounds && r.inbounds.some((x) => x.inboundNo === no)) { openDetail(no); return; } } renderBody();
   }
 
   /* ---------- 화면 ---------- */
@@ -70,7 +70,7 @@
     if (!d) { root.innerHTML = '<div class="muted pad">보고서를 불러오지 못했습니다.</div>'; return; }
     if (P.detail) return renderDetail();
     const k = d.kpi;
-    root.innerHTML = `
+    root.innerHTML = `${d.trimmed ? `<div class="muted small">기간이 한 달을 넘어 화면에는 확인이 필요한 기록만 보여 줍니다 (전체 ${fmt(d.trimmed)}건). 차량을 누르면 그 차량 전체를 불러오고, CSV는 한 달씩 받아 전체를 만듭니다.</div>` : ''}
       <div class="kpis">
         <div class="kpi"><div class="l">입고 차량</div><div class="v">${k.inbounds}<small> 건</small></div></div>
         <div class="kpi"><div class="l">검수 Pallet</div><div class="v">${fmt(k.pallets)}<small> 개</small></div><div class="d">${fmt(k.qty)} EA</div></div>
@@ -150,8 +150,15 @@
   }
 
   /* ---------- 입고번호 상세 ---------- */
-  function openDetail(no) {
-    const recs = P.data.records.filter((r) => r.inboundNo === no);
+  // 한 달이 넘는 기간은 서버가 문제 있는 기록만 보낸다(trimmed). 그때 차량 상세·인쇄는 그 입고번호만 따로 읽는다.
+  async function recsOf(no) {
+    if (!P.data.trimmed) return P.data.records.filter((r) => r.inboundNo === no);
+    P.inCache = P.inCache || {};
+    if (!P.inCache[no]) { const r = await R.tryGet('r15Inbound', { inboundNo: no }); P.inCache[no] = (r && r.records) || P.data.records.filter((x) => x.inboundNo === no); }
+    return P.inCache[no];
+  }
+  async function openDetail(no) {
+    const recs = await recsOf(no);
     P.detail = { summary: P.data.inbounds.find((x) => x.inboundNo === no), records: recs }; renderDetail(); window.scrollTo({ top: 0 });
   }
   function renderDetail() {
@@ -241,16 +248,31 @@
   async function printOpen(nos, withPhotos) {
     const w = window.open('', '_blank'); if (!w) return R.toast('팝업이 막혀 있습니다. 브라우저에서 팝업을 허용하세요', 'crit');
     w.document.write('<p style="font-family:sans-serif">보고서 준비 중…</p>');
-    const packs = nos.map((no) => ({ s: P.data.inbounds.find((x) => x.inboundNo === no), recs: P.data.records.filter((r) => r.inboundNo === no) })).filter((p) => p.s);
+    const packs = []; for (const no of nos) { const s = P.data.inbounds.find((x) => x.inboundNo === no); if (s) packs.push({ s, recs: await recsOf(no) }); }
     let ph = null;
     if (withPhotos) { const urls = packs.flatMap((p) => p.recs.flatMap((r) => [r.wmsPhoto, r.vendorPhoto])).filter(Boolean); w.document.body.innerHTML = `<p style="font-family:sans-serif">사진 ${urls.length}장 불러오는 중…</p>`; ph = await R.loadPhotos(urls); }
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>공병 입고 검수 보고서 ${esc(label())}</title>${printCss()}</head><body>${packs.map((p) => sheetHtml(p.s, p.recs, ph)).join('')}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
     w.document.open(); w.document.write(html); w.document.close();
   }
 
-  function csv() {
+  // 기간이 길어 기록이 줄여져 왔으면 한 달씩 나눠 받아 CSV를 만든다
+  async function allRecords() {
+    if (!P.data.trimmed) return P.data.records;
+    const out = []; let a = new Date(P.from + 'T00:00:00');
+    const end = new Date(P.to + 'T00:00:00'), ymd = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    while (a <= end) {
+      const b = new Date(Math.min(end.getTime(), a.getTime() + 30 * 864e5));
+      R.toast(`CSV 준비 중 · ${ymd(a)} ~ ${ymd(b)}`, 'warn');
+      const r = await R.tryGet('r15Report', { from: ymd(a), to: ymd(b) }); if (!r) return null;
+      const seen = new Set(out.map((x) => x.id)); r.records.forEach((x) => { if (!seen.has(x.id) && x.at >= new Date(P.from + 'T00:00:00').getTime()) out.push(x); });
+      a = new Date(b.getTime() + 864e5);
+    }
+    return out;
+  }
+  async function csv() {
+    const recsAll = await allRecords(); if (!recsAll) return;
     const head = ['입고번호', 'Pallet', '검수일시', '품목코드', '품명(정식)', '저장된 품명', '공급업체', 'WMS수량', '업체수량', '업체품명', '업체생산일자', '판정', '데이터점검', '투입 제조번호', '검수자', 'WMS사진', '업체사진', '기록ID'];
-    const rows = P.data.records.map((r) => [r.inboundNo, r.pallet, r.atText, r.itemCode, r.product, r.productRaw, r.supplier, r.qty, r.vendorQty, r.vendorProduct, r.vendorProdDate, r.finalResult,
+    const rows = recsAll.map((r) => [r.inboundNo, r.pallet, r.atText, r.itemCode, r.product, r.productRaw, r.supplier, r.qty, r.vendorQty, r.vendorProduct, r.vendorProdDate, r.finalResult,
       r.issues.filter((x) => x.level !== 'info').map((x) => x.label).join(' / '), r.usedIn.map((u) => u.productName + ' ' + u.lotNo).join(' / '), r.inspector, r.wmsPhoto, r.vendorPhoto, r.id]);
     const text = '﻿' + [head].concat(rows).map((row) => row.map((v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = `공병검수_${P.from}_${P.to}.csv`; a.click(); R.rec.note('보고서 CSV', `${P.from}~${P.to}`, rows.length); setTimeout(() => URL.revokeObjectURL(a.href), 120000); // iOS는 '다운로드할까요?' 확인 뒤에 받는다

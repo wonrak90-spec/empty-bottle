@@ -14,7 +14,7 @@
 
   async function refresh() {
     if (!L.lot) { L.lots = await R.tryGet('r15Lots'); render(); return; }
-    const [d, s] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock', { days: 180 })]);
+    const [d, s] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock')]);
     if (d) { L.detail = d; if (d.lot.status !== '진행중') R.toast('이 작업은 종료되었습니다', 'warn'); }
     if (s) L.stock = s.groups || [];
     render();
