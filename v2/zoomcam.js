@@ -23,8 +23,13 @@
     $('zcSkip').onclick = () => { if (step) step('skip'); };
     $('zcRange').oninput = () => setZoom(Number($('zcRange').value));
   }
-  function stop() { if (stream) try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {} stream = null; track = null; const v = $('zcVideo'); if (v) v.srcObject = null; }
-  function finish(v) { stop(); step = null; const m = $('zcam'); if (m) m.hidden = true; document.body.style.overflow = ''; const d = done; done = null; if (d) d(v); }
+  function stop() { clearTimeout(idle); if (stream) try { stream.getTracks().forEach((t) => t.stop()); } catch (_) {} stream = null; track = null; const v = $('zcVideo'); if (v) v.srcObject = null; }
+  // 닫아도 카메라를 바로 끄지 않고 잠시 켜 둔다. 끄고 다시 열 때마다 폰(특히 iPhone 홈 화면 앱)이 권한 허용 창을 또 띄우기 때문.
+  // 다음 Pallet에서 같은 카메라를 다시 쓰고, 3분 동안 안 쓰거나 앱을 내리면 끈다.
+  const KEEP_MS = 180000; let idle = 0;
+  const live = () => !!(stream && track && track.readyState === 'live');
+  function park() { clearTimeout(idle); const v = $('zcVideo'); if (v) try { v.pause(); } catch (_) {} idle = setTimeout(stop, KEEP_MS); }
+  function finish(v) { if (live()) park(); else stop(); step = null; const m = $('zcam'); if (m) m.hidden = true; document.body.style.overflow = ''; const d = done; done = null; if (d) d(v); }
 
   function setZoom(n) {
     const out = $('zcVal'), range = $('zcRange'), v = $('zcVideo');
@@ -46,6 +51,9 @@
     ui(); $('zcam').hidden = false; document.body.style.overflow = 'hidden'; $('zcMsg').textContent = '카메라 준비 중…';
     const tries = [3840, 2560, 1920].map((w) => ({ video: { facingMode: { ideal: 'environment' }, width: { ideal: w }, height: { ideal: Math.round(w * 9 / 16) } }, audio: false }));
     let last = null;
+    clearTimeout(idle);
+    if (live()) { const v = $('zcVideo'); if (v.srcObject !== stream) v.srcObject = stream; try { await v.play(); } catch (_) {} return true; } // 켜 둔 카메라 다시 쓰기 (권한 창 없음)
+    stop();
     for (const q of tries) { try { stream = await navigator.mediaDevices.getUserMedia(q); break; } catch (e) { last = e; } }
     if (!stream) { $('zcMsg').textContent = '카메라를 열지 못했습니다 · "기본 카메라"로 찍으세요 (' + ((last && last.name) || '') + ')'; return false; }
     track = stream.getVideoTracks()[0] || null;
@@ -96,5 +104,5 @@
       };
     });
   };
-  document.addEventListener('visibilitychange', () => { if (document.hidden && stream) finish(null); });
+  document.addEventListener('visibilitychange', () => { if (document.hidden && stream) { if (done) finish(null); stop(); } });
 })();
