@@ -1,13 +1,13 @@
-/* R15 스타일: 원료 수불 대시보드와 같은 토큰·하단 탭·고정 저장바 구조 */
+/* R15 스타일: 동화약품 색(빨강 강조 · 갈색 병 브랜드).  원료 수불 대시보드와 같은 토큰·하단 탭·고정 저장바 구조 */
 :root{
-  --bg:#f6f7f9;--surface:#fff;--sunken:#f1f3f6;--ink:#111418;--ink2:#4b5563;--ink3:#8a94a3;--line:#e2e6eb;
-  --accent:#2563eb;--accent-soft:#eaf1ff;--brand:#111418;--brand-ink:#fff;
+  --bg:#f8f6f3;--surface:#fff;--sunken:#f3efea;--ink:#1c1612;--ink2:#5a4f47;--ink3:#948a81;--line:#e8e1d8;
+  --accent:#c4161c;--accent-soft:#fdeceb;--brand:#6b3a1c;--brand-ink:#fff;
   --good:#0ca30c;--warn:#e0a000;--crit:#d03b3b;--good-bg:#e3f4e3;--warn-bg:#fdf0cf;--crit-bg:#f9e0e0;--idle-bg:#e6e9ec;
   --sans:"IBM Plex Sans KR","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",system-ui,sans-serif;
   color-scheme:light;
 }
-:root[data-theme="dark"]{--bg:#0f1317;--surface:#181d23;--sunken:#222932;--ink:#e8ecf0;--ink2:#aab4bf;--ink3:#7d8894;--line:#2e3640;--accent:#6ea8ff;--accent-soft:#1d2a40;
-  --brand:#e8ecf0;--brand-ink:#0f1317;--good-bg:#16301a;--warn-bg:#3a2f10;--crit-bg:#3a1b1b;--idle-bg:#262d35;color-scheme:dark}
+:root[data-theme="dark"]{--bg:#0f1317;--surface:#181d23;--sunken:#222932;--ink:#e8ecf0;--ink2:#aab4bf;--ink3:#7d8894;--line:#2e3640;--accent:#ff7a70;--accent-soft:#3a1d1b;
+  --brand:#e6c9ad;--brand-ink:#1a120c;--good-bg:#16301a;--warn-bg:#3a2f10;--crit-bg:#3a1b1b;--idle-bg:#262d35;color-scheme:dark}
 *{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%}
 body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--sans);font-size:14px;line-height:1.5;padding:16px 16px 60px}
