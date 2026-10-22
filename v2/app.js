@@ -18,6 +18,7 @@
     try { localStorage.setItem('r15.tab', tab); } catch (_) {}
     if (tab === 'lot') R.lot.show();
     if (tab === 'report') R.report.show();
+    if (tab === 'trace') R.trace.show();
     if (tab === 'inspect' && R.rec) R.rec.loadMine();
     if (tab === 'admin') R.admin.show();
     if (tab === 'dash') R.dash.show();

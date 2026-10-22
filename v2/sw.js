@@ -1,6 +1,6 @@
 /* R15 서비스워커: 앱 파일은 단말에 보관해 바로 열고(버전이 바뀔 때만 새로 받음),
  * 서버(Apps Script) 요청은 절대 보관하지 않는다. */
-const VERSION = 'r15-20261023-2';
+const VERSION = 'r15-20261023-3';
 const FILES = ['./', 'index.html', 'app.css', 'config.js', 'core.js', 'queue.js', 'inspect.js', 'lot.js', 'records.js', 'zoomcam.js', 'report.js', 'admin.js', 'dash.js', 'app.js', 'manifest.json', 'icon-192.png', 'icon-512.png',
   'ocr/legacy-parsers.js', 'ocr/v26-qty.js', 'ocr/v26-korean-ocr.js', 'ocr/v26-vendor-templates.js', 'ocr/v55-vendor-parser.js', 'ocr/v55-wms-parser.js',
   'ocr/v55-roi-preprocess.js', 'ocr/v55-adaptive-ocr.js', 'ocr/ocr.js'];
