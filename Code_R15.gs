@@ -284,7 +284,7 @@ function doPost(e) {
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
     const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave'];
-    const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15PlanSave'];
+    const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
     const auth = authorizeSessionV24_(session, needRole);
@@ -1968,6 +1968,7 @@ function r15Get_(action, q, auth) {
   if (action === 'r15Lots') return r15Lots_();
   if (action === 'r15Lot') return r15Lot_(q.id);
   if (action === 'r15Items') return r15Items_();
+  if (action === 'r15VendorSuggest') { if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' }; return r15VendorSuggest_(q); }
   if (action === 'r15Plan') return r15Plan_();
   if (action === 'r15Pallet') return r15PalletInfo_(q.inboundNo, q.pallet);
   return { ok:false, message:'알 수 없는 action: ' + action };
@@ -1989,6 +1990,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15RecordDelete') return r15RecordDelete_(p, auth);
   if (action === 'r15RecordRestore') return r15RecordRestore_(p, auth);
   if (action === 'r15ItemSave') return r15ItemSave_(p, auth);
+  if (action === 'r15VendorSave') return r15VendorSave_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
 }
@@ -2032,6 +2034,7 @@ function r15SheetValues_(name) {
 function r15Forget_(name) {
   delete R15_MEM_[name]; r15ForgetCols_(name);
   if (name === 'Records') { delete R15_MEM_.__records; delete R15_MEM_.__kidx; }
+  if (name === 'VendorNames') { delete R15_MEM_.__vn; delete R15_MEM_.__items; }
   if (name === 'ProductionPallets') { delete R15_MEM_.__pp; delete R15_MEM_.__ppidx; }
 }
 function r15HeaderIdx_(vals, fallback) {
@@ -2054,7 +2057,81 @@ function r15Items_() {
       volume: r15S_(r[i['용량']])
     });
   }
+  const vn = r15VendorNames_();
+  items.forEach(function(it) { it.vendor = vn.filter(function(v) { return v.code === it.itemCode; }).map(function(v) { return { supplier:v.supplier, names:v.names, qty:v.qty }; }); });
   return { ok:true, items:items };
+}
+
+/* ---------- 업체별 라벨 품명 (품목 × 공급업체) ----------
+   같은 병이라도 업체마다 라벨에 쓰는 품명이 다르다 (동화지앤피 "유리병(각병) 100ml", 동아에코팩 손글씨 "까스활명수").
+   업체 라벨 글자는 이 목록과 비교만 한다: 그 업체 품명이면 일치, 같은 품목 다른 업체 품명이면 주의, 다른 품목 품명이면 오류. */
+const R15_VN_HEADERS = ['자재코드', '공급업체', '업체라벨품명', '정상수량', '등록자', '등록시각'];
+function r15VendorNames_() {
+  if (R15_MEM_.__vn) return R15_MEM_.__vn;
+  const vals = r15SheetValues_('VendorNames'), out = [];
+  if (vals.length >= 2) { const i = r15HeaderIdx_(vals, R15_VN_HEADERS); for (let n = 1; n < vals.length; n++) { const r = vals[n], code = r15Digits_(r[i['자재코드']]); if (!code) continue;
+    out.push({ code:code, supplier:r15S_(r[i['공급업체']]), names:r15S_(r[i['업체라벨품명']]).split(',').map(r15S_).filter(String), qty:r15Num_(r[i['정상수량']]) || 0 }); } }
+  return R15_MEM_.__vn = out;
+}
+function r15VnNorm_(s) { return String(s || '').toLowerCase().replace(/㎖|밀리/g, 'ml').replace(/[^가-힣a-z0-9]/g, ''); }
+function r15SupEq_(a, b) { const x = r15VnNorm_(a).replace(/주식회사|\(주\)|주/g, ''), y = r15VnNorm_(b).replace(/주식회사|\(주\)|주/g, ''); return !!x && !!y && (x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0); }
+// 글자 두 개씩 묶어 겹치는 비율 (OCR이 몇 글자 틀려도 맞게)
+// 용량(100ml)은 품목마다 같아서 빼고 이름 글자로만 비교한다 (용량 차이는 품목코드 대조가 따로 본다)
+function r15VnSim_(a, b) {
+  const strip = function(s) { const t = r15VnNorm_(s).replace(/\d+(ml|l|cc)?/g, ''); return t || r15VnNorm_(s); };
+  const x = strip(a), y = strip(b); if (!x || !y) return 0;
+  if (x === y) return 1; if ((x.length >= 3 && y.indexOf(x) >= 0) || (y.length >= 3 && x.indexOf(y) >= 0)) return 0.95;
+  const bg = function(s) { const m = {}; for (let k = 0; k < s.length - 1; k++) { const g = s.substr(k, 2); m[g] = (m[g] || 0) + 1; } return m; };
+  const A = bg(x), B = bg(y); let hit = 0, na = 0, nb = 0;
+  Object.keys(A).forEach(function(g) { na += A[g]; if (B[g]) hit += Math.min(A[g], B[g]); }); Object.keys(B).forEach(function(g) { nb += B[g]; });
+  return na + nb ? 2 * hit / (na + nb) : 0;
+}
+const R15_VN_OK = 0.5;
+function r15VnBest_(text, lists) { let best = null; lists.forEach(function(v) { v.names.forEach(function(nm) { const sc = r15VnSim_(text, nm); if (sc >= R15_VN_OK && (!best || sc > best.score)) best = { score:sc, name:nm, v:v }; }); }); return best; }
+function r15VendorJudge_(rec, items) {
+  const it = items[rec.itemCode]; if (!rec.vendorProduct || !it || !(it.vendor || []).length) return null;
+  const same = it.vendor.filter(function(v) { return r15SupEq_(v.supplier, rec.supplier); }), rest = it.vendor.filter(function(v) { return same.indexOf(v) < 0; });
+  if (r15VnBest_(rec.vendorProduct, same)) return null;
+  const o = r15VnBest_(rec.vendorProduct, rest);
+  if (o) return { code:'VENDOR_SUPPLIER_DIFF', level:'warn', label:'업체 품명이 다른 공급업체(' + o.v.supplier + ') 것 · "' + rec.vendorProduct + '"' };
+  let other = null;
+  Object.keys(items).forEach(function(c) { if (c === rec.itemCode || other) return; const b = r15VnBest_(rec.vendorProduct, items[c].vendor || []); if (b) other = { item:items[c], b:b }; });
+  if (other) return { code:'VENDOR_OTHER_ITEM', level:'error', label:'업체 품명이 다른 품목(' + other.item.itemName + ') 병 · "' + rec.vendorProduct + '"' };
+  return { code:'VENDOR_NAME_UNLISTED', level:'info', label:'업체 품명 목록에 없음 · "' + rec.vendorProduct + '"' };
+}
+function r15VendorSave_(p, auth) {
+  if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' };
+  const code = r15Digits_(p.itemCode); if (!code) return { ok:false, message:'자재코드가 필요합니다.' };
+  const rows = (Array.isArray(p.rows) ? p.rows : []).map(function(x) { return { supplier:r15S_(x.supplier), names:(Array.isArray(x.names) ? x.names : String(x.names || '').split(',')).map(r15S_).filter(String), qty:r15Num_(x.qty) || '' }; })
+    .filter(function(x) { return x.names.length; });
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(10000)) return { ok:false, busy:true, message:'잠시 후 다시 시도하세요.' };
+  try {
+    const ss = getSs_(); ensureSheet_(ss, 'VendorNames', R15_VN_HEADERS);
+    const sh = ss.getSheetByName('VendorNames'), vals = sh.getDataRange().getValues(), before = [];
+    for (let n = vals.length - 1; n >= 1; n--) if (r15Digits_(vals[n][0]) === code) { before.push(vals[n].slice(0, 4)); sh.deleteRow(n + 1); }
+    const now = new Date(), add = rows.map(function(x) { return [code, x.supplier, x.names.join(', '), x.qty, auth.name || '', now]; });
+    if (add.length) sh.getRange(sh.getLastRow() + 1, 1, add.length, R15_VN_HEADERS.length).setValues(add);
+    appendAudit_('R15업체품명수정', 'ITEM:' + code, { actor: actorLabelV24_(auth), before: before, after: add.map(function(r) { return r.slice(0, 4); }) });
+    r15Forget_('VendorNames');
+    return { ok:true, saved:add.length };
+  } finally { lock.releaseLock(); }
+}
+// 지금까지 저장된 기록에서 품목·공급업체별로 자주 나온 업체 품명과 수량을 후보로 뽑는다 (OCR 잡글자는 뺀다)
+function r15VendorSuggest_(p) {
+  const want = r15Digits_(p.itemCode);
+  const it = r15ColVals_('Records', '품목코드'), sp = r15ColVals_('Records', '공급업체'), nm = r15ColVals_('Records', '업체라벨품명'), q = r15ColVals_('Records', '업체라벨수량');
+  const g = {};
+  for (let k = 0; k < it.length; k++) {
+    const code = r15Digits_(it[k]); if (!code || (want && code !== want)) continue;
+    const key = code + '|' + r15S_(sp[k]), x = g[key] = g[key] || { code:code, supplier:r15S_(sp[k]), names:{}, qty:{}, n:0 }; x.n++;
+    const name = r15S_(nm[k]).replace(/\s+/g, ' ');
+    if (name && (name.match(/[가-힣]/g) || []).length >= 2 && name.length <= 30) { const nk = r15VnNorm_(name); (x.names[nk] = x.names[nk] || { name:name, n:0 }).n++; }
+    const qq = r15Num_(q[k]); if (qq) x.qty[qq] = (x.qty[qq] || 0) + 1;
+  }
+  return { ok:true, groups:Object.keys(g).map(function(key) { const x = g[key];
+    const names = Object.keys(x.names).map(function(k) { return x.names[k]; }).filter(function(o) { return o.n >= 2; }).sort(function(a, b) { return b.n - a.n; }).slice(0, 6);
+    const qs = Object.keys(x.qty).sort(function(a, b) { return x.qty[b] - x.qty[a]; });
+    return { itemCode:x.code, supplier:x.supplier, records:x.n, names:names, qty:qs.length ? Number(qs[0]) : 0, qtyCount:qs.length ? x.qty[qs[0]] : 0 }; }).sort(function(a, b) { return b.records - a.records; }) };
 }
 function r15ItemMap_() {
   if (R15_MEM_.__items) return R15_MEM_.__items;
@@ -2279,6 +2356,7 @@ function r15Issues_(rec, ctx) {
   if (!rec.itemCode) add('NO_ITEM', 'warn', '품목코드 없음');
   else if (!item) add('UNKNOWN_ITEM', 'warn', '기준정보에 없는 품목코드 ' + rec.itemCode);
   else if (rec.productRaw && r15NormName_(rec.productRaw) !== r15NormName_(item.itemName)) add('NAME_DIFF', 'info', '저장된 품명 "' + rec.productRaw + '" → 정식명으로 표시');
+  const vj = r15VendorJudge_(rec, ctx.items); if (vj) add(vj.code, vj.level, vj.label);
   if (rec.labelMatch === '미대조') add('NOT_COMPARED', 'warn', '업체 라벨 미대조');
   if (/확인/.test(rec.finalResult) && !out.some(function(x) { return x.level === 'error'; })) add('JUDGED_CHECK', 'warn', '검수 판정 확인필요 (사유 미기록)');
   return out;

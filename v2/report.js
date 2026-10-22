@@ -226,7 +226,7 @@
   function sheetHtml(s, recs, ph, mode) {
     const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
     const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.vendorQty)}</td><td class="nw">${esc(shortAt(r.vendorProdDate))}</td><td class="cut">${esc(String(r.vendorProduct || '').slice(0, 24))}</td>
-      <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td class="nw">${r.usedIn.map((u) => esc(u.lotNo)).join(', ')}</td></tr>`).join('');
+      <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td>${r.usedIn.map((u) => `${esc(u.productName)} <b>${esc(u.lotNo)}</b>`).join('<br>')}</td></tr>`).join('');
     const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
     const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;
     const photoPages = ph && pick.length ? chunk(pick, per).map((g, i, all) => `<section class="sheet"><h1>${esc(s.inboundNo)} 증빙 사진${mode === 'issues' ? ' · 확인 필요 Pallet' : ''} <small>${i + 1}/${all.length}</small></h1><div class="${big ? 'ph' : 'ph sm'}">${g.map((r) => `<div class="pp ${needsLook(r) ? 'look' : ''}">${fig(r, 'WMS', r.wmsPhoto)}${fig(r, '업체', r.vendorPhoto)}</div>`).join('')}</div></section>`).join('') : '';
@@ -236,8 +236,8 @@
       <tr><th>입고일자</th><td>${esc(s.inboundDate)}</td><th>사용기한</th><td>${esc(s.expiryDate)}</td></tr><tr><th>검수일</th><td>${esc(s.days.join(', '))}</td><th>검수자</th><td>${esc(s.inspectors.join(', '))}</td></tr></table>
       <div class="kp"><div>Pallet<b>${s.palletCount}</b></div><div>총 수량<b>${fmt(s.qtyTotal)}</b></div><div>이상 없음<b>${s.okCount}</b></div><div class="${s.errorCount ? 'kbad' : ''}">오류 / 주의<b>${s.errorCount} / ${s.warnCount}</b></div><div>생산 투입<b>${s.usedCount}</b></div></div>
       ${s.gaps.missing.length ? `<div class="box">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
-      <table class="rec"><colgroup><col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:17%"><col style="width:7%"><col style="width:27%"><col style="width:10%"></colgroup>
-      <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>업체 품명</th><th class="c">판정</th><th>데이터 점검</th><th>투입 Lot</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="rec"><colgroup><col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"><col style="width:7%"><col style="width:23%"><col style="width:17%"></colgroup>
+      <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>업체 품명</th><th class="c">판정</th><th>데이터 점검</th><th>투입 제품 · Lot</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div><b>검수</b><span></span></div><div><b>확인</b><span></span></div><div><b>승인</b><span></span></div></div></section>${photoPages}`;
   }
   function chunk(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }

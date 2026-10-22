@@ -62,9 +62,9 @@
   /* ---------- 품목 ---------- */
   async function items() {
     const r = await R.tryGet('r15Items'); A.items = r ? r.items : [];
-    $('admBody').innerHTML = `<section><div class="shead"><h2>품목 기준정보 (ItemMaster)</h2><span class="sub">검수 화면은 품목코드로 이 정식 명칭을 저장합니다. 업체 라벨 품명은 별칭으로 등록하면 자동 일치합니다.</span></div>
-      <div class="scroll"><table class="mt"><thead><tr><th>자재코드</th><th>자재명</th><th>용량</th><th>공급업체</th><th>업체 품명 별칭</th><th></th></tr></thead><tbody>
-      ${A.items.map((it, i) => `<tr><td data-l="자재코드"><b>${esc(it.itemCode)}</b></td><td data-l="자재명">${esc(it.itemName)}</td><td data-l="용량">${esc(it.volume)}</td><td data-l="공급업체">${esc(it.suppliers.join(', '))}</td><td data-l="별칭">${esc(it.aliases.join(', '))}</td><td><button type="button" class="btn ghost sm" data-it="${i}">고치기</button></td></tr>`).join('')}
+    $('admBody').innerHTML = `<section><div class="shead"><h2>품목 기준정보 (ItemMaster)</h2><span class="sub">검수 화면은 품목코드로 이 정식 명칭을 저장합니다. 업체 라벨 품명은 업체별로 등록하면 그 목록과 대조합니다 (다른 품목 병이 섞이면 오류).</span></div>
+      <div class="scroll"><table class="mt"><thead><tr><th>자재코드</th><th>자재명</th><th>용량</th><th>공급업체</th><th>업체별 라벨 품명 · 1 Pallet 수량</th><th></th></tr></thead><tbody>
+      ${A.items.map((it, i) => `<tr><td data-l="자재코드"><b>${esc(it.itemCode)}</b></td><td data-l="자재명">${esc(it.itemName)}</td><td data-l="용량">${esc(it.volume)}</td><td data-l="공급업체">${esc(it.suppliers.join(', '))}</td><td data-l="업체 품명">${(it.vendor || []).length ? it.vendor.map((v) => `<div><span class="muted">${esc(v.supplier || '업체 미지정')}</span> ${esc(v.names.join(', '))}${v.qty ? ` <span class="muted">· ${R.util.fmt(v.qty)}</span>` : ''}</div>`).join('') : `<span class="muted">${esc(it.aliases.join(', ')) || '미등록'}</span>`}</td><td><button type="button" class="btn ghost sm" data-it="${i}">고치기</button></td></tr>`).join('')}
       </tbody></table></div><div><button type="button" class="btn ghost" id="itNew">품목 추가</button></div></section>`;
     document.querySelectorAll('[data-it]').forEach((b) => { b.onclick = () => itemForm(A.items[Number(b.dataset.it)]); });
     $('itNew').onclick = () => itemForm(null);
@@ -75,11 +75,34 @@
       <label>자재코드<input id="ifCode" value="${esc(d.itemCode)}" inputmode="numeric" ${it ? 'readonly' : ''}></label><label>자재구분<input id="ifCat" value="${esc(d.category)}"></label>
       <label class="wide">자재명 (정식 명칭)<input id="ifName" value="${esc(d.itemName)}"></label><label>용량(mL)<input id="ifVol" value="${esc(d.volume)}" inputmode="numeric"></label>
       <label class="wide">공급업체 (쉼표로 구분)<input id="ifSup" value="${esc(d.suppliers.join(', '))}"></label>
-      <label class="wide">업체 품명 별칭 (쉼표로 구분)<input id="ifAli" value="${esc(d.aliases.join(', '))}" placeholder="예: 유리병(각병) 100ml, 판콜에이병 30ml"></label></div>
+      <input id="ifAli" type="hidden" value="${esc(d.aliases.join(', '))}"></div>
+      <h4 style="margin:14px 0 4px">업체별 라벨 품명</h4><div class="sub">업체 라벨에 적힌 품명(여러 개면 쉼표)과 1 Pallet 정상 수량. 검수 때 이 목록과 비교합니다.</div>
+      <datalist id="ifSupList">${d.suppliers.map((x) => `<option value="${esc(x)}">`).join('')}</datalist>
+      <div id="vnRows"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px"><button type="button" class="btn ghost sm" id="vnAdd">업체 줄 추가</button>${it ? '<button type="button" class="btn ghost sm" id="vnSug">지금까지 기록에서 후보 채우기</button>' : ''}<span class="msg" id="vnMsg"></span></div>
       <div class="savebar"><button type="button" class="btn" id="ifSave">저장</button><button type="button" class="btn ghost sm" id="ifClose">닫기</button></div>`;
     $('dialog').hidden = false; $('ifClose').onclick = () => { $('dialog').hidden = true; };
+    const rows = (d.vendor || []).map((v) => ({ supplier: v.supplier, names: v.names.join(', '), qty: v.qty || '' }));
+    const draw = () => {
+      $('vnRows').innerHTML = rows.map((v, i) => `<div class="vnrow"><input list="ifSupList" data-vk="supplier" data-vi="${i}" value="${esc(v.supplier)}" placeholder="공급업체"><input data-vk="names" data-vi="${i}" value="${esc(v.names)}" placeholder="라벨 품명 (예: 유리병(각병) 100ml)"><input data-vk="qty" data-vi="${i}" value="${esc(v.qty)}" inputmode="numeric" placeholder="수량"><button type="button" class="btn ghost sm" data-vdel="${i}" aria-label="줄 지우기">지우기</button></div>`).join('') || '<div class="muted">아직 없습니다 · 등록 전에는 예전 별칭 방식으로 대조합니다</div>';
+      $('vnRows').querySelectorAll('[data-vk]').forEach((el) => { el.oninput = () => { rows[Number(el.dataset.vi)][el.dataset.vk] = el.value; }; });
+      $('vnRows').querySelectorAll('[data-vdel]').forEach((el) => { el.onclick = () => { rows.splice(Number(el.dataset.vdel), 1); draw(); }; });
+    };
+    draw();
+    $('vnAdd').onclick = () => { rows.push({ supplier: d.suppliers[0] || '', names: '', qty: '' }); draw(); };
+    if ($('vnSug')) $('vnSug').onclick = async () => {
+      $('vnMsg').textContent = '기록 읽는 중…';
+      const r = await R.tryGet('r15VendorSuggest', { itemCode: d.itemCode }); if (!r) { $('vnMsg').textContent = ''; return; }
+      let n = 0;
+      r.groups.forEach((g) => { if (!g.names.length) return; const row = rows.find((x) => x.supplier === g.supplier);
+        const names = g.names.map((x) => x.name);
+        if (row) { const have = row.names.split(',').map((x) => x.trim()).filter(Boolean); row.names = [...new Set(have.concat(names))].join(', '); if (!row.qty) row.qty = g.qty || ''; }
+        else rows.push({ supplier: g.supplier, names: names.join(', '), qty: g.qty || '' }); n++; });
+      draw(); $('vnMsg').textContent = n ? `후보 ${n}줄을 채웠습니다 · 틀린 품명은 지우고 저장하세요` : '기록에서 찾은 후보가 없습니다';
+    };
     $('ifSave').onclick = async () => {
       const r = await R.tryPost('r15ItemSave', { itemCode: $('ifCode').value, category: $('ifCat').value, itemName: $('ifName').value, volume: $('ifVol').value, suppliers: $('ifSup').value, aliases: $('ifAli').value });
+      if (r && r.ok) { const v = await R.tryPost('r15VendorSave', { itemCode: $('ifCode').value, rows: rows.map((x) => ({ supplier: x.supplier, names: x.names, qty: x.qty })) }); if (!v || !v.ok) return; }
       if (r && r.ok) { $('dialog').hidden = true; R.toast('저장했습니다', 'ok'); try { localStorage.removeItem('r15.items'); } catch (_) {} items(); }
     };
   }

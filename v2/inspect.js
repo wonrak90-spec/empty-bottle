@@ -29,9 +29,31 @@
   const vol = (s) => { const m = String(s || '').match(/(\d{2,4})\s*(?:ml|mL|ML|㎖)/); return m ? Number(m[1]) : 0; };
 
   // 업체 라벨 품명이 이 품목과 맞는지: 별칭 일치 또는 용량 일치. 용량이 다르면 불일치.
-  function vendorMatch(item, vendorProduct) {
+  // 업체별 품명 목록(관리 → 품목·별칭)이 있으면 그 목록과만 비교한다. 서버 r15VendorJudge_와 같은 규칙.
+  const vnNorm = (s) => String(s || '').toLowerCase().replace(/㎖|밀리/g, 'ml').replace(/[^가-힣a-z0-9]/g, '');
+  const vnStrip = (s) => vnNorm(s).replace(/\d+(ml|l|cc)?/g, '') || vnNorm(s);
+  function vnSim(a, b) {
+    const x = vnStrip(a), y = vnStrip(b); if (!x || !y) return 0;
+    if (x === y) return 1; if ((x.length >= 3 && y.indexOf(x) >= 0) || (y.length >= 3 && x.indexOf(y) >= 0)) return 0.95;
+    const bg = (t) => { const m = {}; for (let k = 0; k < t.length - 1; k++) { const g = t.substr(k, 2); m[g] = (m[g] || 0) + 1; } return m; };
+    const A = bg(x), B = bg(y); let hit = 0, na = 0, nb = 0;
+    Object.keys(A).forEach((g) => { na += A[g]; if (B[g]) hit += Math.min(A[g], B[g]); }); Object.keys(B).forEach((g) => { nb += B[g]; });
+    return na + nb ? 2 * hit / (na + nb) : 0;
+  }
+  const supEq = (a, b) => { const f = (t) => vnNorm(t).replace(/주식회사|주/g, ''); const x = f(a), y = f(b); return !!x && !!y && (x === y || x.indexOf(y) >= 0 || y.indexOf(x) >= 0); };
+  function vnBest(text, lists) { let best = null; lists.forEach((v) => v.names.forEach((nm) => { const sc = vnSim(text, nm); if (sc >= 0.5 && (!best || sc > best.score)) best = { score: sc, name: nm, v }; })); return best; }
+  function vendorLists(item, supplier) { const all = (item && item.vendor) || [], same = all.filter((v) => supEq(v.supplier, supplier)); return { all, same, rest: all.filter((v) => same.indexOf(v) < 0) }; }
+  function vendorMatch(item, vendorProduct, supplier) {
     if (!vendorProduct) return { result: '미대조', hard: false, note: '' };
     if (!item) return { result: '미확인', hard: false, note: '품목 기준정보 없음' };
+    const L = vendorLists(item, supplier);
+    if (L.all.length) {
+      const m = vnBest(vendorProduct, L.same); if (m) return { result: '일치', hard: false, note: '', canon: m.name };
+      const o = vnBest(vendorProduct, L.rest); if (o) return { result: '공급업체 다름', hard: false, note: o.v.supplier + ' 품명' };
+      let other = null; Object.keys(S.items).forEach((c) => { if (c !== item.itemCode && !other) { const b = vnBest(vendorProduct, S.items[c].vendor || []); if (b) other = S.items[c]; } });
+      if (other) return { result: '불일치', hard: true, note: '다른 품목(' + other.itemName + ') 병' };
+      return { result: '목록에 없음', hard: false, note: '아래에서 업체 품명을 고르세요' };
+    }
     const v = norm(vendorProduct);
     if ((item.aliases || []).some((a) => norm(a) && (v.indexOf(norm(a)) >= 0 || norm(a).indexOf(v) >= 0)) || v === norm(item.itemName)) return { result: '일치', hard: false, note: '' };
     const iv = Number(item.volume) || vol(item.itemName), vv = vol(vendorProduct);
@@ -54,7 +76,7 @@
     else add(false, 'WMS 수량 없음', false);
     if (num(c.vQty) && num(c.qty)) add(num(c.vQty) === num(c.qty), num(c.vQty) === num(c.qty) ? '업체 수량 일치' : `업체 수량 ${fmt(c.vQty)} ≠ WMS ${fmt(c.qty)}`, num(c.vQty) !== num(c.qty));
     else if (num(c.vQty) && num(b.qty) && num(c.vQty) !== num(b.qty)) stop(`업체 수량 ${fmt(c.vQty)} (기준 ${fmt(b.qty)}) · WMS 수량 없음`);
-    const vm = vendorMatch(S.items[b.itemCode], c.vProduct);
+    const vm = vendorMatch(S.items[b.itemCode], c.vProduct, c.supplier || b.supplier);
     if (c.vProduct) add(vm.result === '일치', vm.result === '일치' ? '업체 품명 일치' : `업체 품명 ${vm.result}${vm.note ? ' · ' + vm.note : ''}`, vm.hard);
     if (!c.vendorDone && !c.vendorPhotoKept) add(false, '업체 라벨 사진 없음', false);
     const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
@@ -156,11 +178,15 @@
     // 라벨에서 8자리 입고번호를 제대로 읽었는데 기준과 다르면 다른 차량이다. 기준값으로 바꾸는 버튼은 주지 않고 새 차량으로 시작하게 한다.
     const other = digits(c.inboundNo).length >= 8 && c.inboundNo !== b.inboundNo;
     const sw = other ? `<div class="box crit"><b>다른 차량 라벨입니다</b> · 읽은 입고번호 <b>${esc(c.inboundNo)}</b> (지금 차량 ${esc(b.inboundNo)})<br><button type="button" class="btn sm" id="vehSwitch">${esc(c.inboundNo)} 새 차량으로 시작</button> <span class="muted">잘못 읽었으면 입고번호 칸을 직접 고치세요</span></div>` : '';
-    return sw + FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk] && !(k === 'inboundNo' && other) && !(other && k !== 'inboundNo')).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
+    const it = S.items[b.itemCode], vm = vendorMatch(it, c.vProduct, c.supplier || b.supplier), L = vendorLists(it, c.supplier || b.supplier);
+    const cand = c.vendorDone && L.all.length && vm.result !== '일치' ? [...new Set((L.same.length ? L.same : L.all).flatMap((v) => v.names))].slice(0, 4) : [];
+    const pick = cand.length ? `<div class="box warn"><b>업체 품명 고르기</b> · 라벨을 보고 맞는 품명을 누르세요${c.vProduct ? ` <span class="muted">(읽은 값 ${esc(c.vProduct)})</span>` : ''}<br>${cand.map((n) => `<button type="button" class="btn ghost sm" data-vn="${esc(n)}">${esc(n)}</button>`).join(' ')}</div>` : '';
+    return sw + pick + FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk] && !(k === 'inboundNo' && other) && !(other && k !== 'inboundNo')).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
   }
   function refreshFixes() {
     const box = $('fixBox'); if (!box) return; box.innerHTML = staleHtml() + fixesHtml();
     if ($('vehSwitch')) $('vehSwitch').onclick = () => switchVehicle();
+    box.querySelectorAll('[data-vn]').forEach((el) => { el.onclick = () => { const c = S.cur; (c.confirmed = c.confirmed || []).push(`업체 품명 선택(읽은 값 ${c.vProduct || '없음'})`); c.vProduct = el.dataset.vn; $('cVProduct').value = c.vProduct; persist(); refreshChecks(); }; });
     if ($('vehStaleEnd')) $('vehStaleEnd').onclick = () => switchVehicle(true);
     box.querySelectorAll('[data-fix]').forEach((el) => { el.onclick = () => {
       const k = el.dataset.fix, f = FIX.find((x) => x[0] === k), c = S.cur;
@@ -317,6 +343,13 @@
       }
     } else {
       Object.assign(c, { vProduct: p.product || '', vQty: digits(p.qty), vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
+      // 품명 목록과 맞으면 읽은 글자 대신 목록의 품명으로 저장한다 (원문은 OCR 원문에 남는다). 줄 단위로도 찾아 본다.
+      const it = S.items[c.itemCode || (S.base && S.base.itemCode)], sup = c.supplier || (S.base && S.base.supplier);
+      if (it && (it.vendor || []).length) {
+        const L = vendorLists(it, sup), lines = [p.product || ''].concat(String(r.text || '').split(/\n/));
+        let hit = null; lines.forEach((ln) => { const m = ln && vnBest(ln, L.same); if (m && (!hit || m.score > hit.score)) hit = m; });
+        if (hit) c.vProduct = hit.name;
+      }
       c.status = `업체 라벨 ${R.ocr.lastEngine} 완료`;
     }
     if (S.cur !== c) return; // 이미 저장한 Pallet: 저장 쪽에서 마무리한다
