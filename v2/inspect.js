@@ -153,10 +153,15 @@
   const FIX = [['inboundNo', 'inboundNo', '입고번호', 'cInbound'], ['itemCode', 'itemCode', '품목코드', 'cItem'], ['qty', 'qty', 'WMS 수량', 'cQty']];
   function fixesHtml() {
     const b = S.base, c = S.cur || {}; if (!b || !c.wmsDone || busyOf(c).wms) return '';
-    return FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk]).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
+    // 라벨에서 8자리 입고번호를 제대로 읽었는데 기준과 다르면 다른 차량이다. 기준값으로 바꾸는 버튼은 주지 않고 새 차량으로 시작하게 한다.
+    const other = digits(c.inboundNo).length >= 8 && c.inboundNo !== b.inboundNo;
+    const sw = other ? `<div class="box crit"><b>다른 차량 라벨입니다</b> · 읽은 입고번호 <b>${esc(c.inboundNo)}</b> (지금 차량 ${esc(b.inboundNo)})<br><button type="button" class="btn sm" id="vehSwitch">${esc(c.inboundNo)} 새 차량으로 시작</button> <span class="muted">잘못 읽었으면 입고번호 칸을 직접 고치세요</span></div>` : '';
+    return sw + FIX.filter(([k, bk]) => b[bk] && c[k] !== b[bk] && !(k === 'inboundNo' && other) && !(other && k !== 'inboundNo')).map(([k, bk, label]) => `<button type="button" class="btn ghost sm fix" data-fix="${k}">${esc(label)} ${esc(k === 'qty' ? fmt(b[bk]) : b[bk])}가 맞습니다${c[k] ? ` <span class="muted">(읽은 값 ${esc(c[k])})</span>` : ''}</button>`).join('');
   }
   function refreshFixes() {
-    const box = $('fixBox'); if (!box) return; box.innerHTML = fixesHtml();
+    const box = $('fixBox'); if (!box) return; box.innerHTML = staleHtml() + fixesHtml();
+    if ($('vehSwitch')) $('vehSwitch').onclick = () => switchVehicle();
+    if ($('vehStaleEnd')) $('vehStaleEnd').onclick = () => switchVehicle(true);
     box.querySelectorAll('[data-fix]').forEach((el) => { el.onclick = () => {
       const k = el.dataset.fix, f = FIX.find((x) => x[0] === k), c = S.cur;
       (c.confirmed = c.confirmed || []).push(`${f[2]} 기준값 확인(읽은 값 ${c[k] || '없음'})`);
@@ -359,6 +364,7 @@
         }
       });
     }
+    b.lastAt = Date.now();
     S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render();
     window.scrollTo({ top: 0, behavior: 'smooth' });
     if (R.zoomcam && R.zoomcam.supported && autoCam()) setTimeout(startSequence, 250);
@@ -403,6 +409,18 @@
     R.toast(`P${n} 아직 저장 안 됨`, 'warn');
   }
 
+  // 며칠 전에 시작한 차량이 화면에 남아 있으면 새 차량 라벨을 그 차량 기준으로 저장하기 쉽다 (10-15 차량에 10-19 다른 차량이 섞인 사례)
+  function staleHtml() {
+    const b = S.base; if (!b || !b.startedAt) return '';
+    const last = Math.max(b.startedAt, b.lastAt || 0), day = (t) => new Date(t).toDateString();
+    if (day(last) === day(Date.now())) return '';
+    return `<div class="box warn"><b>${esc(new Date(last).toLocaleDateString('ko-KR'))}에 검수하던 차량(${esc(b.inboundNo)})이 이어지고 있습니다.</b> 같은 차량이 아니면 새 차량으로 시작하세요.<br><button type="button" class="btn sm" id="vehStaleEnd">새 차량으로 시작</button></div>`;
+  }
+  function switchVehicle(stale) {
+    const keep = S.cur;
+    if (!confirm(stale ? `차량 ${S.base.inboundNo} 검수를 끝내고 새 차량으로 시작할까요? (찍은 사진과 읽은 값은 그대로 둡니다)` : `차량 ${S.base.inboundNo}을 끝내고 ${keep.inboundNo} 새 차량으로 시작할까요? 이 Pallet가 새 차량의 첫 Pallet가 됩니다.`)) return;
+    S.base = null; S.saved = {}; S.cur = keep; if (keep) keep.confirmed = []; persist(); render();
+  }
   function endVehicle() {
     const pend = R.queue.list((j) => j.type === 'inspect' && j.key.indexOf(S.base.inboundNo + '|') === 0 && j.state !== 'done').length;
     if (!confirm(pend ? `아직 서버에 안 올라간 Pallet가 ${pend}건 있습니다. 차량을 종료해도 대기열에서 계속 보냅니다. 종료할까요?` : `입고번호 ${S.base.inboundNo} 차량을 종료할까요?`)) return;

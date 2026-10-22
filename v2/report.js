@@ -9,7 +9,7 @@
   const P = R.report = { view: 'week', from: '', to: '', data: null, detail: null, sel: new Set(), sub: 'summary' };
 
   const ISSUE_NAMES = {
-    NO_INBOUND: '입고번호 없음', NO_PALLET: 'Pallet 번호 없음', DUPLICATE: '같은 Pallet 중복 저장', CODE_MISMATCH: '라벨 바코드와 저장 번호 다름',
+    NO_INBOUND: '입고번호 없음', NO_PALLET: 'Pallet 번호 없음', DUPLICATE: '같은 Pallet 중복 저장', CODE_MISMATCH: '라벨 바코드와 저장 번호 다름', INBOUND_OVERRIDE: '라벨 입고번호를 기준값으로 바꿔 저장',
     NO_WMS_PHOTO: 'WMS 사진 없음', NO_VENDOR_PHOTO: '업체 사진 없음', NO_QTY: 'WMS 수량 없음', QTY_MISMATCH: 'WMS·업체 수량 불일치',
     NO_ITEM: '품목코드 없음', UNKNOWN_ITEM: '기준정보에 없는 품목', NAME_DIFF: '품명 표기 오류(정식명으로 표시)', NOT_COMPARED: '업체 라벨 미대조',
     JUDGED_CHECK: '확인필요 판정(사유 미기록)'
@@ -216,22 +216,28 @@
     return `<style>@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:'Malgun Gothic','Apple SD Gothic Neo',sans-serif;color:#111;margin:0;font-size:10px}
       .sheet{page-break-after:always}.sheet:last-child{page-break-after:auto}h1{font-size:17px;margin:0 0 6px;padding-bottom:6px;border-bottom:2px solid #111}
       .meta{display:flex;justify-content:space-between;color:#555;margin-bottom:8px}table{width:100%;border-collapse:collapse;margin:6px 0}th,td{border:1px solid #999;padding:3px 5px;vertical-align:top}
-      th{background:#eee;text-align:left}td.j{white-space:nowrap}.num{text-align:right}.info th{width:18%}.kp{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:6px 0}.kp div{border:1px solid #999;padding:5px}.kp b{display:block;font-size:14px}
+      th{background:#eee;text-align:left;white-space:nowrap;font-size:9.5px}table.rec{table-layout:fixed}table.rec td{font-size:9.5px;overflow-wrap:anywhere}.nw{white-space:nowrap}.c{text-align:center}.cut{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}tr.look td{background:#fff6f6}.ack{color:#777}.kbad{border-color:#c33!important;color:#b00}h1 small{font-size:11px;color:#777;font-weight:400}.num{text-align:right}.info th{width:18%}.kp{display:grid;grid-template-columns:repeat(5,1fr);gap:4px;margin:6px 0}.kp div{border:1px solid #999;padding:5px}.kp b{display:block;font-size:14px}
       .bad{color:#b00;font-weight:700}.warn{color:#8a5a00}.box{border:1px solid #c66;background:#fff4f4;padding:5px;margin:6px 0}tr{break-inside:avoid}
       .sign{display:flex;justify-content:flex-end;gap:0;margin-top:10px}.sign div{width:80px;border:1px solid #999;text-align:center}.sign div b{display:block;background:#eee;border-bottom:1px solid #999;padding:2px}.sign div span{display:block;height:40px}
-      .ph{display:grid;grid-template-columns:1fr 1fr;gap:5px}.ph figure{margin:0;border:1px solid #bbb;padding:3px;break-inside:avoid}.ph img{width:100%;height:76mm;object-fit:contain;display:block}.ph figcaption{text-align:center;font-size:9px}
+      .ph{display:grid;grid-template-columns:1fr;gap:5px}.pp{display:grid;grid-template-columns:1fr 1fr;gap:5px}.ph.sm{grid-template-columns:1fr 1fr;gap:4px}.ph.sm .pp{gap:3px;padding:2px;border:1px solid #ddd}.pp.look{border:1.5px solid #c33}.ph.sm img,.ph.sm .noimg{height:58mm}.ph figure{margin:0;border:1px solid #bbb;padding:3px;break-inside:avoid}.ph img{width:100%;height:76mm;object-fit:contain;display:block}.ph figcaption{text-align:center;font-size:9px}
       .noimg{height:76mm;display:flex;align-items:center;justify-content:center;color:#999;border:1px dashed #ccc}</style>`;
   }
-  function sheetHtml(s, recs, ph) {
-    const rows = recs.map((r) => `<tr><td>P${esc(r.pallet || '?')}</td><td>${esc(r.atText)}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.vendorQty)}</td><td>${esc(r.vendorProdDate)}</td><td>${esc(String(r.vendorProduct || '').slice(0, 30))}</td>
-      <td class="j ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${r.issues.filter((x) => x.level !== 'info').map((x) => `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>')}</td><td>${r.usedIn.map((u) => esc(u.lotNo)).join(', ')}</td></tr>`).join('');
-    const photoPages = ph ? chunk(recs, 3).map((g) => `<section class="sheet"><h1>${esc(s.inboundNo)} 증빙 사진</h1><div class="ph">${g.map((r) => [['WMS 라벨', r.wmsPhoto], ['업체 라벨', r.vendorPhoto]].map(([t, u]) => `<figure>${u && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`).join('')).join('')}</div></section>`).join('') : '';
-    return `<section class="sheet"><h1>공병 입고 검수 보고서</h1><div class="meta"><span>입고번호 <b>${esc(s.inboundNo)}</b></span><span>출력 ${esc(new Date().toLocaleString('ko-KR'))} · ${esc(R.user ? R.user.name : '')}</span></div>
-      <table class="info"><tr><th>품명</th><td>${esc(s.product)}</td><th>품목코드</th><td>${esc(s.itemCode)}</td></tr><tr><th>공급업체</th><td>${esc(s.supplier)}</td><th>제조원</th><td>${esc(s.manufacturer)}</td></tr>
+  const shortAt = (t) => String(t || '').replace(/^\d{4}-/, '');
+  function sheetHtml(s, recs, ph, mode) {
+    const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
+    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.vendorQty)}</td><td class="nw">${esc(shortAt(r.vendorProdDate))}</td><td class="cut">${esc(String(r.vendorProduct || '').slice(0, 24))}</td>
+      <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td class="nw">${r.usedIn.map((u) => esc(u.lotNo)).join(', ')}</td></tr>`).join('');
+    const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
+    const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;
+    const photoPages = ph && pick.length ? chunk(pick, per).map((g, i, all) => `<section class="sheet"><h1>${esc(s.inboundNo)} 증빙 사진${mode === 'issues' ? ' · 확인 필요 Pallet' : ''} <small>${i + 1}/${all.length}</small></h1><div class="${big ? 'ph' : 'ph sm'}">${g.map((r) => `<div class="pp ${needsLook(r) ? 'look' : ''}">${fig(r, 'WMS', r.wmsPhoto)}${fig(r, '업체', r.vendorPhoto)}</div>`).join('')}</div></section>`).join('') : '';
+    const photoNote = !ph ? '사진 없이 인쇄' : mode === 'issues' ? (pick.length ? `사진: 확인 필요 ${pick.length} Pallet만 첨부` : '사진: 확인 필요 Pallet 없음 (첨부 안 함)') : `사진: ${recs.length} Pallet 전체 첨부`;
+    return `<section class="sheet"><h1>공병 입고 검수 보고서</h1><div class="meta"><span>입고번호 <b>${esc(s.inboundNo)}</b> · ${esc(photoNote)}</span><span>출력 ${esc(new Date().toLocaleString('ko-KR'))} · ${esc(R.user ? R.user.name : '')}</span></div>
+      <table class="info"><colgroup><col style="width:14%"><col style="width:36%"><col style="width:14%"><col style="width:36%"></colgroup><tr><th>품명</th><td>${esc(s.product)}</td><th>품목코드</th><td>${esc(s.itemCode)}</td></tr><tr><th>공급업체</th><td>${esc(s.supplier)}</td><th>제조원</th><td>${esc(s.manufacturer)}</td></tr>
       <tr><th>입고일자</th><td>${esc(s.inboundDate)}</td><th>사용기한</th><td>${esc(s.expiryDate)}</td></tr><tr><th>검수일</th><td>${esc(s.days.join(', '))}</td><th>검수자</th><td>${esc(s.inspectors.join(', '))}</td></tr></table>
-      <div class="kp"><div>Pallet<b>${s.palletCount}</b></div><div>총 수량<b>${fmt(s.qtyTotal)}</b></div><div>이상 없음<b>${s.okCount}</b></div><div>오류 / 주의<b>${s.errorCount} / ${s.warnCount}</b></div><div>생산 투입<b>${s.usedCount}</b></div></div>
+      <div class="kp"><div>Pallet<b>${s.palletCount}</b></div><div>총 수량<b>${fmt(s.qtyTotal)}</b></div><div>이상 없음<b>${s.okCount}</b></div><div class="${s.errorCount ? 'kbad' : ''}">오류 / 주의<b>${s.errorCount} / ${s.warnCount}</b></div><div>생산 투입<b>${s.usedCount}</b></div></div>
       ${s.gaps.missing.length ? `<div class="box">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
-      <table><thead><tr><th>P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>업체 품명</th><th>판정</th><th>데이터 점검</th><th>투입 Lot</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="rec"><colgroup><col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:17%"><col style="width:7%"><col style="width:27%"><col style="width:10%"></colgroup>
+      <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>업체 품명</th><th class="c">판정</th><th>데이터 점검</th><th>투입 Lot</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div><b>검수</b><span></span></div><div><b>확인</b><span></span></div><div><b>승인</b><span></span></div></div></section>${photoPages}`;
   }
   function chunk(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
@@ -239,19 +245,22 @@
   // iOS Safari는 탭 안에서 바로 연 창만 허용한다. confirm() 다음에 열면 막힐 수 있어, 창 안 버튼을 누르는 순간 연다.
   function printInbounds(nos) {
     if (!nos.length) return;
-    $('dialogBody').innerHTML = `<h3>인쇄 ${nos.length}건</h3><div class="sub">사진 장을 함께 인쇄할까요?</div><div class="savebar"><button type="button" class="btn" id="prPh">사진 포함</button><button type="button" class="btn ghost" id="prNo">표만</button><button type="button" class="btn ghost sm" id="prClose">닫기</button></div>`;
+    // 사진을 다 크게 넣으면 Pallet 3개에 1장씩이라 수십 장이 된다. 기본은 작게(한 장에 8 Pallet), 필요하면 확인 필요 Pallet만.
+    const modes = [['small', '전체 사진 · 작게', '한 장에 8 Pallet (WMS·업체 나란히) · 권장'], ['issues', '확인 필요 Pallet만 사진', '이상 없는 Pallet는 표에만'], ['large', '전체 사진 · 크게', '한 장에 3 Pallet'], ['none', '표만', '사진 없이 1장']];
+    $('dialogBody').innerHTML = `<h3>인쇄 ${nos.length}건 · A4 세로</h3><div class="sub">사진을 어떻게 넣을까요?</div><div class="prmodes">${modes.map(([k, t, d]) => `<button type="button" class="trmode" data-pm="${k}"><b>${t}</b><small>${d}</small></button>`).join('')}</div><div class="savebar"><button type="button" class="btn ghost sm" id="prClose">닫기</button></div>`;
     $('dialog').hidden = false;
     $('prClose').onclick = () => { $('dialog').hidden = true; };
-    $('prPh').onclick = () => { $('dialog').hidden = true; R.rec.note('보고서 인쇄(사진 포함)', nos.join(', '), nos.length); printOpen(nos, true); };
-    $('prNo').onclick = () => { $('dialog').hidden = true; R.rec.note('보고서 인쇄', nos.join(', '), nos.length); printOpen(nos, false); };
+    $('dialogBody').querySelectorAll('[data-pm]').forEach((el) => { el.onclick = () => { const m = el.dataset.pm; $('dialog').hidden = true; R.rec.note('보고서 인쇄(' + modes.find((x) => x[0] === m)[1] + ')', nos.join(', '), nos.length); printOpen(nos, m); }; });
   }
-  async function printOpen(nos, withPhotos) {
+  const needsLook = (r) => !/적합/.test(r.finalResult) || r.issues.some((x) => !x.acked && x.level !== 'info');
+  async function printOpen(nos, mode) {
+    const withPhotos = mode && mode !== 'none';
     const w = window.open('', '_blank'); if (!w) return R.toast('팝업이 막혀 있습니다. 브라우저에서 팝업을 허용하세요', 'crit');
     w.document.write('<p style="font-family:sans-serif">보고서 준비 중…</p>');
     const packs = []; for (const no of nos) { const s = P.data.inbounds.find((x) => x.inboundNo === no); if (s) packs.push({ s, recs: await recsOf(no) }); }
     let ph = null;
-    if (withPhotos) { const urls = packs.flatMap((p) => p.recs.flatMap((r) => [r.wmsPhoto, r.vendorPhoto])).filter(Boolean); w.document.body.innerHTML = `<p style="font-family:sans-serif">사진 ${urls.length}장 불러오는 중…</p>`; ph = await R.loadPhotos(urls); }
-    const html = `<!doctype html><html><head><meta charset="utf-8"><title>공병 입고 검수 보고서 ${esc(label())}</title>${printCss()}</head><body>${packs.map((p) => sheetHtml(p.s, p.recs, ph)).join('')}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
+    if (withPhotos) { const urls = packs.flatMap((p) => p.recs.filter((r) => mode !== 'issues' || needsLook(r)).flatMap((r) => [r.wmsPhoto, r.vendorPhoto])).filter(Boolean); w.document.body.innerHTML = `<p style="font-family:sans-serif">사진 ${urls.length}장 불러오는 중…</p>`; ph = await R.loadPhotos(urls); }
+    const html = `<!doctype html><html><head><meta charset="utf-8"><title>공병 입고 검수 보고서 ${esc(label())}</title>${printCss()}</head><body>${packs.map((p) => sheetHtml(p.s, p.recs, ph, mode)).join('')}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
     w.document.open(); w.document.write(html); w.document.close();
   }
 

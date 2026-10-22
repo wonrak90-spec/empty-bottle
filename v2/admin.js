@@ -143,11 +143,27 @@
   async function tabs() {
     const c = await R.loadConfig();
     if (!c || !c.tabs) { $('admBody').innerHTML = '<div class="muted pad">화면 권한을 읽지 못했습니다. 서버 코드(Code_R15.gs)를 새 버전으로 배포했는지 확인하세요.</div>'; return; }
-    $('admBody').innerHTML = `<section><div class="shead"><h2>화면 권한</h2></div>
-      <div class="sub">탭마다 어느 권한부터 보이는지 정합니다. 검수·투입은 저장이 있어 작업자 이상, 관리는 중간관리자 이상으로만 정할 수 있습니다.
-      Guest로 연 탭은 로그인 화면의 "로그인 없이 보기"로 누구나 볼 수 있습니다(보기만 가능, 사진·고치기·삭제 없음).</div>
-      <div class="list">${Object.keys(c.tabs).map((k) => `<div class="row"><b>${esc(c.labels[k] || k)}</b><select data-tabmin="${k}" aria-label="${esc(c.labels[k] || k)} 보이는 권한">${LEVELS.filter(([v]) => v >= c.limits[k]).map(([v, t]) => `<option value="${v}" ${v === c.tabs[k] ? 'selected' : ''}>${t}</option>`).join('')}</select></div>`).join('')}</div>
+    // 원료 수불장과 같은 표: 기능 · 사용 가능한 권한 · 권한별 ●. 화면 보기는 고를 수 있고, 입력·수정은 기록 보호 때문에 고정이다.
+    const ROLES = [[-1, 'Guest'], [0, '조회'], [1, '작업자'], [2, '중간관리자'], [3, '관리자']];
+    const DESC = { dash: '현황 (오늘·7일·30일 입고, 차량별 진행)', inspect: '입고 검수 (촬영·저장)', lot: '생산 투입 (작업 시작·공병 투입)', trace: '추적 (제품 ↔ 공병)', report: '보고서 (수불·데이터 점검·인쇄)', admin: '관리 (품목·계획·이력)' };
+    const FIXED = [['입고 검수 저장 · 오늘 내 기록 고치기·지우기(사유 기록)', 1], ['생산 투입 · 작업 시작·종료', 1], ['모든 기록 고치기·지우기·복구 · 종료 작업 투입 취소', 2], ['품목·별칭 · 제조계획 링크 · 변경 이력·감사 추적', 2], ['사용자 관리 · 화면 권한 설정', 3]];
+    const dots = (min) => ROLES.map(([v]) => `<td class="pmd">${v >= min ? '●' : '–'}</td>`).join('');
+    const lv = (v) => (LEVELS.find((x) => x[0] === v) || [0, ''])[1].replace(' (로그인 없이)', ' 이상');
+    $('admBody').innerHTML = `<section><div class="shead"><h2>권한 설정</h2></div>
+      <div class="pmwrap"><table class="pm"><thead><tr><th>기능</th><th>사용 가능한 권한</th>${ROLES.map(([, t]) => `<th class="pmd">${t}</th>`).join('')}</tr></thead><tbody>
+      <tr class="pmsec"><td colspan="7">화면 보기</td></tr>
+      ${Object.keys(c.tabs).map((k) => `<tr data-row="${k}"><td>${esc(DESC[k] || c.labels[k] || k)}</td><td><select data-tabmin="${k}" aria-label="${esc(c.labels[k] || k)} 보이는 권한">${LEVELS.filter(([v]) => v >= c.limits[k]).map(([v]) => `<option value="${v}" ${v === c.tabs[k] ? 'selected' : ''}>${lv(v)}</option>`).join('')}</select></td>${dots(c.tabs[k])}</tr>`).join('')}
+      <tr class="pmsec"><td colspan="7">입력·수정 <span class="muted">(기록 보호를 위해 고정)</span></td></tr>
+      ${FIXED.map(([t, m]) => `<tr><td>${esc(t)}</td><td class="muted">${esc(lv(m))}</td>${dots(m)}</tr>`).join('')}
+      </tbody></table></div>
+      <div class="sub" style="margin-top:12px"><b>권한별로 보이는 탭</b></div><div id="pmSum" class="pmsum"></div>
+      <div class="sub">Guest로 연 탭은 로그인 화면의 "로그인 없이 보기"로 누구나 볼 수 있습니다 (보기만, 사진·고치기·삭제 없음). 검수·투입은 작업자 이상, 관리는 중간관리자 이상으로만 정할 수 있습니다.</div>
       <div class="savebar"><button type="button" class="btn" id="tabsSave">저장</button><span class="msg" id="tabsMsg"></span></div></section>`;
+    const sum = () => {
+      const cur = {}; document.querySelectorAll('[data-tabmin]').forEach((s) => { cur[s.dataset.tabmin] = Number(s.value); const tr = s.closest('tr'); tr.querySelectorAll('.pmd').forEach((td, i) => { td.textContent = ROLES[i][0] >= cur[s.dataset.tabmin] ? '●' : '–'; }); });
+      $('pmSum').innerHTML = ROLES.map(([v, t]) => `<div><b>${t}</b><span>${Object.keys(cur).filter((k) => v >= cur[k]).map((k) => esc(c.labels[k] || k)).join(' · ') || '없음'}</span></div>`).join('');
+    };
+    document.querySelectorAll('[data-tabmin]').forEach((s) => { s.onchange = sum; }); sum();
     $('tabsSave').onclick = async () => {
       const next = {}; document.querySelectorAll('[data-tabmin]').forEach((s) => { next[s.dataset.tabmin] = Number(s.value); });
       R.busy($('tabsSave'), true, '저장 중…');

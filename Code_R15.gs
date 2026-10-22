@@ -2268,6 +2268,9 @@ function r15Issues_(rec, ctx) {
   if (key && ctx.dup[key] > 1) add('DUPLICATE', 'error', '같은 Pallet가 ' + ctx.dup[key] + '번 저장됨');
   const code = r15LabelCode_(rec.codeRaw);
   if (code && rec.inboundNo && rec.pallet && (rec.inboundNo.slice(-code[1].length) !== code[1] || Number(code[2]) !== rec.pallet)) add('CODE_MISMATCH', 'error', '라벨 바코드 ' + code[0] + '와 저장된 번호 다름');
+  // 라벨에서 8자리 입고번호를 읽었는데 '기준값이 맞습니다'로 차량 기준 번호로 바꿔 저장한 경우: 다른 차량 Pallet일 가능성이 크다
+  const ov = String(rec.note || '').match(/입고번호 기준값 확인\(읽은 값 (\d{8,})\)/);
+  if (ov && rec.inboundNo && ov[1] !== rec.inboundNo) add('INBOUND_OVERRIDE', 'error', '라벨 입고번호 ' + ov[1] + '를 ' + rec.inboundNo + '로 바꿔 저장 · 다른 차량인지 확인');
   if (!rec.wmsPhoto) add('NO_WMS_PHOTO', 'error', 'WMS 라벨 사진 없음');
   if (!rec.vendorPhoto) add('NO_VENDOR_PHOTO', 'warn', '업체 라벨 사진 없음');
   if (!rec.qty) add('NO_QTY', 'warn', 'WMS 수량 없음');
