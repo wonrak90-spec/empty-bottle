@@ -74,7 +74,9 @@
     const stop = (label) => out.push({ ok: false, label, hard: false, stop: true });
     if (num(c.qty)) { if (num(c.qty) === num(b.qty)) add(true, 'WMS 수량 기준과 같음', false); else stop(`WMS 수량 ${fmt(c.qty)} (기준 ${fmt(b.qty)})`); }
     else add(false, 'WMS 수량 없음', false);
-    if (num(c.vQty) && num(c.qty)) add(num(c.vQty) === num(c.qty), num(c.vQty) === num(c.qty) ? '업체 수량 일치' : `업체 수량 ${fmt(c.vQty)} ≠ WMS ${fmt(c.qty)}`, num(c.vQty) !== num(c.qty));
+    const vq = num(c.vQty), wq = num(c.qty);
+    if (vq && wq && vq !== wq && (vq * 2 < wq || vq > wq * 2)) add(false, `업체 수량 판독 불확실 (${fmt(c.vQty)}) · 사진 확인`, false);
+    else if (num(c.vQty) && num(c.qty)) add(num(c.vQty) === num(c.qty), num(c.vQty) === num(c.qty) ? '업체 수량 일치' : `업체 수량 ${fmt(c.vQty)} ≠ WMS ${fmt(c.qty)}`, num(c.vQty) !== num(c.qty));
     else if (num(c.vQty) && num(b.qty) && num(c.vQty) !== num(b.qty)) stop(`업체 수량 ${fmt(c.vQty)} (기준 ${fmt(b.qty)}) · WMS 수량 없음`);
     const vm = vendorMatch(S.items[b.itemCode], c.vProduct, c.supplier || b.supplier);
     if (c.vProduct) add(vm.result === '일치', vm.result === '일치' ? '업체 품명 일치' : `업체 품명 ${vm.result}${vm.note ? ' · ' + vm.note : ''}`, vm.hard);
@@ -413,7 +415,7 @@
       manufacturer: b.manufacturer, supplier: b.supplier, displayQty: c.qty, unit: b.unit || 'EA', expiryDate: b.expiryDate,
       containerFrom: c.pallet, containerTo: c.pallet, codeRaw: c.codeRaw || (c.inboundNo + '-' + String(c.pallet).padStart(4, '0')),
       infoMatch: c.inboundNo === b.inboundNo && (!c.itemCode || c.itemCode === b.itemCode) ? '일치' : '불일치', mixed: c.itemCode && c.itemCode !== b.itemCode ? '있음' : '없음',
-      actualQty: c.vQty || c.qty, qtyResult, finalResult: bad.length ? '확인필요' : '적합',
+      actualQty: (num(c.vQty) && num(c.qty) && (num(c.vQty) * 2 < num(c.qty) || num(c.vQty) > num(c.qty) * 2) ? c.qty : c.vQty || c.qty), qtyResult, finalResult: bad.length ? '확인필요' : '적합',
       note: [c.note, (c.confirmed || []).join(', '), c.bc ? '바코드' + (c.bcNote ? '(' + c.bcNote + ')' : '') : '', late ? '저장 후 대조' : '', noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
       ocrRaw: c.ocrRaw, labelMatch: vm.result,
       vendorProduct: c.vProduct, vendorQty: c.vQty, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,

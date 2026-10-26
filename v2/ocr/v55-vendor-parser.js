@@ -521,9 +521,45 @@
     else if(detectDonghwa(raw,rows,base))out=parseDonghwa(raw,items,base);
     else if(detectDonga(raw,rows))out=parseDonga(raw,items,base);
     else P.lastTemplate=(window.V26VendorTemplates&&V26VendorTemplates.lastTemplate)||'';
-    return recoverGenericCore(raw,items,out);
+    return finishVendor(raw,items,recoverGenericCore(raw,items,out));
   };
+  // 생산일자: "생산일자26년09월25일 0시0분", "26년 0925일", "2026.09.24" 등. 연도는 2자리도 받는다.
+  function vendorDateTime(src){
+    src=fixDigits(String(src||''));
+    const ok=(y,m,d)=>{y=Number(y);m=Number(m);d=Number(d);if(y<100)y+=2000;if(y<2020||y>2099||m<1||m>12||d<1||d>31)return '';const x=new Date(y,m-1,d);return x.getMonth()===m-1?y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):'';};
+    let d='',at=-1,m=src.match(/((?:20)?\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
+    if(!m)m=src.match(/((?:20)?\d{2})\s*년\s*(\d{2})\s*(\d{2})\s*일/);
+    if(!m)m=src.match(/생\s*산\s*일\s*[자재짜]?\D{0,3}(20\d{2}|\d{2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})/);
+    if(m){d=ok(m[1],m[2],m[3]);at=m.index+m[0].length;}
+    let tm='';
+    if(d){const t=src.slice(at,at+14).match(/^\D{0,3}(\d{1,2})\s*시\s*(\d{1,2})\s*분/);if(t&&Number(t[1])<24&&Number(t[2])<60)tm=String(Number(t[1])).padStart(2,'0')+':'+String(Number(t[2])).padStart(2,'0');}
+    return {d,tm};
+  }
+  // 품명 칸에 생산일자·주의문구·숫자 줄이 섞여 들어오면 잘라내고, 한글 품명이 남지 않으면 비운다 (빈칸이 잡글자보다 낫다)
+  function tidyProduct(x){
+    x=cleanProduct(x||'');
+    const cut=x.search(/생\s*산|제\s*조|\d{2}\s*년|\d+\s*시|제품으로|충격|파손|주의|취급/);
+    if(cut>=0)x=x.slice(0,cut).trim();
+    const g=x.match(/유리병\s*[（(]?\s*[각강갹긱]\s*병\s*[)）]?/);
+    if(g){const v=x.match(/\d{1,4}\s*ml/i);x='유리병(각병)'+(v?' '+v[0].replace(/\s+/g,''):'');}
+    const ko=x.replace(/\d+\s*ml/ig,'').match(/[가-힣]{2,}/g)||[];
+    if(!ko.some(w=>/병|판콜|활명|용기|바이알|앰플|유리/.test(w))&&ko.join('').length<4)return '';
+    return x.replace(/\s+/g,' ').trim();
+  }
+  function finishVendor(raw,items,out){
+    out={...(out||{})};
+    const src=rowsOf(raw,items).join('\n')+'\n'+String(raw||'');
+    if(!out.prodDate){const v=vendorDateTime(src);if(v.d){out.prodDate=v.d;if(v.tm&&!out.prodTime)out.prodTime=v.tm;}}
+    if(out.product){
+      let p=tidyProduct(out.product);
+      if(!p){const v=(String(out.product).match(/\d{1,4}\s*m[l1i]/i)||[''])[0],g=src.match(/유리병\s*[（(]?\s*[각강갹긱]\s*병/);if(g)p='유리병(각병)'+(/100/.test(v)||/\b100\s*m[l1i]/i.test(src)?' 100ml':'');}
+      if(p)out.product=p;else delete out.product;
+    }
+    // 한 Pallet 공병이 100개 미만일 수는 없다: 글자 오독으로 본다
+    if(out.qty&&Number(String(out.qty).replace(/\D/g,''))<100)delete out.qty;
+    return out;
+  }
 
-  P._test={strongTimestampPallet,detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
+  P._test={vendorDateTime,tidyProduct,finishVendor,strongTimestampPallet,detectSGC,parseSGC,cleanProduct,productScore,joinProductRows,bestProduct,canonicalKnownProduct,editDistance,nearHangulToken,palletLabelDongaRe,palletLabelDonghwaRe,rowsOf,itemRowObjects,labelValueByRow,detectDonghwa,detectDonga,formulaFactors,rejectInferredFormulaPallet,recoverDongaPallet,recoverDonghwaPallet,stripDongaPalletNoise};
   console.info('[V57.2-VENDOR-PARSER-3.7.1] timestamp-pallet guard + field recovery ready');
 })();

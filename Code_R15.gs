@@ -2360,7 +2360,11 @@ function r15Issues_(rec, ctx) {
   if (!rec.wmsPhoto) add('NO_WMS_PHOTO', 'error', 'WMS 라벨 사진 없음');
   if (!rec.vendorPhoto) add('NO_VENDOR_PHOTO', 'warn', '업체 라벨 사진 없음');
   if (!rec.qty) add('NO_QTY', 'warn', 'WMS 수량 없음');
-  if (rec.qty && rec.vendorQty && rec.qty !== rec.vendorQty) add('QTY_MISMATCH', 'error', '수량 불일치 (WMS ' + rec.qty + ' / 업체 ' + rec.vendorQty + ')');
+  // 업체 수량이 WMS의 절반 미만·두 배 초과면 글자 오독일 가능성이 커서 불일치(오류) 대신 판독 불확실(주의)로 둔다
+  if (rec.qty && rec.vendorQty && rec.qty !== rec.vendorQty) {
+    if (rec.vendorQty * 2 < rec.qty || rec.vendorQty > rec.qty * 2) add('VENDOR_QTY_UNREAD', 'warn', '업체 수량 판독 불확실 (읽은 값 ' + rec.vendorQty + ') · 사진 확인');
+    else add('QTY_MISMATCH', 'error', '수량 불일치 (WMS ' + rec.qty + ' / 업체 ' + rec.vendorQty + ')');
+  }
   const item = ctx.items[rec.itemCode];
   if (!rec.itemCode) add('NO_ITEM', 'warn', '품목코드 없음');
   else if (!item) add('UNKNOWN_ITEM', 'warn', '기준정보에 없는 품목코드 ' + rec.itemCode);
