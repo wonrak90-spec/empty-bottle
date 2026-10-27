@@ -84,8 +84,7 @@
     // 추적의 핵심: 업체 생산일시와 업체 P번호. 못 읽었으면 다시 찍거나 직접 적게 알린다
     else if (c.vendorDone && !busyOf(c).vendor) {
       if (!c.vDate) add(false, '업체 생산일 못 읽음 · 다시 찍거나 직접 입력', false);
-      else if (!c.vTime) add(false, '업체 생산시간 못 읽음', false);
-      if (!c.vPallet) add(false, '업체 P번호 못 읽음 · 다시 찍거나 직접 입력', false);
+      else if (!c.vTime) add(false, '업체 생산시간 못 읽음 · 다시 찍거나 직접 입력', false);
     }
     const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
     // 대기열에 아직 있는 번호(전송 중·확인 필요)도 같은 번호를 두 번 넣는 실수다

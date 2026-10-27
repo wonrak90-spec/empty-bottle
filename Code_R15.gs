@@ -2360,10 +2360,10 @@ function r15Issues_(rec, ctx) {
   if (!rec.wmsPhoto) add('NO_WMS_PHOTO', 'error', 'WMS 라벨 사진 없음');
   if (!rec.vendorPhoto) add('NO_VENDOR_PHOTO', 'warn', '업체 라벨 사진 없음');
   else {
-    // 업체 생산일시와 업체 P번호가 추적의 핵심이다
-    if (!rec.vendorProdDate) add('NO_VENDOR_DATE', 'warn', '업체 생산일 없음');
-    else if (!rec.vendorProdTime) add('NO_VENDOR_TIME', 'info', '업체 생산시간 없음');
-    if (!rec.vendorPalletNo) add('NO_VENDOR_PNO', 'warn', '업체 P번호 없음');
+    // 업체 생산일시가 추적의 핵심이다 (P번호는 참고: 없어도 보고서에 띄우지 않는다)
+    if (!rec.vendorProdDate) add('NO_VENDOR_DATE', 'warn', '업체 생산일시 없음');
+    else if (!rec.vendorProdTime) add('NO_VENDOR_TIME', 'warn', '업체 생산시간 없음');
+    if (!rec.vendorPalletNo) add('NO_VENDOR_PNO', 'info', '업체 P번호 없음');
   }
   const vp = r15S_(rec.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, '');
   if (vp && ctx.vpno && ctx.vpno[rec.inboundNo + '|' + vp] > 1) add('VENDOR_PNO_DUP', 'warn', '업체 P번호 ' + vp + '가 이 입고에서 ' + ctx.vpno[rec.inboundNo + '|' + vp] + '번 나옴 · 같은 라벨을 두 번 찍었는지 확인');
