@@ -175,10 +175,10 @@
       </div>
       ${records.some((r) => r.can && r.can.del) ? `<div class="bulk"><label class="chk"><input type="checkbox" id="detAll"> 지울 수 있는 기록 모두 선택</label><button type="button" class="btn ghost sm danger" id="detDelSel" disabled>선택 0건 삭제</button></div>` : ''}
       ${s.gaps.missing.length ? `<div class="warnbox">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
-      <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
+      <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th>업체 P번호</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
       ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td>
-        <td data-l="업체 생산일" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td>
+        <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
         <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
         <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
@@ -225,7 +225,7 @@
   const shortAt = (t) => String(t || '').replace(/^\d{4}-/, '');
   function sheetHtml(s, recs, ph, mode) {
     const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
-    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))}</td><td class="cut">${esc(String(r.vendorProduct || '').slice(0, 24))}</td>
+    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))} ${esc(r.vendorProdTime || '')}</td><td class="c">${esc(r.vendorPalletNo || '-')}</td>
       <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td>${r.usedIn.map((u) => `${esc(u.productName)} <b>${esc(u.lotNo)}</b>`).join('<br>')}</td></tr>`).join('');
     const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
     const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;
@@ -236,8 +236,8 @@
       <tr><th>입고일자</th><td>${esc(s.inboundDate)}</td><th>사용기한</th><td>${esc(s.expiryDate)}</td></tr><tr><th>검수일</th><td>${esc(s.days.join(', '))}</td><th>검수자</th><td>${esc(s.inspectors.join(', '))}</td></tr></table>
       <div class="kp"><div>Pallet<b>${s.palletCount}</b></div><div>총 수량<b>${fmt(s.qtyTotal)}</b></div><div>이상 없음<b>${s.okCount}</b></div><div class="${s.errorCount ? 'kbad' : ''}">오류 / 주의<b>${s.errorCount} / ${s.warnCount}</b></div><div>생산 투입<b>${s.usedCount}</b></div></div>
       ${s.gaps.missing.length ? `<div class="box">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
-      <table class="rec"><colgroup><col style="width:5%"><col style="width:10%"><col style="width:8%"><col style="width:8%"><col style="width:8%"><col style="width:14%"><col style="width:7%"><col style="width:23%"><col style="width:17%"></colgroup>
-      <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>업체 품명</th><th class="c">판정</th><th>데이터 점검</th><th>투입 제품 · Lot</th></tr></thead><tbody>${rows}</tbody></table>
+      <table class="rec"><colgroup><col style="width:5%"><col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:12%"><col style="width:7%"><col style="width:6%"><col style="width:27%"><col style="width:18%"></colgroup>
+      <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th class="c">업체 P번호</th><th class="c">판정</th><th>데이터 점검</th><th>투입 제품 · Lot</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div><b>검수</b><span></span></div><div><b>확인</b><span></span></div><div><b>승인</b><span></span></div></div></section>${photoPages}`;
   }
   function chunk(a, n) { const out = []; for (let i = 0; i < a.length; i += n) out.push(a.slice(i, i + n)); return out; }
@@ -280,8 +280,8 @@
   }
   async function csv() {
     const recsAll = await allRecords(); if (!recsAll) return;
-    const head = ['입고번호', 'Pallet', '검수일시', '품목코드', '품명(정식)', '저장된 품명', '공급업체', 'WMS수량', '업체수량', '업체품명', '업체생산일자', '판정', '데이터점검', '투입 제조번호', '검수자', 'WMS사진', '업체사진', '기록ID'];
-    const rows = recsAll.map((r) => [r.inboundNo, r.pallet, r.atText, r.itemCode, r.product, r.productRaw, r.supplier, r.qty, r.vendorQty, r.vendorProduct, r.vendorProdDate, r.finalResult,
+    const head = ['입고번호', 'Pallet', '검수일시', '품목코드', '품명(정식)', '저장된 품명', '공급업체', 'WMS수량', '업체수량', '업체품명', '업체생산일자', '업체생산시간', '업체P번호', '판정', '데이터점검', '투입 제조번호', '검수자', 'WMS사진', '업체사진', '기록ID'];
+    const rows = recsAll.map((r) => [r.inboundNo, r.pallet, r.atText, r.itemCode, r.product, r.productRaw, r.supplier, r.qty, r.vendorQty, r.vendorProduct, r.vendorProdDate, r.vendorProdTime, r.vendorPalletNo, r.finalResult,
       r.issues.filter((x) => x.level !== 'info').map((x) => x.label).join(' / '), r.usedIn.map((u) => u.productName + ' ' + u.lotNo).join(' / '), r.inspector, r.wmsPhoto, r.vendorPhoto, r.id]);
     const text = '﻿' + [head].concat(rows).map((row) => row.map((v) => { const s = String(v == null ? '' : v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; }).join(',')).join('\r\n');
     const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([text], { type: 'text/csv;charset=utf-8' })); a.download = `공병검수_${P.from}_${P.to}.csv`; a.click(); R.rec.note('보고서 CSV', `${P.from}~${P.to}`, rows.length); setTimeout(() => URL.revokeObjectURL(a.href), 120000); // iOS는 '다운로드할까요?' 확인 뒤에 받는다

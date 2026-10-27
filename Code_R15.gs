@@ -2303,7 +2303,7 @@ function r15UsedFor_(keys) {
   return used;
 }
 function r15CtxFor_(records) {
-  return { dup:r15DupMap_(), used:r15UsedFor_(records.map(function(r) { return r15Key_(r.inboundNo, r.pallet); }).filter(String)), items:r15ItemMap_(), acks:r15AckMap_() };
+  return { dup:r15DupMap_(), vpno:r15VpnoMap_(records), used:r15UsedFor_(records.map(function(r) { return r15Key_(r.inboundNo, r.pallet); }).filter(String)), items:r15ItemMap_(), acks:r15AckMap_() };
 }
 // 아직 투입 안 된 Pallet (검수 첫 기록 기준, 기간 제한 없음)
 function r15StockKeys_(since, code) {
@@ -2359,6 +2359,14 @@ function r15Issues_(rec, ctx) {
   if (ov && rec.inboundNo && ov[1] !== rec.inboundNo) add('INBOUND_OVERRIDE', 'error', '라벨 입고번호 ' + ov[1] + '를 ' + rec.inboundNo + '로 바꿔 저장 · 다른 차량인지 확인');
   if (!rec.wmsPhoto) add('NO_WMS_PHOTO', 'error', 'WMS 라벨 사진 없음');
   if (!rec.vendorPhoto) add('NO_VENDOR_PHOTO', 'warn', '업체 라벨 사진 없음');
+  else {
+    // 업체 생산일시와 업체 P번호가 추적의 핵심이다
+    if (!rec.vendorProdDate) add('NO_VENDOR_DATE', 'warn', '업체 생산일 없음');
+    else if (!rec.vendorProdTime) add('NO_VENDOR_TIME', 'info', '업체 생산시간 없음');
+    if (!rec.vendorPalletNo) add('NO_VENDOR_PNO', 'warn', '업체 P번호 없음');
+  }
+  const vp = r15S_(rec.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, '');
+  if (vp && ctx.vpno && ctx.vpno[rec.inboundNo + '|' + vp] > 1) add('VENDOR_PNO_DUP', 'warn', '업체 P번호 ' + vp + '가 이 입고에서 ' + ctx.vpno[rec.inboundNo + '|' + vp] + '번 나옴 · 같은 라벨을 두 번 찍었는지 확인');
   if (!rec.qty) add('NO_QTY', 'warn', 'WMS 수량 없음');
   // 업체 수량이 WMS의 절반 미만·두 배 초과면 글자 오독일 가능성이 커서 불일치(오류) 대신 판독 불확실(주의)로 둔다
   if (rec.qty && rec.vendorQty && rec.qty !== rec.vendorQty) {
@@ -2383,7 +2391,12 @@ function r15LabelCode_(v) {
 function r15Ctx_(records) {
   const dup = {}; records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) dup[k] = (dup[k] || 0) + 1; });
   const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
-  return { dup:dup, used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+  return { dup:dup, vpno:r15VpnoMap_(records), used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+}
+// 같은 입고번호 안에서 업체 P번호가 겹치면 같은 업체 라벨을 두 번 찍었을 수 있다
+function r15VpnoMap_(records) {
+  const m = {}; records.forEach(function(r) { const v = r15S_(r.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, ''); if (r.inboundNo && v) { const k = r.inboundNo + '|' + v; m[k] = (m[k] || 0) + 1; } });
+  return m;
 }
 // 폰 '서버 속도 확인'의 업로드 시험: 실제 크기 사진을 사진 폴더 안 '_속도시험'에 만들고 바로 휴지통으로 보낸다. 기록은 남기지 않는다.
 function r15SpeedUpload_(p) {
@@ -2883,8 +2896,8 @@ function r15PlanToday_() {
 /* ==================== R15 기록 수정·삭제 권한과 이력 ==================== */
 // 작업자: 본인이 오늘 저장한 기록만, 생산에 투입되지 않았을 때. 중간관리자 이상: 모든 기록.
 // 생산에 투입된 Pallet는 누구도 삭제할 수 없다 (투입 취소가 먼저). 모든 변경은 사유를 받고 AuditLog에 남긴다.
-const R15_WORKER_FIELDS = ['inboundNo','containerFrom','displayQty','actualQty','vendorProduct','vendorQty','vendorProdDate','vendorLotNo','note'];
-const R15_MANAGER_FIELDS = R15_WORKER_FIELDS.concat(['inboundDate','product','itemCode','manufacturer','supplier','unit','expiryDate','finalResult','vendorProdTime','vendorPalletNo','vendorLine']);
+const R15_WORKER_FIELDS = ['inboundNo','containerFrom','displayQty','actualQty','vendorProduct','vendorQty','vendorProdDate','vendorProdTime','vendorPalletNo','vendorLotNo','note'];
+const R15_MANAGER_FIELDS = R15_WORKER_FIELDS.concat(['inboundDate','product','itemCode','manufacturer','supplier','unit','expiryDate','finalResult','vendorLine']);
 function r15Today_() { return Utilities.formatDate(new Date(), R15_TZ, 'yyyy-MM-dd'); }
 function r15RecordPerm_(rec, auth, used) {
   if (!atLeastV24_(auth, 'worker')) return { edit:false, del:false, fields:[], why:'조회 권한은 기록을 고칠 수 없습니다.' };

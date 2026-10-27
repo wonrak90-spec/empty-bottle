@@ -81,6 +81,12 @@
     const vm = vendorMatch(S.items[b.itemCode], c.vProduct, c.supplier || b.supplier);
     if (c.vProduct) add(vm.result === '일치', vm.result === '일치' ? '업체 품명 일치' : `업체 품명 ${vm.result}${vm.note ? ' · ' + vm.note : ''}`, vm.hard);
     if (!c.vendorDone && !c.vendorPhotoKept) add(false, '업체 라벨 사진 없음', false);
+    // 추적의 핵심: 업체 생산일시와 업체 P번호. 못 읽었으면 다시 찍거나 직접 적게 알린다
+    else if (c.vendorDone && !busyOf(c).vendor) {
+      if (!c.vDate) add(false, '업체 생산일 못 읽음 · 다시 찍거나 직접 입력', false);
+      else if (!c.vTime) add(false, '업체 생산시간 못 읽음', false);
+      if (!c.vPallet) add(false, '업체 P번호 못 읽음 · 다시 찍거나 직접 입력', false);
+    }
     const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
     // 대기열에 아직 있는 번호(전송 중·확인 필요)도 같은 번호를 두 번 넣는 실수다
     if (ss) add(false, ss === 'done' ? `P${c.pallet}는 이미 저장됨` : `P${c.pallet}는 이미 이 폰 대기열에 있음`, true);
@@ -152,10 +158,11 @@
           ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: 'key' + (b && c.inboundNo && c.inboundNo !== b.inboundNo ? ' bad' : '') })}
           ${field('cItem', '품목코드', c.itemCode, { num: true })}
           ${field('cQty', 'WMS 수량', c.qty, { num: true })}
-          ${field('cVProduct', '업체 품명', c.vProduct)}
+          ${field('cVDate', '업체 생산일자', c.vDate, { ph: 'yyyy-mm-dd', cls: 'key' + (c.vendorDone && !c.vDate ? ' need' : '') })}
+          ${field('cVTime', '업체 생산시간', c.vTime, { ph: 'hh:mm', cls: 'key' + (c.vendorDone && !c.vTime ? ' need' : '') })}
+          ${field('cVPallet', '업체 P-번호', c.vPallet, { num: true, cls: 'key' + (c.vendorDone && !c.vPallet ? ' need' : '') })}
           ${field('cVQty', '업체 수량', c.vQty, { num: true })}
-          ${field('cVDate', '업체 생산일자', c.vDate, { ph: 'yyyy-mm-dd' })}
-          ${field('cVPallet', '업체 P-번호', c.vPallet)}
+          ${field('cVProduct', '업체 품명', c.vProduct, { ph: '등록된 품명과 맞을 때만 채워짐' })}
         </div>
         <div class="fixes" id="fixBox"></div>
         <div class="checks" id="checksBox"></div>
@@ -233,14 +240,14 @@
     const c = S.cur; if (!c || !$('cPallet')) return;
     c.pallet = digits($('cPallet').value).replace(/^0+(?=\d)/, ''); c.inboundNo = digits($('cInbound').value); c.itemCode = digits($('cItem').value);
     c.qty = digits($('cQty').value); c.vProduct = $('cVProduct').value.trim(); c.vQty = digits($('cVQty').value);
-    c.vDate = $('cVDate').value.trim(); c.vPallet = $('cVPallet').value.trim(); c.note = $('cNote').value;
+    c.vDate = $('cVDate').value.trim(); c.vTime = $('cVTime').value.trim(); c.vPallet = $('cVPallet').value.trim(); c.note = $('cNote').value;
     persist();
   }
   function bindPallet() {
     bindShots();
     if ($('seqBtn')) $('seqBtn').onclick = startSequence;
     if ($('autoCam')) $('autoCam').onchange = (e) => { try { localStorage.setItem(AUTO, e.target.checked ? '1' : '0'); } catch (_) {} };
-    ['cPallet', 'cInbound', 'cItem', 'cQty', 'cVProduct', 'cVQty', 'cVDate', 'cVPallet', 'cNote'].forEach((id) => $(id).addEventListener('input', () => { readCur(); refreshChecks(); }));
+    ['cPallet', 'cInbound', 'cItem', 'cQty', 'cVProduct', 'cVQty', 'cVDate', 'cVTime', 'cVPallet', 'cNote'].forEach((id) => $(id).addEventListener('input', () => { readCur(); refreshChecks(); }));
 
     $('saveBtn').onclick = savePallet;
     $('clearCur').onclick = () => { if (!confirm('이 Pallet 입력을 지우고 다시 찍을까요?')) return; S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render(); };
@@ -350,7 +357,13 @@
       if (it && (it.vendor || []).length) {
         const L = vendorLists(it, sup), lines = [p.product || ''].concat(String(r.text || '').split(/\n/));
         let hit = null; lines.forEach((ln) => { const m = ln && vnBest(ln, L.same); if (m && (!hit || m.score > hit.score)) hit = m; });
-        if (hit) c.vProduct = hit.name;
+        // 등록된 품명과 맞을 때만 적는다. 다른 공급업체·다른 품목 이름이 확실히 보이면 그 이름을 적어 오류로 걸리게 하고, 애매한 글자는 비운다
+        if (!hit) {
+          const pick = (lists, min) => { let h = null; lines.forEach((ln) => { const m = ln && vnBest(ln, lists); if (m && m.score >= min && (!h || m.score > h.score)) h = m; }); return h; };
+          hit = pick(L.rest, 0.8);
+          if (!hit) Object.keys(S.items).forEach((k) => { if (!hit && S.items[k] !== it) hit = pick(S.items[k].vendor || [], 0.8); });
+        }
+        c.vProduct = hit ? hit.name : '';
       }
       c.status = `업체 라벨 ${R.ocr.lastEngine} 완료`;
     }
