@@ -344,7 +344,7 @@
         Object.assign(c, keep, { palletNote: '' }); c.status = `바코드 + ${R.ocr.lastEngine} 완료${c.bcNote ? ' · ' + c.bcNote : ''}`;
       }
     } else {
-      Object.assign(c, { vProduct: p.product || '', vQty: digits(p.qty), vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
+      Object.assign(c, { vProduct: p.product || '', vQty: Number(digits(p.qty)) >= 100 ? digits(p.qty) : '', vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
       // 품명 목록과 맞으면 읽은 글자 대신 목록의 품명으로 저장한다 (원문은 OCR 원문에 남는다). 줄 단위로도 찾아 본다.
       const it = S.items[c.itemCode || (S.base && S.base.itemCode)], sup = c.supplier || (S.base && S.base.supplier);
       if (it && (it.vendor || []).length) {

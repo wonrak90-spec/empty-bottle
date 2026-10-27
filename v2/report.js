@@ -177,7 +177,7 @@
       ${s.gaps.missing.length ? `<div class="warnbox">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
       <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
       ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
-        <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${fmt(r.vendorQty)}</td>
+        <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td>
         <td data-l="업체 생산일" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
         <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
@@ -225,7 +225,7 @@
   const shortAt = (t) => String(t || '').replace(/^\d{4}-/, '');
   function sheetHtml(s, recs, ph, mode) {
     const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
-    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${fmt(r.vendorQty)}</td><td class="nw">${esc(shortAt(r.vendorProdDate))}</td><td class="cut">${esc(String(r.vendorProduct || '').slice(0, 24))}</td>
+    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))}</td><td class="cut">${esc(String(r.vendorProduct || '').slice(0, 24))}</td>
       <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td>${r.usedIn.map((u) => `${esc(u.productName)} <b>${esc(u.lotNo)}</b>`).join('<br>')}</td></tr>`).join('');
     const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
     const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;

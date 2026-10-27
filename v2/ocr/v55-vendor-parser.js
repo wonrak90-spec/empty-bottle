@@ -543,7 +543,7 @@
     const g=x.match(/유리병\s*[（(]?\s*[각강갹긱]\s*병\s*[)）]?/);
     if(g){const v=x.match(/\d{1,4}\s*ml/i);x='유리병(각병)'+(v?' '+v[0].replace(/\s+/g,''):'');}
     const ko=x.replace(/\d+\s*ml/ig,'').match(/[가-힣]{2,}/g)||[];
-    if(!ko.some(w=>/병|판콜|활명|용기|바이알|앰플|유리/.test(w))&&ko.join('').length<4)return '';
+    if(!ko.some(w=>/병|판콜|활명|용기|바이알|앰플/.test(w))&&!ko.some(w=>w.length>=4))return '';
     return x.replace(/\s+/g,' ').trim();
   }
   function finishVendor(raw,items,out){
