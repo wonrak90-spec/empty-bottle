@@ -292,6 +292,53 @@
 
   // WMS 라벨 바코드(Code39 "260047330030" = 입고번호 8자리 + Pallet 4자리)를 사진에서 바로 읽는다.
   // BarcodeDetector가 있는 폰(안드로이드 크롬 등)만. 없으면 글자 인식으로 읽는다.
+  // 동아에코팩 인쇄 라벨의 QR: "까스활명수75ml/당진 3F/19/3.5/900 x 12단 : 10,800本/검사자/포장자/동화약품(주)/동아에코팩(주)/20261009/15:52~16:17/"
+  // 글자 인식보다 정확하고 빠르다. 생산일·시간·P번호·수량을 그대로 쓴다.
+  function parseVendorQR(text) {
+    const s = String(text || ''), parts = s.split('/').map((x) => x.trim());
+    const d = parts.find((x) => /^20\d{6}$/.test(x)), tm = parts.find((x) => /^\d{1,2}:\d{2}(\s*~\s*\d{1,2}:\d{2})?$/.test(x));
+    if (!d) return null;
+    const date = `${d.slice(0, 4)}-${d.slice(4, 6)}-${d.slice(6, 8)}`, q = (s.match(/[:=]\s*([\d,]{3,})\s*[本본]/) || [])[1];
+    const pal = parts.slice(1, 4).find((x) => /^\d{1,4}$/.test(x));
+    return { prodDate: date, prodTime: tm ? tm.split('~')[0].trim().padStart(5, '0') : '', timeRange: tm || '', palletNo: pal || '', qty: q ? q.replace(/,/g, '') : '', product: parts[0] || '', raw: s };
+  }
+  let zx = null;
+  // BarcodeDetector가 없는 폰은 QR 찾기에 1초쯤 더 든다: QR 라벨을 쓰는 업체(동아, 또는 한 번이라도 QR이 읽힌 업체)만 찾는다
+  const QS = 'r15.qrSup';
+  const qrSups = () => { try { return JSON.parse(localStorage.getItem(QS) || '[]'); } catch (_) { return []; } };
+  function qrWorth(sup) { return 'BarcodeDetector' in window || /동아/.test(sup || '') || qrSups().includes(sup); }
+  function qrLearn(sup) { if (!sup) return; const a = qrSups(); if (!a.includes(sup)) { a.push(sup); try { localStorage.setItem(QS, JSON.stringify(a.slice(-20))); } catch (_) {} } }
+  async function qrTexts(dataUrl) {
+    const img = await createImageBitmap(await (await fetch(dataUrl)).blob());
+    if ('BarcodeDetector' in window) {
+      try { const det = new BarcodeDetector({ formats: ['qr_code'] }); const r = await det.detect(img); if (r.length) return r.map((b) => b.rawValue); } catch (_) {}
+    }
+    // iPhone 등 BarcodeDetector가 없는 폰: zxing-wasm(약 1MB, 처음 한 번 받고 단말에 보관)
+    try {
+      // wasm도 cdn.jsdelivr.net에서 받게 해야 sw.js가 모델처럼 단말에 보관한다 (기본값은 fastly.jsdelivr.net)
+      zx = zx || import('https://cdn.jsdelivr.net/npm/zxing-wasm@2.1.2/dist/es/reader/index.js').then((m) => {
+        m.prepareZXingModule({ overrides: { locateFile: (f, p) => (f.endsWith('.wasm') ? 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.1.2/dist/reader/' + f : p + f) } });
+        return m;
+      });
+      const Z = await zx, W = img.width, H = img.height;
+      // 저장 크기로 줄인 사진에서는 QR 칸이 작아 못 읽는 일이 많다: 전체 → 겹치는 조각을 2배로 키워 다시
+      const regs = [[0, 0, 1, 1, 1], [0, .3, 1, .7, 2], [0, 0, 1, .55, 2], [0, .45, 1, .55, 2], [0, .2, .6, .6, 2.5], [.4, .2, .6, .6, 2.5]];
+      for (const [x, y, w, h, k] of regs) {
+        const sw = W * w, sh = H * h, f = Math.min(k, 2400 / Math.max(sw, sh));
+        const c = document.createElement('canvas'); c.width = Math.round(sw * f); c.height = Math.round(sh * f);
+        const g = c.getContext('2d'); g.imageSmoothingQuality = 'high'; g.drawImage(img, W * x, H * y, sw, sh, 0, 0, c.width, c.height);
+        const r = await Z.readBarcodes(g.getImageData(0, 0, c.width, c.height), { formats: ['QRCode'], tryHarder: true, maxNumberOfSymbols: 1 });
+        const t = r.filter((q) => q.text).map((q) => q.text);
+        if (t.length) return t;
+      }
+      return [];
+    } catch (_) { zx = null; return []; }
+  }
+  async function readVendorQR(dataUrl) {
+    try { for (const t of await qrTexts(dataUrl)) { const p = parseVendorQR(t); if (p) return p; } } catch (_) {}
+    return null;
+  }
+  R.inspect.parseVendorQR = parseVendorQR; R.inspect.readVendorQR = readVendorQR;
   async function readBarcode(dataUrl) {
     if (!('BarcodeDetector' in window)) return null;
     try {
@@ -320,6 +367,17 @@
     if (kind === 'wms') {
       const bc = await readBarcode(forOcr);
       if (bc && here()) { Object.assign(cur, { inboundNo: bc.inboundNo, pallet: bc.pallet, codeRaw: bc.raw, bc: true }); cur.status = '바코드 읽음 · 글자 확인 중'; }
+    }
+    const sup = cur.supplier || (S.base && S.base.supplier) || '';
+    if (kind === 'vendor' && qrWorth(sup)) {
+      const q = await readVendorQR(forOcr);
+      if (q) qrLearn(sup);
+      if (q && here()) {
+        const it = S.items[cur.itemCode || (S.base && S.base.itemCode)], L = vendorLists(it, cur.supplier || (S.base && S.base.supplier)), m = L.same.length ? vnBest(q.product, L.same) : null;
+        Object.assign(cur, { vDate: q.prodDate, vTime: q.prodTime, vPallet: q.palletNo, vQty: vendorQtyPick(q.qty, '', cur.qty || (S.base && S.base.qty)), vProduct: m ? m.name : '', vOcrRaw: 'QR: ' + q.raw + (q.timeRange ? ' (생산 ' + q.timeRange + ')' : ''), vQr: true });
+        tm.vendorOcr = 0; tm.vendorDone = Date.now(); tm.vendorPass = 'qr';
+        x.vendor = false; cur.status = 'QR 읽음 · 생산일시·P번호 확인됨'; persist(); render(); return; // QR이면 글자 인식을 건너뛴다
+      }
     }
     if (here()) render();
     const job = (async () => {

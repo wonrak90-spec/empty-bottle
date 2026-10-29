@@ -527,15 +527,17 @@
   function vendorDateTime(src){
     src=fixDigits(String(src||''));
     const ok=(y,m,d)=>{y=Number(y);m=Number(m);d=Number(d);if(y<100)y+=2000;if(y<2020||y>2099||m<1||m>12||d<1||d>31)return '';const x=new Date(y,m-1,d);return x.getMonth()===m-1?y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0'):'';};
-    let d='',at=-1,m=src.match(/((?:20)?\d{2})\s*년\s*(\d{1,2})\s*월\s*(\d{1,2})\s*일/);
-    if(!m)m=src.match(/((?:20)?\d{2})\s*년\s*(\d{2})\s*(\d{2})\s*일/);
+    // 년·월·일 글자도 비슷한 글자로 잘못 읽힌다 (넌·윌·잉 등)
+    let d='',at=-1,m=src.match(/((?:20)?\d{2})\s*[년넌닌]\s*(\d{1,2})\s*[월윌원]\s*(\d{1,2})\s*[일잉얼]/);
+    if(!m)m=src.match(/((?:20)?\d{2})\s*[년넌닌]\s*(\d{2})\s*(\d{2})\s*[일잉얼]/);
     if(!m)m=src.match(/생\s*산\s*일\s*[자재짜]?\D{0,3}(20\d{2}|\d{2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})/);
     if(m){d=ok(m[1],m[2],m[3]);at=m.index+m[0].length;}
+    const strong=!!d;
     // 동아에코팩 손글씨 표지: "10월 9일"처럼 연도가 없다. 올해로 보고, 미래면 작년
-    if(!d){const n=src.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);if(n){const now=new Date(),y=now.getFullYear();d=ok(y,n[1],n[2]);const lim=new Date(now.getTime()+2*864e5);if(d&&new Date(d)>lim)d=ok(y-1,n[1],n[2]);at=n.index+n[0].length;}}
+    if(!d){const n=src.match(/(\d{1,2})\s*[월윌원]\s*(\d{1,2})\s*[일잉얼]/);if(n){const now=new Date(),y=now.getFullYear();d=ok(y,n[1],n[2]);const lim=new Date(now.getTime()+2*864e5);if(d&&new Date(d)>lim)d=ok(y-1,n[1],n[2]);at=n.index+n[0].length;}}
     let tm='';
-    if(d){const t=src.slice(at,at+14).match(/^\D{0,3}(\d{1,2})\s*시\s*(\d{1,2})\s*분/);if(t&&Number(t[1])<24&&Number(t[2])<60)tm=String(Number(t[1])).padStart(2,'0')+':'+String(Number(t[2])).padStart(2,'0');}
-    return {d,tm};
+    if(d){const t=src.slice(at,at+14).match(/^\D{0,3}(\d{1,2})\s*[시사지]\s*(\d{1,2})\s*[분푼본]/)||src.slice(at,at+20).match(/^\D{0,8}?(\d{1,2})\s*:\s*(\d{2})(?!\d)/);if(t&&Number(t[1])<24&&Number(t[2])<60)tm=String(Number(t[1])).padStart(2,'0')+':'+String(Number(t[2])).padStart(2,'0');}
+    return {d,tm,strong};
   }
   // 품명 칸에 생산일자·주의문구·숫자 줄이 섞여 들어오면 잘라내고, 한글 품명이 남지 않으면 비운다 (빈칸이 잡글자보다 낫다)
   function tidyProduct(x){
@@ -548,13 +550,20 @@
     if(!ko.some(w=>/병|판콜|활명|용기|바이알|앰플/.test(w))&&!ko.some(w=>w.length>=4))return '';
     return x.replace(/\s+/g,' ').trim();
   }
+  // 생산일은 오늘+2일 ~ 400일 전 사이여야 한다 (그 밖은 오독)
+  function vdSane(d){const t=new Date(d+'T00:00:00').getTime(),n=Date.now();return /^20\d{2}-\d{2}-\d{2}$/.test(d)&&t<=n+2*864e5&&t>=n-400*864e5;}
   function finishVendor(raw,items,out){
     out={...(out||{})};
     const src=rowsOf(raw,items).join('\n')+'\n'+String(raw||'');
     // 날짜는 읽었는데 시간(손글씨)만 못 읽은 경우에도 다시 찾아 본다
     const v=vendorDateTime(src);
-    if(!out.prodDate&&v.d)out.prodDate=v.d;
+    // "2026년10월09일"처럼 년월일이 다 있으면 그게 맞다: 옛 파서가 "03:10 ~ 03"을 2003-10-03으로 읽던 일
+    if(v.d&&(v.strong||!out.prodDate))out.prodDate=v.d;
+    if(out.prodDate&&!vdSane(out.prodDate))delete out.prodDate;
     if(!out.prodTime&&v.tm&&v.d===out.prodDate)out.prodTime=v.tm;
+    // 동아 인쇄 라벨 "P/L No. 19 3.5": 띄어쓰기가 빠지면 "193.5"로 붙는다 (뒤의 3.5는 늘 같은 값)
+    const pl=fixDigits(src).match(/P\s*\/?\s*L\s*N\s*[o0O]\s*\.?\s*(\d{1,3}?)\s*3\s*[.,]\s*5(?!\d)/i);
+    if(pl&&pl[1])out.palletNo=String(Number(pl[1]));
     // 동화 라벨 수량 "27 * 28 * 12 단 = 9,072 본": 곱은 따로 넘긴다. 검수 화면이 WMS 수량과 맞을 때만 쓴다 (인수 하나만 잘못 읽어도 곱이 틀린다)
     const f=fixDigits(src).match(/(\d{1,3})\s*[*xX×·•]\s*(\d{1,3})\s*[*xX×·•]\s*(\d{1,3})\s*단/);
     if(f){const prod=f[1]*f[2]*f[3];if(prod>=1000&&prod<=999999)out.qtyCalc=String(prod);}
