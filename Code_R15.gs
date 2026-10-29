@@ -284,7 +284,7 @@ function doPost(e) {
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
     const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave','r15ArchiveRun','r15BackupRun','r15BackupSetup'];
-    const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave'];
+    const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave','r15LinesSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
     const auth = authorizeSessionV24_(session, needRole);
@@ -1998,6 +1998,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15BackupRun') return r15BackupRun_(auth);
   if (action === 'r15BackupSetup') return r15BackupSetup_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
+  if (action === 'r15LinesSave') return r15LinesSave_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
 }
 
@@ -2814,7 +2815,21 @@ function r15Lots_() {
   Object.keys(ix.byPid).forEach(function(p) { cnt[p] = ix.byPid[p].length; });
   const list = r15Productions_().sort(function(a, b) { return (a.status === '진행중' ? 0 : 1) - (b.status === '진행중' ? 0 : 1) || b.at - a.at; }).slice(0, 40)
     .map(function(p) { return { id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, at:p.atText, workers:p.workers, palletCount:cnt[p.id] || 0 }; });
-  return { ok:true, lots:list, products: recentProducts_().products || [], plan: r15PlanToday_() };
+  return { ok:true, lots:list, products: recentProducts_().products || [], plan: r15PlanToday_(), lines: r15Lines_() };
+}
+// 라인 설정: A~D 라인마다 만드는 제품과 쓰는 공병 품목. 투입 보드가 제품 목록과 공병 확인에 쓴다
+function r15Lines_() {
+  let m = {}; try { m = JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LINES') || '{}') || {}; } catch (e) {}
+  const out = {}; ['A', 'B', 'C', 'D'].forEach(function(k) { const x = m[k] || {}; out[k] = { products: (x.products || []).map(r15S_).filter(String), bottles: (x.bottles || []).map(r15S_).filter(String) }; });
+  return out;
+}
+function r15LinesSave_(p, auth) {
+  const src = p.lines || {}, out = {};
+  ['A', 'B', 'C', 'D'].forEach(function(k) { const x = src[k] || {}, u = function(a) { return (a || []).map(r15S_).filter(function(v, i, arr) { return v && arr.indexOf(v) === i; }).slice(0, 30); }; out[k] = { products: u(x.products), bottles: u(x.bottles) }; });
+  const before = r15Lines_(); PropertiesService.getScriptProperties().setProperty('R15_LINES', JSON.stringify(out));
+  try { CacheService.getScriptCache().remove('R15LIVE'); } catch (e) {}
+  appendAudit_('R15라인설정', '', { actor: actorLabelV24_(auth), before: before, after: out });
+  return { ok:true, lines:out };
 }
 // 투입 보드가 시작한 작업의 라인(A~D). 시트 열을 늘리지 않으려고 스크립트 속성에 최근 200건만 둔다
 function r15LotLines_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LOT_LINE') || '{}') || {}; } catch (e) { return {}; } }
@@ -2831,7 +2846,7 @@ function r15Live_() {
     let last = 0, today = 0; (ix.byPid[p.id] || []).forEach(function(x) { if (x.at > last) last = x.at; if (x.at >= t0) today++; });
     return { id:p.id, productName:p.productName, lotNo:p.lotNo, line: lines[p.id] || '', workers:p.workers, count:(ix.byPid[p.id] || []).length, today:today, lastAt:last, lastText: last ? Utilities.formatDate(new Date(last), R15_TZ, 'HH:mm') : '' };
   });
-  const out = { ok:true, lots:lots, now:Date.now(), at:Utilities.formatDate(new Date(), R15_TZ, 'HH:mm:ss') };
+  const out = { ok:true, lots:lots, lines:r15Lines_(), now:Date.now(), at:Utilities.formatDate(new Date(), R15_TZ, 'HH:mm:ss') };
   try { CacheService.getScriptCache().put('R15LIVE', JSON.stringify(out), 20); } catch (e) {}
   return out;
 }

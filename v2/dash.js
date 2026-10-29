@@ -28,21 +28,17 @@
   }
   function liveHtml() {
     const r = D.live; if (!r) return '<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">불러오는 중…</span></div></section>';
-    const ago = (t) => (t ? Math.max(0, Math.round((r.now - t) / 60000)) : null);
-    const tile = (k, l) => {
-      if (!l) return `<div class="lt idle"><div class="lk">${k} 라인</div><div class="lp muted">작업 없음</div></div>`;
-      const m = ago(l.lastAt), on = m != null && m <= 10;
-      return `<div class="lt ${on ? 'on' : 'wait'}"><div class="lk">${k || '라인 미지정'} ${on ? R.pill('ok', '투입 중') : R.pill('idle', m == null ? '아직 투입 없음' : m + '분째 대기')}</div>
-        <div class="lp">${esc(l.productName)} <b>${esc(l.lotNo)}</b></div>
-        <div class="ln"><b>${fmt(l.today)}</b> Pallet 오늘 · 누적 ${fmt(l.count)}</div>
-        <div class="muted">마지막 투입 ${esc(l.lastText || '-')}</div></div>`;
-    };
     const byLine = {}; r.lots.forEach((l) => { if (l.line && !byLine[l.line]) byLine[l.line] = l; });
-    const other = r.lots.filter((l) => !l.line || byLine[l.line] !== l);
-    return `<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">${esc(r.at)} 기준 · 30초마다 새로 고침</span></div>
-      <div class="ltgrid">${['A', 'B', 'C', 'D'].map((k) => tile(k, byLine[k])).join('')}</div>
-      ${other.length ? `<div class="sub" style="margin-top:8px">라인 없이 진행 중 (폰에서 시작한 작업)</div><div class="ltgrid">${other.map((l) => tile(l.line, l)).join('')}</div>` : ''}</section>`;
+    const other = r.lots.filter((l) => !l.line || byLine[l.line] !== l), cfg = r.lines || {};
+    const rows = R.lines.KEYS.map((k) => { const l = byLine[k], m = l ? R.lines.ago(l.lastAt, r.now) : null;
+      return { line: k, state: R.lines.state(l && l.lastAt, r.now, !!l), title: l ? `${l.productName} ${l.lotNo}` : ((cfg[k] && cfg[k].products.length) ? cfg[k].products.join(' · ') + ' (작업 없음)' : '작업 없음'),
+        sub: l ? `오늘 ${fmt(l.today)} Pallet · 누적 ${fmt(l.count)} · 마지막 ${l.lastText || '-'}` : '', note: !l ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` }; });
+    const tot = r.lots.reduce((a, l) => a + (l.today || 0), 0);
+    return `<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">오늘 투입 ${fmt(tot)} Pallet · ${esc(r.at)} 기준 · 30초마다</span></div>
+      ${R.lines.svg(rows)}
+      ${other.length ? `<details class="mt"><summary>라인 없이 진행 중인 작업 ${other.length}건 (폰에서 시작)</summary><div class="list">${other.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">오늘 ${fmt(l.today)} · 누적 ${fmt(l.count)} · 마지막 ${esc(l.lastText || '-')}</span></span></div>`).join('')}</div></details>` : ''}</section>`;
   }
+
 
   async function load() {
     const off = RANGES.find((x) => x[0] === D.range)[2];
@@ -70,8 +66,7 @@
       </div>` : ''}</section>
       ${d ? `<section><div class="shead"><h2>차량별 진행</h2><span class="muted">${d.inbounds.length}대</span></div>
         <div class="list">${d.inbounds.length ? d.inbounds.map(vehicle).join('') : '<div class="muted pad">이 기간에 검수한 차량이 없습니다.</div>'}</div></section>` : ''}
-      ${d ? blanks(d.records || []) + rates(d.records || []) : ''}
-      ${open.length ? `<section><div class="shead"><h2>진행 중 생산 작업</h2></div><div class="list">${open.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">${esc(l.at)} · ${esc(l.workers || '')}</span></span><span>투입 <b>${fmt(l.palletCount)}</b> Pallet</span></div>`).join('')}</div></section>` : ''}`;
+      ${d ? blanks(d.records || []) + rates(d.records || []) : ''}`;
     root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; const c = cached(); D.data = c ? c.rep : null; D.at = c ? (c.at || '') + ' 저장본' : ''; render(); load(); }; });
     $('dashReload').onclick = load;
     root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });

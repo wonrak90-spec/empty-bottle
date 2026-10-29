@@ -15,7 +15,8 @@
   async function refresh() {
     if (L.board) return boardRefresh();
     if (!L.lot) { L.lots = await R.tryGet('r15Lots'); render(); return; }
-    const [d, s] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock')]);
+    const [d, s, ls] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock'), L.lots ? null : R.tryGet('r15Lots')]);
+    if (ls) L.lots = ls;
     if (d) { L.detail = d; if (d.lot.status !== '진행중') R.toast('이 작업은 종료되었습니다', 'warn'); }
     if (s) L.stock = s.groups || [];
     render();
@@ -24,7 +25,7 @@
   function render() {
     const root = $('lotView'); if (!root) return;
     scanStop(); // 다시 그리면 영상 칸이 사라진다: 카메라를 꺼서 화면 밖에서 계속 찍히지 않게 한다
-    if (L.board) { root.innerHTML = boardHtml(); bindBoard(); return; }
+    if (L.board) { const vOld = $('bdVideo'); root.innerHTML = boardHtml(); bindBoard(); if (!$('bdVideo') && vOld) camStop(); return; }
     if (!L.lot) { const keep = ['lpName', 'lpLot'].map((id) => $(id) ? $(id).value : ''); root.innerHTML = pickHtml(); bindPick(); ['lpName', 'lpLot'].forEach((id, i) => { if (keep[i]) $(id).value = keep[i]; }); return; } // 목록이 늦게 와도 입력값 유지
     root.innerHTML = workHtml(); bindWork();
   }
@@ -75,7 +76,9 @@
     const d = L.detail, pend = pendingItems(), pendKeys = new Set(pend.map((x) => pk(x.inboundNo, x.pallet)));
     const used = d ? d.pallets : [], usedKeys = new Set(used.map((x) => pk(x.inboundNo, x.pallet)));
     const items = [...new Set(L.stock.map((g) => g.product))];
-    const groups = L.stock.filter((g) => !L.filter || g.product === L.filter);
+    // 라인 설정에서 이 제품을 만드는 라인의 공병만 먼저 보여 준다 ('전체 품목'을 고르면 다 보임)
+    const allowed = bottlesFor(L.lot.productName), useAllowed = allowed.length && L.filter === '';
+    const groups = L.stock.filter((g) => (L.filter && L.filter !== '__all' ? g.product === L.filter : !useAllowed || allowed.includes(g.product)));
     const closed = d && d.lot.status !== '진행중';
     return `<section class="veh">
       <div class="shead"><div><div class="sub">제조번호</div><div class="big">${esc(L.lot.productName)} ${esc(L.lot.lotNo)}</div></div>
@@ -94,7 +97,7 @@
     </section>
     <section>
       <div class="shead"><h2>가용 공병 (검수 완료 · 미투입)</h2>
-        <select id="lotFilter" style="width:auto"><option value="">전체 품목</option>${items.map((p) => `<option ${p === L.filter ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
+        <select id="lotFilter" style="width:auto">${allowed.length ? `<option value="">이 제품 공병 (${esc(allowed.join(', '))})</option><option value="__all" ${L.filter === '__all' ? 'selected' : ''}>전체 품목</option>` : '<option value="">전체 품목</option>'}${items.map((p) => `<option ${p === L.filter ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
       <div class="sub" style="margin-bottom:6px">업체 생산일이 오래된 차량부터 보입니다. <b>먼저</b> 표시를 먼저 쓰세요.</div>
       ${groups.length ? groups.map((g) => `<div class="sg"><div class="sgh"><b>${esc(g.inboundNo)}</b> ${esc(g.product)} ${firstOf(g) ? R.pill('ok', '먼저') : ''} <span class="muted">${esc(g.supplier || '')} · 입고 ${esc(g.inboundDate || '')}${g.vMin ? ` · 업체 생산 ${esc(g.vMin.slice(5))}${g.vMax && g.vMax !== g.vMin ? '~' + esc(g.vMax.slice(5)) : ''}` : ''} · ${g.palletCount} Pallet</span>
           <button type="button" class="btn ghost sm" data-all="${esc(g.inboundNo)}">모두</button></div>
@@ -163,9 +166,9 @@
    * A260047330030 → A 라인 작업에 투입. 사람이 보지 않는 자리라 확인 창 없이 판단하고, 넣지 못한 것은 소리와 빨간 줄로 알린다.
    */
   const BK = 'r15.board', LINES = ['A', 'B', 'C', 'D'];
-  const B = L.bd = { slots: {}, log: [], detail: {}, wake: null };
+  const B = L.bd = { slots: {}, log: [], detail: {}, wake: null, pick: {}, change: '', cam: '' };
   function boardLoad() {
-    try { L.board = localStorage.getItem(BK + '.on') === '1'; B.slots = JSON.parse(localStorage.getItem(BK) || '{}') || {}; B.voice = localStorage.getItem(BK + '.voice') !== '0'; } catch (_) { L.board = false; B.slots = {}; }
+    try { L.board = localStorage.getItem(BK + '.on') === '1'; B.slots = JSON.parse(localStorage.getItem(BK) || '{}') || {}; B.voice = localStorage.getItem(BK + '.voice') !== '0'; B.cam = localStorage.getItem(BK + '.cam') || ''; } catch (_) { L.board = false; B.slots = {}; }
   }
   function boardSave() { try { localStorage.setItem(BK, JSON.stringify(B.slots)); } catch (_) {} }
   async function boardRefresh() {
@@ -184,62 +187,156 @@
   // 화면이 꺼지면 스캐너 입력을 못 받는다: 보드를 여는 동안 화면 꺼짐을 막는다 (지원하는 브라우저만)
   async function wakeOn() { try { if (L.board && 'wakeLock' in navigator && !B.wake && document.visibilityState === 'visible') { B.wake = await navigator.wakeLock.request('screen'); B.wake.addEventListener('release', () => { B.wake = null; }); } } catch (_) {} }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakeOn(); });
+  function bottlesFor(productName) {
+    const ls = (L.lots && L.lots.lines) || {}; return [...new Set(Object.values(ls).filter((c) => (c.products || []).includes(productName)).flatMap((c) => c.bottles || []))];
+  }
   const lineOf = (p) => String(p && p.line || '').trim().charAt(0).toUpperCase();
+  const lineCfg = (k) => ((L.lots && L.lots.lines) || {})[k] || { products: [], bottles: [] };
+  // 이 라인에서 고를 제품: 라인 설정 + 오늘 계획에서 이 라인에 잡힌 제품 (중복 없이)
+  function lineProducts(k) {
+    const plan = ((L.lots && L.lots.plan) || []).filter((p) => lineOf(p) === k).map((p) => p.productName);
+    return [...new Set(lineCfg(k).products.concat(plan))].filter(Boolean);
+  }
+  function lanes() {
+    const now = Date.now();
+    return LINES.map((k) => {
+      const x = B.slots[k], d = x && B.detail[x.id], logs = B.log.filter((l) => l.line === k), last = logs[0];
+      const lastAt = Math.max(last && last.ok ? last.t : 0, d && d.pallets.length ? Date.parse(String(d.pallets[d.pallets.length - 1].at || '').replace(' ', 'T')) || 0 : 0);
+      const bad = last && !last.ok && now - last.t < 60000, st = bad ? 'bad' : LN().state(lastAt, now, !!x), m = LN().ago(lastAt, now);
+      const today = logs.filter((l) => l.ok).length;
+      return { line: k, state: st, title: x ? `${x.productName} ${x.lotNo}` : '작업 없음', device: B.cam === k ? '이 기기 카메라' : '스캐너·카메라',
+        sub: x ? `투입 ${(d ? d.pallets.length : 0) + pendOf(x)} Pallet${today ? ` · 이 화면에서 ${today}` : ''}` : '눌러서 제품 고르기',
+        note: bad ? '확인 필요' : !x ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` };
+    });
+  }
+  const LN = () => R.lines;
+  const pendOf = (x) => R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state !== 'done').reduce((a, j) => a + j.payload.items.length, 0);
+  function startForm(k) {
+    const prods = lineProducts(k), plan = ((L.lots && L.lots.plan) || []).filter((p) => lineOf(p) === k || !lineOf(p));
+    const sel = B.pick[k] || prods[0] || '';
+    const lots = plan.filter((p) => !sel || p.productName === sel).map((p) => p.lotNo);
+    return `<div class="grid g2"><label>제품<select id="bdN${k}">${prods.map((p) => `<option ${p === sel ? 'selected' : ''}>${esc(p)}</option>`).join('')}<option value="__new">+ 다른 제품 직접 입력</option></select></label>
+        <label>제조번호<input id="bdL${k}" list="bdLots${k}" autocapitalize="characters" placeholder="예: 2F205" value="${esc(lots.length === 1 ? lots[0] : '')}"><datalist id="bdLots${k}">${lots.map((l) => `<option value="${esc(l)}">`).join('')}</datalist></label></div>
+      <label id="bdNewW${k}" ${prods.length ? 'hidden' : ''}>새 제품 이름<input id="bdNew${k}" list="lpNames" placeholder="예: 판콜에이"></label>
+      <div><button type="button" class="btn" data-bdstart="${k}">${k} 라인 시작</button></div>`;
+  }
+  function card(k) {
+    const x = B.slots[k], d = x && B.detail[x.id], logs = B.log.filter((l) => l.line === k).slice(0, 4), cfg = lineCfg(k);
+    const blk = x ? R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state === 'blocked') : [];
+    if (!x || B.change === k) {
+      return `<section class="bd" id="bdCard${k}"><div class="shead"><h2>${k} 라인</h2>${x ? '<button type="button" class="btn ghost sm" data-bdcancel="1">취소</button>' : '<span class="sub">작업 없음</span>'}</div>${startForm(k)}</section>`;
+    }
+    const last = logs[0], hot = last && Date.now() - last.t < 6000 ? (last.ok ? ' bdok' : ' bdno') : '';
+    return `<section class="bd${hot}" id="bdCard${k}"><div class="bdbig">${hot ? (last.ok ? '✓ 투입됨' : '✗ 안 넣음') : '찍으면 바로 투입'}</div><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdchange="${k}">제품 바꾸기</button></div>
+      <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
+      <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pendOf(x)}</b> Pallet${pendOf(x) ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pendOf(x)}</span>` : ''} · <span class="muted">${esc(cfg.bottles.length ? cfg.bottles.join(', ') : x.bottle || '공병 품목: 첫 Pallet 기준')}</span></div>
+      ${blk.map((j) => `<button type="button" class="btn sm danger" data-bdjob="${esc(j.id)}">서버가 받지 않음 ${j.payload.items.map((it) => it.inboundNo + ' P' + it.pallet).join(', ')} · 눌러서 확인</button>`).join('')}
+      <div class="list">${logs.map((l) => `<div class="row ${l.ok ? '' : 'bdbad'}"><span>${esc(l.at)} ${esc(l.text)}</span></div>`).join('') || '<span class="muted">스캔 대기 중</span>'}</div></section>`;
+  }
+  // 라인 설정: 라인마다 만드는 제품과 쓰는 공병 품목 (중간관리자 이상). 공병은 지금 가용 재고에 있는 품목에서 고른다
+  function cfgHtml() {
+    const items = [...new Set(L.stock.map((g) => g.product).concat(...LINES.map((k) => lineCfg(k).bottles)))].filter(Boolean).sort();
+    return `<section id="bdCfg"><div class="shead"><h2>라인 설정</h2><span class="sub">라인마다 만드는 제품과 쓰는 공병을 정하면 제품 고르기가 짧아지고, 다른 공병은 넣지 않습니다</span></div>
+      ${LINES.map((k) => { const c = lineCfg(k); return `<div class="bdcfg"><h3>${k} 라인</h3>
+        <label>제품 (쉼표로 구분)<input id="cfP${k}" value="${esc(c.products.join(', '))}" placeholder="예: 판콜에이, 판콜에스"></label>
+        <div class="sub">쓰는 공병 (비우면 첫 Pallet 품목 기준)</div><div class="chks">${items.map((b) => `<label class="chk"><input type="checkbox" data-cfb="${k}" value="${esc(b)}" ${c.bottles.includes(b) ? 'checked' : ''}> ${esc(b)}</label>`).join('') || '<span class="muted">가용 재고가 없습니다</span>'}</div></div>`; }).join('')}
+      <div class="savebar"><button type="button" class="btn" id="cfSave">라인 설정 저장</button> <button type="button" class="btn ghost sm" id="cfClose">닫기</button></div></section>`;
+  }
   function boardHtml() {
-    const plan = (L.lots && L.lots.plan) || [];
-    const card = (k) => {
-      const x = B.slots[k], d = x && B.detail[x.id], logs = B.log.filter((l) => l.line === k).slice(0, 4);
-      const pend = x ? R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state !== 'done').reduce((a, j) => a + j.payload.items.length, 0) : 0;
-      const blk = x ? R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state === 'blocked') : [];
-      if (!x) {
-        const mine = plan.filter((p) => lineOf(p) === k);
-        return `<section class="bd"><div class="shead"><h2>${k} 라인</h2><span class="sub">작업 없음</span></div>
-          <div class="chips">${mine.map((p) => `<button type="button" class="chipbtn" data-bdplan="${k}|${plan.indexOf(p)}"><b>${esc(p.productName)}</b> ${esc(p.lotNo)}<small>${esc(p.date.slice(5))}</small></button>`).join('') || '<span class="muted">오늘 계획에 이 라인 제조번호가 없습니다</span>'}</div>
-          <div class="grid g2"><label>제품명<input id="bdN${k}" list="lpNames"></label><label>제조번호<input id="bdL${k}" autocapitalize="characters"></label></div>
-          <div><button type="button" class="btn ghost sm" data-bdstart="${k}">시작</button></div></section>`;
-      }
-      const last = logs[0], hot = last && Date.now() - last.t < 6000 ? (last.ok ? ' bdok' : ' bdno') : '';
-      return `<section class="bd${hot}"><div class="bdbig">${hot ? (last.ok ? '✓ 투입됨' : '✗ 안 넣음') : '찍으면 바로 투입'}</div><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdclear="${k}">작업 바꾸기</button></div>
-        <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
-        <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pend}</b> Pallet${pend ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pend}</span>` : ''}${x.bottle ? ` · <span class="muted">${esc(x.bottle)}</span>` : ''}</div>
-        ${blk.map((j) => `<button type="button" class="btn sm danger" data-bdjob="${esc(j.id)}">서버가 받지 않음 ${j.payload.items.map((it) => it.inboundNo + ' P' + it.pallet).join(', ')} · 눌러서 확인</button>`).join('')}
-        <div class="list">${logs.map((l) => `<div class="row ${l.ok ? '' : 'bdbad'}"><span>${esc(l.at)} ${esc(l.text)}</span></div>`).join('') || '<span class="muted">스캔 대기 중</span>'}</div></section>`;
-    };
-    const last = B.log[0];
-    return `<section><div class="shead"><h2>4개 라인 투입 보드</h2><span><button type="button" class="btn ghost sm" id="bdVoice">${B.voice ? '🔊 음성 안내 켜짐' : '🔇 음성 안내 꺼짐'}</button> <button type="button" class="btn ghost sm" id="bdFull">전체 화면</button> <button type="button" class="btn ghost sm" id="bdClose">보드 닫기</button></span></div>
-      <div class="bdlast ${last ? (last.ok ? 'ok' : 'bad') : ''}" id="bdLast">${last ? `${esc(last.line || '?')} 라인 · ${esc(last.text)}` : '스캐너로 WMS 라벨을 찍으면 여기에 결과가 나옵니다'}</div>
+    const last = B.log[0], camOnly = B.cam && LINES.includes(B.cam);
+    return `<section><div class="shead"><h2>${camOnly ? `${B.cam} 라인 카메라` : '라인 투입 보드'}</h2><span class="bdtools">
+        <button type="button" class="btn ghost sm" id="bdVoice">${B.voice ? '🔊 음성 켜짐' : '🔇 음성 꺼짐'}</button>
+        <button type="button" class="btn ghost sm" id="bdCam">${camOnly ? '카메라 끄기' : '📷 이 기기 카메라로'}</button>
+        ${R.isManager() && !camOnly ? '<button type="button" class="btn ghost sm" id="bdCfgBtn">⚙ 라인 설정</button>' : ''}
+        <button type="button" class="btn ghost sm" id="bdFull">전체 화면</button> <button type="button" class="btn ghost sm" id="bdClose">닫기</button></span></div>
+      <div class="bdlast ${last ? (last.ok ? 'ok' : 'bad') : ''}" id="bdLast">${last ? `${esc(last.line || '?')} 라인 · ${esc(last.text)}` : camOnly ? 'WMS 라벨 바코드를 카메라에 비추면 바로 투입됩니다' : '스캐너로 WMS 라벨을 찍으면 여기에 결과가 나옵니다'}</div>
       <input id="bdScan" class="bdscan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="스캐너 입력">
-      <div class="sub">스캐너마다 앞에 라인 글자를 붙이게 설정하세요 (A260047330030). 글자 없이 들어오면 작업이 하나뿐일 때만 그 라인으로 넣습니다. 이 PC는 절전·화면 꺼짐을 꺼 두세요.</div></section>
+      ${camOnly ? `<div class="bdcam"><video id="bdVideo" playsinline muted autoplay></video><div class="sub" id="bdCamMsg">카메라 켜는 중…</div></div>`
+        : B.pickCam ? `<div class="sub">이 기기를 어느 라인 카메라로 쓸까요?</div><div class="chips">${LINES.map((k) => `<button type="button" class="chipbtn" data-cam="${k}"><b>${k} 라인</b></button>`).join('')}</div>`
+        : `<div class="sub">스캐너마다 앞에 라인 글자를 붙이게 설정하세요 (A260047330030). 라인 그림을 누르면 그 라인으로 갑니다.</div>`}</section>
+      ${B.cfgOpen && !camOnly ? cfgHtml() : ''}
+      ${camOnly ? '' : `<section>${R.lines.svg(lanes())}</section>`}
       <datalist id="lpNames">${((L.lots && L.lots.products) || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
-      <div class="bdgrid">${LINES.map(card).join('')}</div>`;
+      <div class="bdgrid">${(camOnly ? [B.cam] : LINES).map(card).join('')}</div>`;
   }
   function bindBoard() {
-    const plan = (L.lots && L.lots.plan) || [];
-    $('bdClose').onclick = () => { L.board = false; try { localStorage.setItem(BK + '.on', '0'); } catch (_) {} if (B.wake) B.wake.release().catch(() => {}); refresh(); };
-    document.querySelectorAll('[data-bdplan]').forEach((b) => { b.onclick = () => { const [k, i] = b.dataset.bdplan.split('|'), p = plan[Number(i)]; boardStart(k, p.productName, p.lotNo, b); }; });
-    document.querySelectorAll('[data-bdstart]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdstart; boardStart(k, $('bdN' + k).value.trim(), $('bdL' + k).value.trim().toUpperCase(), b); }; });
-    document.querySelectorAll('[data-bdclear]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdclear; if (!confirm(`${k} 라인 작업을 비울까요? (투입 기록은 그대로 남습니다)`)) return; delete B.slots[k]; boardSave(); render(); }; });
+    $('bdClose').onclick = () => { camStop(); B.cam = ''; L.board = false; try { localStorage.setItem(BK + '.on', '0'); localStorage.setItem(BK + '.cam', ''); } catch (_) {} if (B.wake) B.wake.release().catch(() => {}); refresh(); };
+    document.querySelectorAll('[id^="bdN"]').forEach((s) => { if (s.tagName !== 'SELECT') return; s.onchange = () => { const k = s.id.slice(3); if (s.value === '__new') { $('bdNewW' + k).hidden = false; $('bdNew' + k).focus(); return; } B.pick[k] = s.value; render(); }; });
+    document.querySelectorAll('[data-bdstart]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdstart, sv = $('bdN' + k).value, nw = $('bdNew' + k).value.trim();
+      const name = sv === '__new' || !sv ? nw : sv; boardStart(k, name, $('bdL' + k).value.trim().toUpperCase(), b, sv === '__new' || !sv); }; });
+    document.querySelectorAll('[data-bdchange]').forEach((b) => { b.onclick = () => { B.change = b.dataset.bdchange; render(); }; });
+    document.querySelectorAll('[data-bdcancel]').forEach((b) => { b.onclick = () => { B.change = ''; render(); }; });
+    document.querySelectorAll('.lnsvg .lane').forEach((g) => { const go = () => { const c = $('bdCard' + g.dataset.line); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }; g.onclick = go; g.onkeydown = (e) => { if (e.key === 'Enter') go(); }; });
     const inp = $('bdScan'); inp.oninput = () => { inp.value = ''; };
     const a = document.activeElement; if (!a || a === document.body) inp.focus();
     $('bdVoice').onclick = () => { B.voice = !B.voice; try { localStorage.setItem(BK + '.voice', B.voice ? '1' : '0'); } catch (_) {} render(); };
     $('bdFull').onclick = () => { const d = document.documentElement; if (document.fullscreenElement) document.exitFullscreen().catch(() => {}); else if (d.requestFullscreen) d.requestFullscreen().catch(() => {}); };
+    $('bdCam').onclick = () => { if (B.cam) { camStop(); B.cam = ''; try { localStorage.setItem(BK + '.cam', ''); } catch (_) {} } else B.pickCam = !B.pickCam; render(); };
+    document.querySelectorAll('[data-cam]').forEach((b) => { b.onclick = () => { B.cam = b.dataset.cam; B.pickCam = false; try { localStorage.setItem(BK + '.cam', B.cam); } catch (_) {} render(); }; });
+    if ($('bdCfgBtn')) $('bdCfgBtn').onclick = () => { B.cfgOpen = !B.cfgOpen; render(); };
+    if ($('cfClose')) $('cfClose').onclick = () => { B.cfgOpen = false; render(); };
+    if ($('cfSave')) $('cfSave').onclick = cfgSave;
     document.querySelectorAll('[data-bdjob]').forEach((b) => { b.onclick = () => { const j = R.queue.jobs.find((x) => x.id === b.dataset.bdjob); if (j) R.showJob(j); }; });
+    if ($('bdVideo')) camStart();
   }
-  async function boardStart(k, productName, lotNo, btn) {
-    if (!productName || !lotNo) return R.toast('제품명과 제조번호를 넣으세요', 'crit');
+  async function cfgSave() {
+    const lines = {}; LINES.forEach((k) => { lines[k] = { products: $('cfP' + k).value.split(/[,，]/).map((v) => v.trim()).filter(Boolean), bottles: [...document.querySelectorAll(`[data-cfb="${k}"]:checked`)].map((c) => c.value) }; });
+    const r = await R.tryPost('r15LinesSave', { lines }); if (!r || !r.ok) return;
+    if (L.lots) L.lots.lines = r.lines; B.cfgOpen = false; R.toast('라인 설정 저장', 'ok'); render();
+  }
+
+  /* 태블릿·폰 카메라로 라인 투입: 카메라를 켜 둔 채 WMS 라벨 바코드를 찾는다. 같은 값이 연달아 2번 읽혀야 받는다 (반쯤 읽힌 값 방지) */
+  let camStream = null, camRun = 0, camDet = null, camZx = null;
+  function camStop() { camRun++; if (camStream) { camStream.getTracks().forEach((t) => t.stop()); camStream = null; } }
+  async function camStart() {
+    const v = $('bdVideo'), msg = $('bdCamMsg'), run = ++camRun; if (!v) return;
+    try {
+      if (!camStream) camStream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+      if (run !== camRun) return; v.srcObject = camStream; await v.play().catch(() => {});
+    } catch (e) { if (msg) msg.textContent = '카메라를 켜지 못했습니다: 카메라 권한을 허용해 주세요'; return; }
+    if ('BarcodeDetector' in window) { try { camDet = camDet || new BarcodeDetector({ formats: ['code_39', 'code_128'] }); } catch (_) { camDet = null; } }
+    if (msg) msg.textContent = camDet ? '바코드 찾는 중' : '바코드 찾는 중 (이 기기는 조금 느립니다)';
+    const cv = document.createElement('canvas'); let prev = '', same = 0;
+    while (run === camRun && document.body.contains(v)) {
+      await new Promise((r) => setTimeout(r, camDet ? 250 : 500));
+      if (document.hidden || !v.videoWidth) continue;
+      let raw = '';
+      try {
+        if (camDet) { const r = await camDet.detect(v); raw = r.length ? r[0].rawValue : ''; }
+        else {
+          camZx = camZx || import('https://cdn.jsdelivr.net/npm/zxing-wasm@2.1.2/dist/es/reader/index.js').then((m) => { m.prepareZXingModule({ overrides: { locateFile: (f, p) => (f.endsWith('.wasm') ? 'https://cdn.jsdelivr.net/npm/zxing-wasm@2.1.2/dist/reader/' + f : p + f) } }); return m; });
+          const Z = await camZx, w = Math.min(1280, v.videoWidth), h = Math.round(v.videoHeight * w / v.videoWidth); cv.width = w; cv.height = h;
+          const g = cv.getContext('2d', { willReadFrequently: true }); g.drawImage(v, 0, 0, w, h);
+          const r = await Z.readBarcodes(g.getImageData(0, 0, w, h), { formats: ['Code39', 'Code128'], tryHarder: true, maxNumberOfSymbols: 1 }); raw = r.length ? r[0].text : '';
+        }
+      } catch (_) { raw = ''; }
+      const c = raw && parseLabelCode(raw);
+      if (!c || c.partial) { prev = ''; same = 0; continue; }
+      const code = c.inboundNo + String(c.pallet).padStart(4, '0');
+      same = code === prev ? same + 1 : 1; prev = code;
+      if (same === 2 && run === camRun) await onBoardScan(B.cam + code);
+    }
+  }
+  async function boardStart(k, productName, lotNo, btn, isNew) {
+    if (!productName || !lotNo) return R.toast('제품과 제조번호를 넣으세요', 'crit');
     R.busy(btn, true, '시작 중…'); const r = await R.tryPost('r15LotStart', { productName, lotNo, line: k }); R.busy(btn, false);
     if (!r || !r.ok) return;
-    B.slots[k] = { id: r.id, productName, lotNo }; boardSave(); boardRefresh();
+    B.slots[k] = { id: r.id, productName, lotNo }; B.change = ''; boardSave();
+    // 새로 입력한 제품은 그 라인 제품 목록에 더해 둔다 (중간관리자 이상만 저장됨)
+    if (isNew && R.isManager()) { const lines = Object.assign({}, (L.lots && L.lots.lines) || {}); lines[k] = Object.assign({ products: [], bottles: [] }, lines[k]); if (!lines[k].products.includes(productName)) { lines[k] = Object.assign({}, lines[k], { products: lines[k].products.concat(productName) }); const rr = await R.tryPost('r15LinesSave', { lines }); if (rr && rr.ok && L.lots) L.lots.lines = rr.lines; } }
+    boardRefresh();
   }
   // 라인 앞에 서 있는 사람이 화면을 안 봐도 알 수 있게 짧게 말해 준다 (PC 스피커)
   function say(t) { try { if (!B.voice || !window.speechSynthesis) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.1; speechSynthesis.speak(u); } catch (_) {} }
   function boardLog(line, ok, text) {
+    const typing = document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.id !== 'bdScan';
     if (B.cur) { B.recent[B.cur] = { t: Date.now(), ok }; B.cur = ''; }
     Object.keys(B.recent || {}).forEach((c) => { if (Date.now() - B.recent[c].t > 90000) delete B.recent[c]; });
     say((line ? line + ' 라인 ' : '') + (ok ? '투입' : '확인 필요'));
     B.log.unshift({ line, ok, text, t: Date.now(), at: new Date().toTimeString().slice(0, 8) });
     clearTimeout(B.cool); B.cool = setTimeout(() => { if (L.board && $('bdScan')) render(); }, 6100); B.log = B.log.slice(0, 60);
-    beep(ok); render();
+    beep(ok);
+    if (typing) { const el = $('bdLast'); if (el) { el.className = 'bdlast ' + (ok ? 'ok' : 'bad'); el.textContent = `${line || '?'} 라인 · ${text}`; } } else render();
   }
   const JAMO = { 'ㅁ': 'A', 'ㅠ': 'B', 'ㅊ': 'C', 'ㅇ': 'D' };
   async function onBoardScan(raw) {
@@ -270,7 +367,9 @@
     }
     // 한 제조번호에는 한 가지 공병만 들어간다: 첫 Pallet의 품목과 다르면 넣지 않는다 (다른 라인 Pallet를 잘못 찍은 경우)
     const g = L.stock.find((y) => y.inboundNo === c.inboundNo), prod = (g && g.product) || (rInfo && rInfo.record && rInfo.record.product) || '';
-    if (x.bottle && prod && prod !== x.bottle) return boardLog(k, false, `${name} 다른 공병 (${prod}) · 이 라인은 ${x.bottle}`);
+    const allow = lineCfg(k).bottles;
+    if (allow.length && prod && !allow.includes(prod)) return boardLog(k, false, `${name} 이 라인 공병 아님 (${prod})`);
+    if (!allow.length && x.bottle && prod && prod !== x.bottle) return boardLog(k, false, `${name} 다른 공병 (${prod}) · 이 라인은 ${x.bottle}`);
     if (!x.bottle && prod) { x.bottle = prod; boardSave(); }
     const old = olderLeft([{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }]);
     await R.queue.addLot(x.id, [{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }], { label: `${x.lotNo} 1 Pallet` });
