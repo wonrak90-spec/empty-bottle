@@ -82,6 +82,8 @@
       <div class="steps"><label class="shot"><input type="file" accept="image/*" capture="environment" id="lotShot" hidden><span class="ic">📷</span><span>WMS 라벨 촬영</span></label>
         ${'BarcodeDetector' in window ? '<button type="button" class="shot" id="lotScan"><span class="ic">▥</span><span>바코드 스캔</span></button>' : ''}</div>
       <div class="grid g3"><label>입고번호<input id="lfIn" inputmode="numeric"></label><label>Pallet<input id="lfP" inputmode="numeric"></label><div><button type="button" class="btn ghost" id="lfAdd">추가</button></div></div>
+      <div class="grid g2"><label>바코드 스캐너<input id="lfScan" placeholder="여기를 누른 뒤 스캐너로 WMS 라벨을 찍으세요" autocomplete="off" autocapitalize="off" spellcheck="false"></label>
+        <label class="chk"><input type="checkbox" id="lfAuto" ${scanAuto() ? 'checked' : ''}> 찍으면 바로 투입 (확인 없이)</label></div>
       <div class="sub" id="lotStatus"></div>
       <div id="scanBox" hidden><video id="scanVideo" playsinline muted></video><button type="button" class="btn ghost sm" id="scanStop">스캔 닫기</button></div>
     </section>
@@ -119,7 +121,37 @@
     $('lfAdd').onclick = () => findPallet(digits($('lfIn').value), digits($('lfP').value));
     $('lotShot').onchange = shot;
     if ($('lotScan')) { $('lotScan').onclick = scanStart; $('scanStop').onclick = scanStop; }
+    bindScanner();
   }
+
+  /* ---------- 바코드 스캐너 (키보드처럼 글자를 치고 Enter를 보내는 USB·블루투스 스캐너) ---------- */
+  const SA = 'r15.lotScanAuto';
+  function scanAuto() { try { return localStorage.getItem(SA) !== '0'; } catch (_) { return true; } }
+  let scanFocus = false, scanBusy = Promise.resolve();
+  function beep(ok) {
+    try { const a = beep.ctx = beep.ctx || new (window.AudioContext || window.webkitAudioContext)(), o = a.createOscillator(), g = a.createGain();
+      o.frequency.value = ok ? 1200 : 300; g.gain.value = 0.15; o.connect(g); g.connect(a.destination); o.start(); o.stop(a.currentTime + (ok ? 0.12 : 0.4)); } catch (_) {}
+  }
+  function bindScanner() {
+    const inp = $('lfScan'); if (!inp) return;
+    $('lfAuto').onchange = (e) => { try { localStorage.setItem(SA, e.target.checked ? '1' : '0'); } catch (_) {} inp.focus(); };
+    inp.onfocus = () => { scanFocus = true; }; inp.onblur = () => { setTimeout(() => { if (document.activeElement !== $('lfScan')) scanFocus = false; }, 0); };
+    let t = 0; const go = () => { clearTimeout(t); const v = inp.value; inp.value = ''; if (v.trim()) scanBusy = scanBusy.then(() => onScanner(v)).catch(() => {}); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); go(); } };
+    // Enter를 안 보내는 스캐너: 글자가 멈추고 0.3초 지나면 받는다
+    inp.oninput = () => { clearTimeout(t); t = setTimeout(go, 300); };
+    if (scanFocus) inp.focus();
+  }
+  async function onScanner(raw) {
+    const st = $('lotStatus'), c = parseLabelCode(raw);
+    if (!c || c.partial) { if (st) st.textContent = `"${String(raw).trim().slice(0, 20)}"는 WMS 라벨 바코드가 아닙니다 (입고번호 8자리 + Pallet 4자리)`; beep(false); return; }
+    const k = pk(c.inboundNo, c.pallet), had = L.sel.has(k);
+    await findPallet(c.inboundNo, c.pallet, 'scan');
+    if (!L.sel.has(k) || had) { beep(false); return; }
+    beep(true);
+    if (scanAuto() && $('lotAdd')) await submit(true);
+  }
+  R.lot.onScanner = onScanner;
   function toggle(k) {
     if (L.sel.has(k)) L.sel.delete(k); else { const [inboundNo, pallet] = k.split('|'); L.sel.set(k, { inboundNo, pallet: Number(pallet) }); }
     const el = document.querySelector(`[data-k="${k}"]`); if (el) el.classList.toggle('sel', L.sel.has(k));
@@ -136,11 +168,13 @@
     picked.forEach((g) => { L.stock.forEach((o) => { if (o !== g && o.product === g.product && ageOf(o) && ageOf(o) < ageOf(g) && o.pallets.some((p) => !keys.has(pk(o.inboundNo, p.pallet))) && !out.includes(o)) out.push(o); }); });
     return out;
   }
-  async function submit() {
+  async function submit(auto) {
     if (!L.sel.size) return;
     const items = [...L.sel.values()];
     const old = olderLeft(items);
-    if (old.length && !confirm(`더 오래된 재고가 남아 있습니다:\n${old.slice(0, 3).map((g) => `${g.inboundNo} (업체 생산 ${(g.vMin || '').slice(5) || '?'} · 입고 ${g.inboundDate || '?'})`).join('\n')}\n\n그래도 지금 고른 Pallet를 투입할까요?`)) return;
+    // 스캐너 자동 투입은 사람이 화면을 보지 않을 수 있어 확인 창 대신 알림만 띄운다
+    if (old.length && auto) R.toast(`더 오래된 재고 ${old[0].inboundNo}가 남아 있습니다`, 'warn');
+    else if (old.length && !confirm(`더 오래된 재고가 남아 있습니다:\n${old.slice(0, 3).map((g) => `${g.inboundNo} (업체 생산 ${(g.vMin || '').slice(5) || '?'} · 입고 ${g.inboundDate || '?'})`).join('\n')}\n\n그래도 지금 고른 Pallet를 투입할까요?`)) return;
     // 서버는 한 번에 60개까지 처리한다. '모두'를 여러 번 누르면 넘을 수 있으므로 나눠서 넣는다.
     for (let i = 0; i < items.length; i += 60) { const part = items.slice(i, i + 60); await R.queue.addLot(L.lot.id, part, { label: `${L.lot.lotNo} ${part.length} Pallet` }); }
     L.sel.clear(); R.toast(`${items.length} Pallet 투입 · 서버로 보내는 중`, 'ok'); render();
