@@ -559,7 +559,9 @@
     const v=vendorDateTime(src);
     // "2026년10월09일"처럼 년월일이 다 있으면 그게 맞다: 옛 파서가 "03:10 ~ 03"을 2003-10-03으로 읽던 일
     if(v.d&&(v.strong||!out.prodDate))out.prodDate=v.d;
-    if(out.prodDate&&!vdSane(out.prodDate))delete out.prodDate;
+    // 연도 숫자가 제일 잘 틀린다 ("26년"→"25년"·"20년"): 월·일은 두고 올해(미래면 작년)로 맞춰 범위 안이면 쓴다
+    const age=x=>(Date.now()-new Date(x+'T00:00:00').getTime())/864e5;
+    if(out.prodDate&&(!vdSane(out.prodDate)||age(out.prodDate)>200)){const md=String(out.prodDate).slice(4),y=new Date().getFullYear();const fix=[y+md,(y-1)+md].find(x=>vdSane(x)&&new Date(x+'T00:00:00').getTime()<=Date.now()+2*864e5&&Date.now()-new Date(x+'T00:00:00').getTime()<=200*864e5);if(fix&&/^-\d{2}-\d{2}$/.test(md))out.prodDate=fix;else if(!vdSane(out.prodDate))delete out.prodDate;}
     if(!out.prodTime&&v.tm&&v.d===out.prodDate)out.prodTime=v.tm;
     // 동아 인쇄 라벨 "P/L No. 19 3.5": 띄어쓰기가 빠지면 "193.5"로 붙는다 (뒤의 3.5는 늘 같은 값)
     const pl=fixDigits(src).match(/P\s*\/?\s*L\s*N\s*[o0O]\s*\.?\s*(\d{1,3}?)\s*3\s*[.,]\s*5(?!\d)/i);

@@ -115,6 +115,10 @@
   }
 
   /* ---------- 주간제조계획표 링크 ---------- */
+  // 라인 이름이 "A", "A라인", "A-1"처럼 와도 A~D로 시작하면 공병 라인
+  const PLAN_LINE = /^[A-Da-d](?![A-Za-z])/;
+  // 원료 수불 대시보드의 제품 목록 (제품명 칸에서 골라 쓴다)
+  const PLAN_PRODUCTS = ['가을생강쌍화', '까스명수골드', '까스활명수', '까스활명수큐', '까스활액', '미인활액', '비타천', '속청케어', '속청큐', '스피롱', '십신탕', '쌍화원', '쌍화천', '쌍화탕', '알프스', '이지롱', '토스롱', '판콜에스', '판콜에이', '판토에이', '활명수', '활명수1897'];
   async function plan() {
     A.plan = await R.tryGet('r15Plan');
     const p = A.plan || { schedules: [], names: {} };
@@ -137,11 +141,16 @@
     try { j = JSON.parse((await lz()).decompressFromEncodedURIComponent(s.replace(/\s/g, ''))); if (!j || !Array.isArray(j.schedules)) throw 0; }
     catch (e) { msg.textContent = raw.endsWith('…') || raw.endsWith('...') ? '링크가 중간에 잘렸습니다. 전체 링크를 다시 복사하세요.' : '링크를 읽지 못했습니다. #share= 뒤 전체가 복사됐는지 확인하세요.'; return; }
     const from = R.util.today(-7), to = R.util.today(21);
-    const list = j.schedules.filter((x) => x && x.prod && /^\d{4}-\d\d-\d\d$/.test(x.date || '') && x.date >= from && x.date <= to);
+    const inRange = j.schedules.filter((x) => x && x.prod && /^\d{4}-\d\d-\d\d$/.test(x.date || '') && x.date >= from && x.date <= to);
+    // 공병은 A·B·C·D 라인에만 들어간다: 그 라인 일정만 남긴다 (라인 정보가 아예 없는 링크면 전부)
+    const hasLine = inRange.some((x) => String(x.line || '').trim()), lineOk = (x) => PLAN_LINE.test(String(x.line || '').trim());
+    const list = hasLine ? inRange.filter(lineOk) : inRange, skipped = [...new Set(inRange.filter((x) => !lineOk(x)).map((x) => String(x.line || '라인 없음')))];
     const codes = [...new Set(list.map((x) => x.prod))].sort(), names = Object.assign({}, (A.plan && A.plan.names) || {});
-    msg.textContent = `${list.length}건 (지난 7일 ~ 앞으로 21일)`;
+    msg.textContent = `${list.length}건 (지난 7일 ~ 앞으로 21일${hasLine ? ' · A~D 라인만' : ' · 링크에 라인 정보 없음'})` + (hasLine && skipped.length ? ` · 제외한 라인: ${skipped.slice(0, 8).join(', ')}` : '');
+    if (!list.length) { $('plPrev').innerHTML = ''; return; }
     $('plPrev').innerHTML = `<div class="sub">계획표의 제품 코드를 현장에서 보일 제품명으로 연결하세요. 한 번 정하면 다음부터 그대로 씁니다.</div>
-      <div class="grid g2">${codes.map((c) => `<label>${esc(c)} (${list.filter((x) => x.prod === c).length}배치)<input data-pn="${esc(c)}" value="${esc(names[c] || '')}" placeholder="예: 까스활명수큐"></label>`).join('')}</div>
+      <div class="grid g2">${codes.map((c) => `<label>${esc(c)} (${list.filter((x) => x.prod === c).length}배치)<input data-pn="${esc(c)}" list="plNames" value="${esc(names[c] || '')}" placeholder="예: 까스활명수큐"></label>`).join('')}</div>
+      <datalist id="plNames">${PLAN_PRODUCTS.map((n) => `<option value="${esc(n)}">`).join('')}</datalist>
       <div class="savebar"><button type="button" class="btn" id="plSave">계획 저장</button></div>`;
     $('plSave').onclick = async () => {
       document.querySelectorAll('[data-pn]').forEach((i) => { if (i.value.trim()) names[i.dataset.pn] = i.value.trim(); });

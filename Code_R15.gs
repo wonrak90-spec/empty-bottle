@@ -2375,6 +2375,8 @@ function r15Issues_(rec, ctx) {
   }
   const vp = r15S_(rec.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, '');
   if (vp && ctx.vpno && ctx.vpno[rec.inboundNo + '|' + vp] > 1) add('VENDOR_PNO_DUP', 'warn', '업체 P번호 ' + vp + '가 이 입고에서 ' + ctx.vpno[rec.inboundNo + '|' + vp] + '번 나옴 · 같은 라벨을 두 번 찍었는지 확인');
+  const vpOdd = vp && ctx.vpno ? r15VpnoOdd_(ctx.vpno['#' + rec.inboundNo], Number(vp)) : '';
+  if (vpOdd) add('VENDOR_PNO_ODD', 'warn', '업체 P번호 ' + vp + '이 이 입고 다른 Pallet(' + vpOdd + ')와 동떨어짐 · 사진 확인');
   if (!rec.qty) add('NO_QTY', 'warn', 'WMS 수량 없음');
   // 업체 수량이 WMS의 절반 미만·두 배 초과면 글자 오독일 가능성이 커서 불일치(오류) 대신 판독 불확실(주의)로 둔다
   if (rec.qty && rec.vendorQty && rec.qty !== rec.vendorQty) {
@@ -2411,8 +2413,14 @@ function r15VdateMap_(records) {
 }
 // 같은 입고번호 안에서 업체 P번호가 겹치면 같은 업체 라벨을 두 번 찍었을 수 있다
 function r15VpnoMap_(records) {
-  const m = {}; records.forEach(function(r) { const v = r15S_(r.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, ''); if (r.inboundNo && v) { const k = r.inboundNo + '|' + v; m[k] = (m[k] || 0) + 1; } });
+  const m = {}; records.forEach(function(r) { const v = r15S_(r.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, ''); if (r.inboundNo && v) { const k = r.inboundNo + '|' + v; m[k] = (m[k] || 0) + 1; (m['#' + r.inboundNo] = m['#' + r.inboundNo] || []).push(Number(v)); } });
   return m;
+}
+// 한 입고의 업체 P번호는 보통 몰려 있다 (예: 196~219). 5개 이상일 때 가운데 80% 범위에서 크게 벗어나면 오독으로 본다 ("198"→"98", "7")
+function r15VpnoOdd_(list, v) {
+  if (!list || list.length < 5) return '';
+  const a = list.slice().sort(function(x, y) { return x - y; }), lo = a[Math.floor(a.length * 0.1)], hi = a[Math.ceil(a.length * 0.9) - 1], span = Math.max(10, hi - lo);
+  return v < lo - span || v > hi + span ? lo + '~' + hi : '';
 }
 // 폰 '서버 속도 확인'의 업로드 시험: 실제 크기 사진을 사진 폴더 안 '_속도시험'에 만들고 바로 휴지통으로 보낸다. 기록은 남기지 않는다.
 function r15SpeedUpload_(p) {
