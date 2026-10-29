@@ -196,7 +196,8 @@
           <div class="grid g2"><label>제품명<input id="bdN${k}" list="lpNames"></label><label>제조번호<input id="bdL${k}" autocapitalize="characters"></label></div>
           <div><button type="button" class="btn ghost sm" data-bdstart="${k}">시작</button></div></section>`;
       }
-      return `<section class="bd"><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdclear="${k}">작업 바꾸기</button></div>
+      const last = logs[0], hot = last && Date.now() - last.t < 6000 ? (last.ok ? ' bdok' : ' bdno') : '';
+      return `<section class="bd${hot}"><div class="bdbig">${hot ? (last.ok ? '✓ 투입됨' : '✗ 안 넣음') : '찍으면 바로 투입'}</div><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdclear="${k}">작업 바꾸기</button></div>
         <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
         <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pend}</b> Pallet${pend ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pend}</span>` : ''}</div>
         <div class="list">${logs.map((l) => `<div class="row ${l.ok ? '' : 'bdbad'}"><span>${esc(l.at)} ${esc(l.text)}</span></div>`).join('') || '<span class="muted">스캔 대기 중</span>'}</div></section>`;
@@ -228,7 +229,8 @@
     B.slots[k] = { id: r.id, productName, lotNo }; boardSave(); boardRefresh();
   }
   function boardLog(line, ok, text) {
-    B.log.unshift({ line, ok, text, at: new Date().toTimeString().slice(0, 8) }); B.log = B.log.slice(0, 60);
+    B.log.unshift({ line, ok, text, t: Date.now(), at: new Date().toTimeString().slice(0, 8) });
+    clearTimeout(B.cool); B.cool = setTimeout(() => { if (L.board && $('bdScan')) render(); }, 6100); B.log = B.log.slice(0, 60);
     beep(ok); render();
   }
   async function onBoardScan(raw) {
