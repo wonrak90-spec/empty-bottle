@@ -62,13 +62,15 @@
         <div class="kpi"><div class="l">검수 Pallet</div><div class="v">${fmt(k.pallets)}<small> 개</small></div><div class="d">${fmt(k.qty)} EA</div></div>
         <div class="kpi ${k.errorRecords ? 'crit' : k.warnRecords ? 'warn' : ''}"><div class="l">확인 필요</div><div class="v">${k.errorRecords + k.warnRecords}<small> 건</small></div><div class="d">오류 ${k.errorRecords} · 주의 ${k.warnRecords}</div></div>
         <div class="kpi ${k.gapPallets ? 'warn' : ''}"><div class="l">번호 빠진 Pallet</div><div class="v">${k.gapPallets}<small> 개</small></div></div>
+        ${(() => { const rs = (d.records || []).filter((r) => r.vendorPhoto && !r.vendorProdDate).length; return `<button type="button" class="kpi lnk" id="dashMore"><div class="l">업체 생산일 빈칸</div><div class="v">${rs}<small> Pallet</small></div><div class="d">${D.more ? '접기' : '눌러서 자세히'}</div></button>`; })()}
         <div class="kpi"><div class="l">진행 중 생산 작업</div><div class="v">${open.length}<small> 건</small></div></div>
       </div>` : ''}</section>
       ${d ? `<section><div class="shead"><h2>차량별 진행</h2><span class="muted">${d.inbounds.length}대</span></div>
         <div class="list">${d.inbounds.length ? d.inbounds.map(vehicle).join('') : '<div class="muted pad">이 기간에 검수한 차량이 없습니다.</div>'}</div></section>` : ''}
-      ${d ? blanks(d.records || []) + rates(d.records || []) : ''}`;
+      ${d && D.more ? blanks(d.records || []) + rates(d.records || []) : ''}`;
     root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; const c = cached(); D.data = c ? c.rep : null; D.at = c ? (c.at || '') + ' 저장본' : ''; render(); load(); }; });
     $('dashReload').onclick = load;
+    if ($('dashMore')) $('dashMore').onclick = () => { D.more = !D.more; render(); };
     root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });
   }
 

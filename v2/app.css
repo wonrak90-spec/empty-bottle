@@ -242,3 +242,4 @@ td.crit{color:var(--crit);font-weight:700}td.warnt{color:var(--warn);font-weight
 .lnsvg{width:100%;height:auto;display:block}.lnsvg .lane{cursor:pointer}.lnsvg text{font-family:inherit}
 .bdtools{display:flex;flex-wrap:wrap;gap:6px}.bdcam video{width:100%;max-height:50vh;border-radius:12px;background:#000;object-fit:cover}
 .bdcfg{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}.bdcfg h3{margin:0 0 6px}.chks{display:flex;flex-wrap:wrap;gap:6px 14px}
+button.kpi{font:inherit;text-align:left;cursor:pointer;color:inherit;width:100%}
