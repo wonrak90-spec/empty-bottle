@@ -178,7 +178,7 @@
       <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th>업체 P번호</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
       ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td>
-        <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime)}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
+        <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${r.vendorProdDate && !r.vendorProdTime ? '<span class="muted">시간 ?</span>' : esc(r.vendorProdTime)}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
         <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
         <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
@@ -225,7 +225,7 @@
   const shortAt = (t) => String(t || '').replace(/^\d{4}-/, '');
   function sheetHtml(s, recs, ph, mode) {
     const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
-    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))} ${esc(r.vendorProdTime || '')}</td><td class="c">${esc(r.vendorPalletNo || '-')}</td>
+    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))} ${r.vendorProdDate && !r.vendorProdTime ? '<span class="ack">시간 ?</span>' : esc(r.vendorProdTime || '')}</td><td class="c">${esc(r.vendorPalletNo || '-')}</td>
       <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td>${r.usedIn.map((u) => `${esc(u.productName)} <b>${esc(u.lotNo)}</b>`).join('<br>')}</td></tr>`).join('');
     const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
     const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;
@@ -301,7 +301,8 @@
   // 두 갈래: 제품 → 들어간 공병 / 공병 → 쓰인 제품. 최근 생산 작업은 눌러서 바로 찾는다.
   const MODES = {
     prod: { t: '제품으로 찾기', d: '이 제품에 어떤 공병이 들어갔나', ph: '제품명 또는 제조번호 (예: 판콜에이, 2F205)' },
-    bottle: { t: '공병으로 찾기', d: '이 공병이 어느 제품에 쓰였나', ph: '입고번호 또는 라벨 번호 (예: 26004733, 26004733-0042)' }
+    bottle: { t: '공병으로 찾기', d: '이 공병이 어느 제품에 쓰였나', ph: '입고번호 또는 라벨 번호 (예: 26004733, 26004733-0042)' },
+    vdate: { t: '업체 생산일로 찾기', d: '업체가 알려 준 생산일·시간대 공병이 어디에', ph: '생산일, 시간대 (예: 10-15 또는 10-15 03~05)' }
   };
   T.mode = 'prod';
   T.init = function () {
@@ -326,6 +327,7 @@
   }
   function pick() {
     const box = $('trPick'); if (!box) return;
+    if (T.mode === 'vdate') { box.innerHTML = '<div class="muted" style="margin-top:8px">업체 라벨의 생산일을 넣으세요. 시간대를 붙이면 그 시간에 만든 공병만 찾습니다 (03~05 = 03:00~05:59). 연도를 빼면 올해입니다.</div>'; return; }
     if (T.mode !== 'prod') { box.innerHTML = '<div class="muted" style="margin-top:8px">WMS 라벨의 입고번호나 라벨 번호를 넣으세요. 라벨 번호를 넣으면 그 Pallet 하나만 보여 줍니다.</div>'; return; }
     const list = (T.recent || []).slice(0, 8);
     box.innerHTML = list.length ? `<div class="sub" style="margin:10px 0 6px">최근 생산 작업 · 눌러서 바로 보기</div><div class="chips">${list.map((l) => `<button type="button" class="chipbtn" data-q="${esc(l.lotNo)}">${esc(l.productName)} ${esc(l.lotNo)}<small>${esc((l.at || '').slice(0, 10))} · ${fmt(l.palletCount || 0)} Pallet${l.status === '진행중' ? ' · 진행 중' : ''}</small></button>`).join('')}</div>` : '';
@@ -338,6 +340,7 @@
     const out = $('trOut'); out.innerHTML = '<div class="muted pad">찾는 중…</div>';
     const arch = $('trArch') && $('trArch').checked;
     const r = await R.tryGet('r15Trace', arch ? { q, arch: '1' } : { q }); if (!r) { out.innerHTML = ''; return; }
+    if (T.mode === 'vdate' || r.vdate) return showVdate(r, q, out);
     const lots = r.lots || [], inbs = r.inbounds || [];
     const want = T.mode === 'prod' ? lots : inbs, other = T.mode === 'prod' ? inbs : lots;
     if (!want.length) {
@@ -358,6 +361,18 @@
         return `<div class="trgrp"><div class="trgh"><button type="button" class="linkbtn" data-find="bottle" data-q="${esc(no)}"><b>입고번호 ${esc(no)}</b></button> <span class="muted">${r0 ? esc(r0.product + ' · ' + r0.supplier + ' · 검수 ' + r0.atText.slice(0, 10)) : ''} · ${g.length} Pallet</span></div>
           <div class="list">${g.map((p) => { const rec = p.record; return `<div class="row"><span><b>P${esc(p.pallet)}</b></span><span>${p.unverified ? R.pill('error', '검수 기록 없이 투입') : R.pill(rec.level, rec.level === 'ok' ? '검수 이상 없음' : rec.finalResult)} ${phBtns(rec, p.inboundNo, p.pallet)}</span></div>`; }).join('')}</div></div>`; }).join('')}</section>`;
   }
+  function showVdate(r, q, out) {
+    const v = r.vdate;
+    if (!v) { out.innerHTML = `<section><div class="muted">생산일로 알아보지 못했습니다. 10-15 또는 10-15 03~05 처럼 넣으세요.</div></section>`; return; }
+    const span = v.from === null ? '' : ` ${String(v.from).padStart(2, '0')}:00~${String(v.to).padStart(2, '0')}:59`;
+    const used = v.inbounds.reduce((t, g) => t + g.records.filter((x) => x.usedIn.length).length, 0);
+    out.innerHTML = `<section><div class="shead"><div><div class="sub">업체 생산일 → 공병 → 쓰인 제품</div><div class="big">업체 생산 ${esc(v.date)}${esc(span)}</div></div></div>
+      <div class="trsum">${v.count ? `공병 <b>${v.count} Pallet</b> (입고 ${v.inbounds.length}대)를 찾았습니다. 그중 <b>${used} Pallet</b>가 제품에 쓰였습니다.` : '이 생산일시로 기록된 공병이 없습니다.'}${v.noTime ? ` <span class="crit">생산시간이 비어 있어 시간대로 가리지 못한 Pallet ${v.noTime}개가 더 있습니다.</span> <button type="button" class="linkbtn" id="trAllDay">날짜 전체로 보기</button>` : ''}</div></section>
+      ${v.inbounds.map(inbCard).join('')}`;
+    out.querySelectorAll('[data-find]').forEach((b) => { b.onclick = () => T.find(b.dataset.find, b.dataset.q); });
+    if ($('trAllDay')) $('trAllDay').onclick = () => { $('trQ').value = v.date; go(); };
+    bindPhotoButtons(out);
+  }
   function inbCard(g) {
     const used = g.records.filter((r) => r.usedIn.length), lots = {};
     used.forEach((r) => r.usedIn.forEach((u) => { const k = u.productName + '|' + u.lotNo; lots[k] = (lots[k] || 0) + 1; }));
@@ -365,7 +380,7 @@
     return `<section><div class="shead"><div><div class="sub">공병 → 쓰인 제품${g.archived ? ' · 보관 기록' : ''}</div><div class="big">입고번호 ${esc(g.summary.inboundNo)}</div></div></div>
       <div class="trsum">${esc(g.summary.product)} · ${esc(g.summary.supplier)}<br>${g.records.length} Pallet 중 <b>${used.length} Pallet</b>가 제품에 쓰였고, <b>${left} Pallet</b>는 아직 재고입니다.</div>
       ${Object.keys(lots).length ? `<div class="sub" style="margin:8px 0 6px">쓰인 제품 · 눌러서 그 제품의 공병 전체 보기</div><div class="chips">${Object.keys(lots).map((k) => { const [n, lot] = k.split('|'); return `<button type="button" class="chipbtn" data-find="prod" data-q="${esc(lot)}">${esc(n)} ${esc(lot)}<small>${lots[k]} Pallet</small></button>`; }).join('')}</div>` : ''}
-      <div class="list" style="margin-top:10px">${g.records.map((rec) => `<div class="row"><span><b>P${esc(rec.pallet)}</b> <span class="muted">${esc(rec.atText)} · ${esc(rec.inspector)}</span></span>
+      <div class="list" style="margin-top:10px">${g.records.map((rec) => `<div class="row"><span><b>P${esc(rec.pallet)}</b> <span class="muted">${esc(rec.atText)} · ${esc(rec.inspector)}${rec.vendorProdDate ? ` · 업체 생산 ${esc(rec.vendorProdDate.slice(5))} ${esc(rec.vendorProdTime || '')}` : ''}</span></span>
         <span>${rec.usedIn.length ? rec.usedIn.map((u) => `<button type="button" class="linkbtn" data-find="prod" data-q="${esc(u.lotNo)}">${esc(u.productName)} ${esc(u.lotNo)}</button>`).join(' ') : R.pill('idle', '재고')} ${phBtns(rec, rec.inboundNo, rec.pallet)}</span></div>`).join('')}</div></section>`;
   }
 })();

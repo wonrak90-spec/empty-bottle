@@ -531,6 +531,8 @@
     if(!m)m=src.match(/((?:20)?\d{2})\s*년\s*(\d{2})\s*(\d{2})\s*일/);
     if(!m)m=src.match(/생\s*산\s*일\s*[자재짜]?\D{0,3}(20\d{2}|\d{2})\s*[.\/-]\s*(\d{1,2})\s*[.\/-]\s*(\d{1,2})/);
     if(m){d=ok(m[1],m[2],m[3]);at=m.index+m[0].length;}
+    // 동아에코팩 손글씨 표지: "10월 9일"처럼 연도가 없다. 올해로 보고, 미래면 작년
+    if(!d){const n=src.match(/(\d{1,2})\s*월\s*(\d{1,2})\s*일/);if(n){const now=new Date(),y=now.getFullYear();d=ok(y,n[1],n[2]);const lim=new Date(now.getTime()+2*864e5);if(d&&new Date(d)>lim)d=ok(y-1,n[1],n[2]);at=n.index+n[0].length;}}
     let tm='';
     if(d){const t=src.slice(at,at+14).match(/^\D{0,3}(\d{1,2})\s*시\s*(\d{1,2})\s*분/);if(t&&Number(t[1])<24&&Number(t[2])<60)tm=String(Number(t[1])).padStart(2,'0')+':'+String(Number(t[2])).padStart(2,'0');}
     return {d,tm};
@@ -549,7 +551,13 @@
   function finishVendor(raw,items,out){
     out={...(out||{})};
     const src=rowsOf(raw,items).join('\n')+'\n'+String(raw||'');
-    if(!out.prodDate){const v=vendorDateTime(src);if(v.d){out.prodDate=v.d;if(v.tm&&!out.prodTime)out.prodTime=v.tm;}}
+    // 날짜는 읽었는데 시간(손글씨)만 못 읽은 경우에도 다시 찾아 본다
+    const v=vendorDateTime(src);
+    if(!out.prodDate&&v.d)out.prodDate=v.d;
+    if(!out.prodTime&&v.tm&&v.d===out.prodDate)out.prodTime=v.tm;
+    // 동화 라벨 수량 "27 * 28 * 12 단 = 9,072 본": 곱은 따로 넘긴다. 검수 화면이 WMS 수량과 맞을 때만 쓴다 (인수 하나만 잘못 읽어도 곱이 틀린다)
+    const f=fixDigits(src).match(/(\d{1,3})\s*[*xX×·•]\s*(\d{1,3})\s*[*xX×·•]\s*(\d{1,3})\s*단/);
+    if(f){const prod=f[1]*f[2]*f[3];if(prod>=1000&&prod<=999999)out.qtyCalc=String(prod);}
     if(out.product){
       let p=tidyProduct(out.product);
       if(!p){const v=(String(out.product).match(/\d{1,4}\s*m[l1i]/i)||[''])[0],g=src.match(/유리병\s*[（(]?\s*[각강갹긱]\s*병/);if(g)p='유리병(각병)'+(/100/.test(v)||/\b100\s*m[l1i]/i.test(src)?' 100ml':'');}

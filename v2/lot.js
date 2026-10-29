@@ -88,7 +88,8 @@
     <section>
       <div class="shead"><h2>가용 공병 (검수 완료 · 미투입)</h2>
         <select id="lotFilter" style="width:auto"><option value="">전체 품목</option>${items.map((p) => `<option ${p === L.filter ? 'selected' : ''}>${esc(p)}</option>`).join('')}</select></div>
-      ${groups.length ? groups.map((g) => `<div class="sg"><div class="sgh"><b>${esc(g.inboundNo)}</b> ${esc(g.product)} <span class="muted">${esc(g.supplier || '')} · ${esc(g.inboundDate || '')} · ${g.palletCount} Pallet</span>
+      <div class="sub" style="margin-bottom:6px">업체 생산일이 오래된 차량부터 보입니다. <b>먼저</b> 표시를 먼저 쓰세요.</div>
+      ${groups.length ? groups.map((g) => `<div class="sg"><div class="sgh"><b>${esc(g.inboundNo)}</b> ${esc(g.product)} ${firstOf(g) ? R.pill('ok', '먼저') : ''} <span class="muted">${esc(g.supplier || '')} · 입고 ${esc(g.inboundDate || '')}${g.vMin ? ` · 업체 생산 ${esc(g.vMin.slice(5))}${g.vMax && g.vMax !== g.vMin ? '~' + esc(g.vMax.slice(5)) : ''}` : ''} · ${g.palletCount} Pallet</span>
           <button type="button" class="btn ghost sm" data-all="${esc(g.inboundNo)}">모두</button></div>
         <div class="pcs">${g.pallets.map((p) => { const k = pk(g.inboundNo, p.pallet), on = L.sel.has(k), dis = usedKeys.has(k) || pendKeys.has(k);
           return `<button type="button" class="pc ${on ? 'sel' : ''} ${p.level === 'error' ? 'err' : p.level === 'warn' ? 'wrn' : ''}" data-k="${k}" ${dis ? 'disabled' : ''} title="${esc(p.finalResult)}">${p.pallet}</button>`; }).join('')}</div></div>`).join('')
@@ -125,9 +126,21 @@
     const b = $('lotAdd'); b.disabled = !L.sel.size; b.textContent = `선택 ${L.sel.size}개 투입`;
   }
 
+  // 선입선출: 품목마다 업체 생산일(없으면 입고일)이 가장 이른 차량. 서버가 그 순서로 보낸다
+  const ageOf = (g) => g.vMin || g.inboundDate || '';
+  function firstOf(g) { const same = L.stock.filter((x) => x.product === g.product && x.pallets.length); return same.length > 1 && same[0] === g; }
+  // 고른 Pallet보다 업체 생산일이 오래된 재고가 (고르지 않은 채) 남아 있으면 묻는다
+  function olderLeft(items) {
+    const keys = new Set(items.map((x) => pk(x.inboundNo, x.pallet))), out = [];
+    const picked = L.stock.filter((g) => g.pallets.some((p) => keys.has(pk(g.inboundNo, p.pallet))));
+    picked.forEach((g) => { L.stock.forEach((o) => { if (o !== g && o.product === g.product && ageOf(o) && ageOf(o) < ageOf(g) && o.pallets.some((p) => !keys.has(pk(o.inboundNo, p.pallet))) && !out.includes(o)) out.push(o); }); });
+    return out;
+  }
   async function submit() {
     if (!L.sel.size) return;
     const items = [...L.sel.values()];
+    const old = olderLeft(items);
+    if (old.length && !confirm(`더 오래된 재고가 남아 있습니다:\n${old.slice(0, 3).map((g) => `${g.inboundNo} (업체 생산 ${(g.vMin || '').slice(5) || '?'} · 입고 ${g.inboundDate || '?'})`).join('\n')}\n\n그래도 지금 고른 Pallet를 투입할까요?`)) return;
     // 서버는 한 번에 60개까지 처리한다. '모두'를 여러 번 누르면 넘을 수 있으므로 나눠서 넣는다.
     for (let i = 0; i < items.length; i += 60) { const part = items.slice(i, i + 60); await R.queue.addLot(L.lot.id, part, { label: `${L.lot.lotNo} ${part.length} Pallet` }); }
     L.sel.clear(); R.toast(`${items.length} Pallet 투입 · 서버로 보내는 중`, 'ok'); render();

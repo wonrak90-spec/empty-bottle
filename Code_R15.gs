@@ -283,7 +283,7 @@ function doPost(e) {
 
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
-    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave','r15ArchiveRun'];
+    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave','r15ArchiveRun','r15BackupRun','r15BackupSetup'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
@@ -1965,6 +1965,7 @@ function r15Get_(action, q, auth) {
   if (action === 'r15Inbound') return r15Inbound_(q.inboundNo);
   if (action === 'r15Stock') return r15Stock_(q.days, q.itemCode);
   if (action === 'r15Trace') return r15TraceAll_(q);
+  if (action === 'r15BackupInfo') { if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 볼 수 있습니다.' }; return r15BackupInfo_(); }
   if (action === 'r15ArchiveInfo') { if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 볼 수 있습니다.' }; return r15ArchiveInfo_(); }
   if (action === 'r15Lots') return r15Lots_();
   if (action === 'r15Lot') return r15Lot_(q.id);
@@ -1993,6 +1994,8 @@ function r15Post_(action, p, auth) {
   if (action === 'r15ItemSave') return r15ItemSave_(p, auth);
   if (action === 'r15VendorSave') return r15VendorSave_(p, auth);
   if (action === 'r15ArchiveRun') return r15ArchiveRun_(p, auth);
+  if (action === 'r15BackupRun') return r15BackupRun_(auth);
+  if (action === 'r15BackupSetup') return r15BackupSetup_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
 }
@@ -2303,7 +2306,7 @@ function r15UsedFor_(keys) {
   return used;
 }
 function r15CtxFor_(records) {
-  return { dup:r15DupMap_(), vpno:r15VpnoMap_(records), used:r15UsedFor_(records.map(function(r) { return r15Key_(r.inboundNo, r.pallet); }).filter(String)), items:r15ItemMap_(), acks:r15AckMap_() };
+  return { dup:r15DupMap_(), vpno:r15VpnoMap_(records), vdate:r15VdateMap_(records), used:r15UsedFor_(records.map(function(r) { return r15Key_(r.inboundNo, r.pallet); }).filter(String)), items:r15ItemMap_(), acks:r15AckMap_() };
 }
 // 아직 투입 안 된 Pallet (검수 첫 기록 기준, 기간 제한 없음)
 function r15StockKeys_(since, code) {
@@ -2362,7 +2365,12 @@ function r15Issues_(rec, ctx) {
   else {
     // 업체 생산일시가 추적의 핵심이다 (P번호는 참고: 없어도 보고서에 띄우지 않는다)
     if (!rec.vendorProdDate) add('NO_VENDOR_DATE', 'warn', '업체 생산일시 없음');
-    else if (!rec.vendorProdTime) add('NO_VENDOR_TIME', 'warn', '업체 생산시간 없음');
+    // 동화 라벨의 시간은 손글씨라 읽지 못하는 일이 많다: 보고서 생산일시 칸에 '시간 ?'로 보이고 주의 수에는 넣지 않는다
+    else if (!rec.vendorProdTime) add('NO_VENDOR_TIME', 'info', '업체 생산시간 없음');
+    const vd = r15VDay_(rec.vendorProdDate), ind = r15VDay_(rec.inboundDate || rec.day), vm = ctx.vdate && ctx.vdate[rec.inboundNo];
+    if (vd && ind && vd > ind) add('VENDOR_DATE_ODD', 'warn', '업체 생산일 ' + rec.vendorProdDate.slice(5) + '이 입고일보다 늦음 · 사진 확인');
+    else if (vd && ind && ind - vd > 365) add('VENDOR_DATE_ODD', 'warn', '업체 생산일 ' + rec.vendorProdDate + '이 1년 넘게 이전 · 사진 확인');
+    else if (vd && vm && vm.n >= 3 && Math.abs(vd - vm.mid) > 3) add('VENDOR_DATE_ODD', 'warn', '업체 생산일 ' + rec.vendorProdDate.slice(5) + '이 이 차량 다른 Pallet와 ' + Math.abs(vd - vm.mid) + '일 차이 · 사진 확인');
     if (!rec.vendorPalletNo) add('NO_VENDOR_PNO', 'info', '업체 P번호 없음');
   }
   const vp = r15S_(rec.vendorPalletNo).replace(/\D/g, '').replace(/^0+/, '');
@@ -2370,7 +2378,7 @@ function r15Issues_(rec, ctx) {
   if (!rec.qty) add('NO_QTY', 'warn', 'WMS 수량 없음');
   // 업체 수량이 WMS의 절반 미만·두 배 초과면 글자 오독일 가능성이 커서 불일치(오류) 대신 판독 불확실(주의)로 둔다
   if (rec.qty && rec.vendorQty && rec.qty !== rec.vendorQty) {
-    if (rec.vendorQty * 2 < rec.qty || rec.vendorQty > rec.qty * 2) add('VENDOR_QTY_UNREAD', 'warn', '업체 수량 판독 불확실 (읽은 값 ' + rec.vendorQty + ') · 사진 확인');
+    if (rec.vendorQty * 2 < rec.qty || rec.vendorQty > rec.qty * 2) add('VENDOR_QTY_UNREAD', 'info', '업체 수량 판독 불확실 (읽은 값 ' + rec.vendorQty + ') · 사진 확인');
     else add('QTY_MISMATCH', 'error', '수량 불일치 (WMS ' + rec.qty + ' / 업체 ' + rec.vendorQty + ')');
   }
   const item = ctx.items[rec.itemCode];
@@ -2378,7 +2386,8 @@ function r15Issues_(rec, ctx) {
   else if (!item) add('UNKNOWN_ITEM', 'warn', '기준정보에 없는 품목코드 ' + rec.itemCode);
   else if (rec.productRaw && r15NormName_(rec.productRaw) !== r15NormName_(item.itemName)) add('NAME_DIFF', 'info', '저장된 품명 "' + rec.productRaw + '" → 정식명으로 표시');
   const vj = r15VendorJudge_(rec, ctx.items); if (vj) add(vj.code, vj.level, vj.label);
-  if (rec.labelMatch === '미대조') add('NOT_COMPARED', 'warn', '업체 라벨 미대조');
+  // 업체 품명은 등록된 이름과 맞을 때만 적으므로 빈칸(미대조)은 흔하다: 참고로만 둔다
+  if (rec.labelMatch === '미대조') add('NOT_COMPARED', 'info', '업체 라벨 미대조');
   if (/확인/.test(rec.finalResult) && !out.some(function(x) { return x.level === 'error'; })) add('JUDGED_CHECK', 'warn', '검수 판정 확인필요 (사유 미기록)');
   return out;
 }
@@ -2391,7 +2400,14 @@ function r15LabelCode_(v) {
 function r15Ctx_(records) {
   const dup = {}; records.forEach(function(r) { const k = r15Key_(r.inboundNo, r.pallet); if (k) dup[k] = (dup[k] || 0) + 1; });
   const used = {}; r15ProdPallets_().forEach(function(pp) { const k = r15Key_(pp.inboundNo, pp.pallet); if (k) (used[k] = used[k] || []).push(pp); });
-  return { dup:dup, vpno:r15VpnoMap_(records), used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+  return { dup:dup, vpno:r15VpnoMap_(records), vdate:r15VdateMap_(records), used:used, items:r15ItemMap_(), acks:r15AckMap_() };
+}
+// 업체 생산일(날짜) → 일 번호. 같은 입고(차량)의 가운데 값과 비교해 오독을 찾는다
+function r15VDay_(s) { const m = r15S_(s).match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? Math.round(Date.UTC(+m[1], +m[2] - 1, +m[3]) / 864e5) : 0; }
+function r15VdateMap_(records) {
+  const by = {}; records.forEach(function(r) { const d = r15VDay_(r.vendorProdDate); if (r.inboundNo && d) (by[r.inboundNo] = by[r.inboundNo] || []).push(d); });
+  const m = {}; Object.keys(by).forEach(function(k) { const a = by[k].sort(function(x, y) { return x - y; }); m[k] = { n:a.length, mid:a[Math.floor((a.length - 1) / 2)] }; });
+  return m;
 }
 // 같은 입고번호 안에서 업체 P번호가 겹치면 같은 업체 라벨을 두 번 찍었을 수 있다
 function r15VpnoMap_(records) {
@@ -2569,10 +2585,13 @@ function r15Stock_(days, itemCode) {
     const g = groups[r.inboundNo] = groups[r.inboundNo] || { inboundNo:r.inboundNo, itemCode:r.itemCode, product:r.product, supplier:r.supplier, inboundDate:r.inboundDate || r.day, palletCount:0, qtyTotal:0, pallets:[] };
     const pub = r15Public_(r, ctx);
     g.palletCount++; g.qtyTotal += r.qty || r.vendorQty;
-    g.pallets.push({ pallet:r.pallet, recordId:r.id, qty:r.qty || r.vendorQty, finalResult:r.finalResult, level:pub.level });
+    g.pallets.push({ pallet:r.pallet, recordId:r.id, qty:r.qty || r.vendorQty, finalResult:r.finalResult, level:pub.level, vDate:r.vendorProdDate || '', vTime:r.vendorProdTime || '' });
+    if (r.vendorProdDate && (!g.vMin || r.vendorProdDate < g.vMin)) g.vMin = r.vendorProdDate;
+    if (r.vendorProdDate && (!g.vMax || r.vendorProdDate > g.vMax)) g.vMax = r.vendorProdDate;
   });
   const list = Object.keys(groups).map(function(k) { const g = groups[k]; g.pallets.sort(function(a, b) { return a.pallet - b.pallet; }); return g; })
-    .sort(function(a, b) { return String(a.inboundDate).localeCompare(String(b.inboundDate)) || a.inboundNo.localeCompare(b.inboundNo); });
+    // 선입선출: 품목 안에서 업체 생산일이 오래된 차량부터 (생산일이 없으면 입고일)
+    .sort(function(a, b) { return String(a.vMin || a.inboundDate).localeCompare(String(b.vMin || b.inboundDate)) || String(a.inboundDate).localeCompare(String(b.inboundDate)) || a.inboundNo.localeCompare(b.inboundNo); });
   return { ok:true, days:d, groups:list };
 }
 
@@ -2586,6 +2605,7 @@ function r15PalletInfo_(inboundNo, pallet) {
 /* ---------- 양방향 추적 ---------- */
 function r15Trace_(query) {
   const raw = r15S_(query); if (!raw) return { ok:false, message:'검색어를 입력하세요.' };
+  const vq = r15VdateQuery_(raw); if (vq) return r15TraceVdate_(vq);
   const low = raw.toLowerCase();
   // 제조번호 → 투입 Pallet → 입고 검수 기록
   const lotList = r15Productions_().filter(function(p) { const lot = p.lotNo.toLowerCase(); return lot === low || (low.length >= 3 && lot.indexOf(low) >= 0) || (low.length >= 2 && p.productName.toLowerCase().indexOf(low) >= 0); })
@@ -2606,6 +2626,78 @@ function r15Trace_(query) {
   const inbounds = [];
   if (inRecs.length) { const recs = inRecs.map(function(r) { return r15Public_(r, ctx); }); inbounds.push({ summary: r15InboundSummary_(m[1], recs), records: recs }); }
   return { ok:true, query:raw, lots:lots, inbounds:inbounds };
+}
+
+// 업체 생산일 검색어: "10-15", "2026-10-15", "10/15 03~05", "10.15 3-5시". 시간대는 시 단위 (끝 시각 포함: 03~05 = 03:00~05:59)
+function r15VdateQuery_(raw) {
+  const m = r15S_(raw).replace(/\s+/g, ' ').match(/^(?:(20\d{2}|\d{2})[-.\/년]\s*)?(\d{1,2})\s*[-.\/월]\s*(\d{1,2})\s*일?(?:\s+(\d{1,2})(?::\d{2})?\s*시?\s*[~\-]\s*(\d{1,2})(?::\d{2})?\s*시?)?$/);
+  if (!m) return null;
+  const mo = +m[2], d = +m[3]; if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  let y = m[1] ? +m[1] : +r15Today_().slice(0, 4); if (y < 100) y += 2000;
+  let date = y + '-' + ('0' + mo).slice(-2) + '-' + ('0' + d).slice(-2);
+  if (!m[1] && date > r15Today_()) date = (y - 1) + date.slice(4); // 연도 없이 미래 날짜면 작년
+  const from = m[4] !== undefined ? +m[4] : null, to = m[5] !== undefined ? +m[5] : null;
+  return { date:date, from:from, to:to === null ? null : Math.max(from, to) };
+}
+function r15TraceVdate_(vq) {
+  const dates = r15ColVals_('Records', '업체생산일자'), times = r15ColVals_('Records', '업체생산시간'), rows = [];
+  let noTime = 0;
+  dates.forEach(function(v, k) {
+    if (r15Fmt_(v) !== vq.date) return;
+    if (vq.from === null) { rows.push(k + 2); return; }
+    const tm = r15Fmt_(times[k], 'HH:mm').match(/^(\d{1,2}):?(\d{2})?/);
+    if (!tm) { noTime++; return; }
+    const h = +tm[1]; if (h >= vq.from && h <= vq.to) rows.push(k + 2);
+  });
+  const recs = r15RecordsAtRows_(rows), ctx = r15CtxFor_(recs), groups = {};
+  recs.forEach(function(r) { (groups[r.inboundNo || '없음'] = groups[r.inboundNo || '없음'] || []).push(r15Public_(r, ctx)); });
+  const inbounds = Object.keys(groups).map(function(no) { return { summary: r15InboundSummary_(no === '없음' ? '' : no, groups[no]), records: groups[no] }; });
+  return { ok:true, query:vq.date, lots:[], inbounds:[], vdate:{ date:vq.date, from:vq.from, to:vq.to, count:recs.length, noTime:noTime, inbounds:inbounds } };
+}
+
+/* ---------- 백업 ----------
+   스프레드시트 사본을 같은 폴더의 "<이름>_백업" 폴더에 만든다. 최근 8개만 남기고 오래된 사본은 휴지통으로.
+   매주 자동: 관리 → 보관에서 '매주 자동 백업 켜기' (일요일 새벽 2시). 처음 켤 때 구글이 권한을 한 번 더 물을 수 있다. */
+const R15_BACKUP_KEEP = 8;
+function r15BackupFolder_() {
+  const live = DriveApp.getFileById(getSs_().getId()), par = live.getParents(), base = par.hasNext() ? par.next() : DriveApp.getRootFolder();
+  const name = (getSs_().getName ? getSs_().getName() : '공병_입고확인') + '_백업', it = base.getFoldersByName(name);
+  return it.hasNext() ? it.next() : base.createFolder(name);
+}
+function r15BackupList_(folder) {
+  const out = [], it = folder.getFiles();
+  while (it.hasNext()) { const f = it.next(); out.push({ id:f.getId(), name:f.getName(), at:f.getDateCreated().getTime(), url:f.getUrl(), f:f }); }
+  return out.sort(function(a, b) { return b.at - a.at; });
+}
+function r15BackupNow_(who) {
+  const folder = r15BackupFolder_(), ss = getSs_(), stamp = Utilities.formatDate(new Date(), R15_TZ, 'yyyyMMdd_HHmm');
+  const copy = DriveApp.getFileById(ss.getId()).makeCopy((ss.getName ? ss.getName() : '공병_입고확인') + '_백업_' + stamp, folder);
+  const list = r15BackupList_(folder); list.slice(R15_BACKUP_KEEP).forEach(function(x) { try { x.f.setTrashed(true); } catch (e) {} });
+  PropertiesService.getScriptProperties().setProperty('R15_BACKUP_LAST', stamp + ' ' + (who || '자동'));
+  return { name:copy.getName(), url:copy.getUrl() };
+}
+// 시간 트리거가 부르는 함수 (이름을 바꾸면 트리거가 끊긴다)
+function r15WeeklyBackup() { r15BackupNow_('자동'); }
+function r15BackupTrigger_() { return ScriptApp.getProjectTriggers().filter(function(tr) { return tr.getHandlerFunction() === 'r15WeeklyBackup'; }); }
+function r15BackupInfo_() {
+  let list = [], on = false, err = '';
+  try { list = r15BackupList_(r15BackupFolder_()).map(function(x) { return { name:x.name, url:x.url, at:Utilities.formatDate(new Date(x.at), R15_TZ, 'yyyy-MM-dd HH:mm') }; }); } catch (e) { err = String(e.message || e); }
+  try { on = r15BackupTrigger_().length > 0; } catch (e) { err = err || String(e.message || e); }
+  return { ok:true, on:on, keep:R15_BACKUP_KEEP, list:list, last:scriptProp_('R15_BACKUP_LAST') || '', error:err };
+}
+function r15BackupRun_(auth) {
+  if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 할 수 있습니다.' };
+  try { const b = r15BackupNow_(actorLabelV24_(auth)); appendAudit_('R15백업', 'BACKUP', { actor: actorLabelV24_(auth), after: { name:b.name } }); return { ok:true, backup:b }; }
+  catch (e) { return { ok:false, message:'백업 실패: ' + (e.message || e) }; }
+}
+function r15BackupSetup_(p, auth) {
+  if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 할 수 있습니다.' };
+  try {
+    const now = r15BackupTrigger_();
+    if (String(p && p.on) === '1') { if (!now.length) ScriptApp.newTrigger('r15WeeklyBackup').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create(); }
+    else now.forEach(function(tr) { ScriptApp.deleteTrigger(tr); });
+    return r15BackupInfo_();
+  } catch (e) { return { ok:false, message:'자동 백업 설정 실패: ' + (e.message || e) + ' · Apps Script 편집기에서 r15WeeklyBackup을 한 번 실행해 권한을 허용하세요.' }; }
 }
 
 /* ---------- 보관(아카이브) ----------

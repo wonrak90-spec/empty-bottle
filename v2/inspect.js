@@ -75,7 +75,7 @@
     if (num(c.qty)) { if (num(c.qty) === num(b.qty)) add(true, 'WMS 수량 기준과 같음', false); else stop(`WMS 수량 ${fmt(c.qty)} (기준 ${fmt(b.qty)})`); }
     else add(false, 'WMS 수량 없음', false);
     const vq = num(c.vQty), wq = num(c.qty);
-    if (vq && wq && vq !== wq && (vq * 2 < wq || vq > wq * 2)) add(false, `업체 수량 판독 불확실 (${fmt(c.vQty)}) · 사진 확인`, false);
+    if (vq && wq && vq !== wq && (vq * 2 < wq || vq > wq * 2)) out.push({ ok: false, label: `업체 수량 ${fmt(c.vQty)}은 잘못 읽은 것 같음 · 저장 안 함`, hard: false, soft: true });
     else if (num(c.vQty) && num(c.qty)) add(num(c.vQty) === num(c.qty), num(c.vQty) === num(c.qty) ? '업체 수량 일치' : `업체 수량 ${fmt(c.vQty)} ≠ WMS ${fmt(c.qty)}`, num(c.vQty) !== num(c.qty));
     else if (num(c.vQty) && num(b.qty) && num(c.vQty) !== num(b.qty)) stop(`업체 수량 ${fmt(c.vQty)} (기준 ${fmt(b.qty)}) · WMS 수량 없음`);
     const vm = vendorMatch(S.items[b.itemCode], c.vProduct, c.supplier || b.supplier);
@@ -83,8 +83,9 @@
     if (!c.vendorDone && !c.vendorPhotoKept) add(false, '업체 라벨 사진 없음', false);
     // 추적의 핵심: 업체 생산일시와 업체 P번호. 못 읽었으면 다시 찍거나 직접 적게 알린다
     else if (c.vendorDone && !busyOf(c).vendor) {
-      if (!c.vDate) add(false, '업체 생산일 못 읽음 · 다시 찍거나 직접 입력', false);
-      else if (!c.vTime) add(false, '업체 생산시간 못 읽음 · 다시 찍거나 직접 입력', false);
+      // 화면 안내만 하고 기록의 '확인' 사유에는 넣지 않는다 (서버가 따로 점검한다)
+      if (!c.vDate) out.push({ ok: false, label: '업체 생산일 못 읽음 · 숫자 4자리로 입력 (예: 1015)', hard: false, soft: true });
+      else if (!c.vTime) out.push({ ok: false, label: '업체 생산시간(손글씨) 못 읽음 · 숫자로 입력 (예: 1710)', hard: false, soft: true });
     }
     const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
     // 대기열에 아직 있는 번호(전송 중·확인 필요)도 같은 번호를 두 번 넣는 실수다
@@ -157,8 +158,8 @@
           ${field('cInbound', '입고번호', c.inboundNo, { num: true, cls: 'key' + (b && c.inboundNo && c.inboundNo !== b.inboundNo ? ' bad' : '') })}
           ${field('cItem', '품목코드', c.itemCode, { num: true })}
           ${field('cQty', 'WMS 수량', c.qty, { num: true })}
-          ${field('cVDate', '업체 생산일자', c.vDate, { ph: 'yyyy-mm-dd', cls: 'key' + (c.vendorDone && !c.vDate ? ' need' : '') })}
-          ${field('cVTime', '업체 생산시간', c.vTime, { ph: 'hh:mm', cls: 'key' + (c.vendorDone && !c.vTime ? ' need' : '') })}
+          ${field('cVDate', '업체 생산일자', c.vDate, { ph: '1015 처럼 숫자만', num: true, cls: 'key' + (c.vendorDone && !c.vDate ? ' need' : '') })}
+          ${field('cVTime', '업체 생산시간', c.vTime, { ph: '1710 처럼 숫자만', num: true, cls: 'key' + (c.vendorDone && !c.vTime ? ' need' : '') })}
           ${field('cVPallet', '업체 P-번호', c.vPallet, { num: true, cls: 'key' + (c.vendorDone && !c.vPallet ? ' need' : '') })}
           ${field('cVQty', '업체 수량', c.vQty, { num: true })}
           ${field('cVProduct', '업체 품명', c.vProduct, { ph: '등록된 품명과 맞을 때만 채워짐' })}
@@ -227,6 +228,13 @@
     const n = lastSaved();
     return n ? '다음은 아마 ' + (n + 1) : '';
   }
+  // 업체 수량: 읽은 끝 숫자 · 곱(27×28×12) 중 WMS 수량과 맞는 것을 쓴다. 둘 다 안 맞으면 읽은 값이 그럴듯할 때만 남기고(진짜 불일치), 터무니없으면 비운다
+  function vendorQtyPick(read, calc, wms) {
+    const r = Number(read) || 0, k = Number(calc) || 0, w = Number(digits(wms)) || 0;
+    if (w && (r === w || k === w)) return String(w);
+    if (r >= 100 && (!w || (r * 2 >= w && r <= w * 2))) return String(r);
+    return '';
+  }
   function blankCur() { return { pallet: '', palletTo: '', palletNote: '', palletNoteFor: '', inboundNo: '', itemCode: '', qty: '', vProduct: '', vQty: '', vDate: '', vTime: '', vLot: '', vLine: '', vPallet: '', note: '', ocrRaw: '', vOcrRaw: '', codeRaw: '', wmsDone: false, vendorDone: false, status: '', supplier: '', manufacturer: '', unit: '', inboundDate: '', expiryDate: '', productOcr: '' }; }
   // 바코드로 입고번호·Pallet를 읽었고 차량 기준과 같으면, 글자 인식이 끝나기 전에도 저장할 수 있다 (나머지 대조는 이어서)
   function canSave() {
@@ -235,11 +243,18 @@
     return !reading(c) || !!(S.base && c.bc && c.inboundNo === S.base.inboundNo);
   }
 
+  // 빨리 적게: 시간 "1710"·"17 10" → 17:10, 날짜 "1015" → 올해-10-15, "261015" → 2026-10-15
+  function normTime(s) { const m = String(s).match(/^(\d{1,2})\D*(\d{2})$/); return m && +m[1] < 24 && +m[2] < 60 ? String(+m[1]).padStart(2, '0') + ':' + m[2] : s; }
+  function normDate(s) {
+    const d = String(s).replace(/\D/g, ''); let y, mo, dd;
+    if (d.length === 4) { y = today().slice(0, 4); mo = d.slice(0, 2); dd = d.slice(2); } else if (d.length === 6 && !/-/.test(s)) { y = '20' + d.slice(0, 2); mo = d.slice(2, 4); dd = d.slice(4); } else return s;
+    return +mo >= 1 && +mo <= 12 && +dd >= 1 && +dd <= 31 ? `${y}-${mo}-${dd}` : s;
+  }
   function readCur() {
     const c = S.cur; if (!c || !$('cPallet')) return;
     c.pallet = digits($('cPallet').value).replace(/^0+(?=\d)/, ''); c.inboundNo = digits($('cInbound').value); c.itemCode = digits($('cItem').value);
     c.qty = digits($('cQty').value); c.vProduct = $('cVProduct').value.trim(); c.vQty = digits($('cVQty').value);
-    c.vDate = $('cVDate').value.trim(); c.vTime = $('cVTime').value.trim(); c.vPallet = $('cVPallet').value.trim(); c.note = $('cNote').value;
+    c.vDate = normDate($('cVDate').value.trim()); c.vTime = normTime($('cVTime').value.trim()); c.vPallet = $('cVPallet').value.trim(); c.note = $('cNote').value;
     persist();
   }
   function bindPallet() {
@@ -350,7 +365,7 @@
         Object.assign(c, keep, { palletNote: '' }); c.status = `바코드 + ${R.ocr.lastEngine} 완료${c.bcNote ? ' · ' + c.bcNote : ''}`;
       }
     } else {
-      Object.assign(c, { vProduct: p.product || '', vQty: Number(digits(p.qty)) >= 100 ? digits(p.qty) : '', vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
+      Object.assign(c, { vProduct: p.product || '', vQty: vendorQtyPick(digits(p.qty), digits(p.qtyCalc), c.qty || (S.base && S.base.qty)), vDate: p.prodDate || '', vTime: p.prodTime || '', vLot: p.lotNo || '', vLine: p.line || '', vPallet: p.palletNo || '', vOcrRaw: r.text });
       // 품명 목록과 맞으면 읽은 글자 대신 목록의 품명으로 저장한다 (원문은 OCR 원문에 남는다). 줄 단위로도 찾아 본다.
       const it = S.items[c.itemCode || (S.base && S.base.itemCode)], sup = c.supplier || (S.base && S.base.supplier);
       if (it && (it.vendor || []).length) {
@@ -418,19 +433,21 @@
   }
 
   function buildPayload(c, ck, noVendor, late) {
-    const b = S.base, bad = ck.filter((x) => !x.ok && x.hard), warn = ck.filter((x) => !x.ok && !x.hard);
+    const b = S.base, bad = ck.filter((x) => !x.ok && x.hard), warn = ck.filter((x) => !x.ok && !x.hard && !x.soft);
     const item = S.items[b.itemCode] || S.items[c.itemCode], vm = vendorMatch(item, c.vProduct);
-    const qtyResult = num(c.vQty) && num(c.qty) ? (num(c.vQty) === num(c.qty) ? '일치' : '불일치') : '';
+    // 터무니없는 업체 수량(WMS의 절반 미만·두 배 초과)은 잘못 읽은 것: 저장하지 않는다
+    const vqOk = num(c.vQty) && num(c.qty) && (num(c.vQty) * 2 < num(c.qty) || num(c.vQty) > num(c.qty) * 2) ? '' : c.vQty;
+    const qtyResult = num(vqOk) && num(c.qty) ? (num(vqOk) === num(c.qty) ? '일치' : '불일치') : '';
     const reasons = bad.concat(warn).map((x) => x.label);
     return {
       inboundNo: c.inboundNo, inboundDate: b.inboundDate, product: (S.items[c.itemCode] || item || {}).itemName || b.product, itemCode: c.itemCode || b.itemCode,
       manufacturer: b.manufacturer, supplier: b.supplier, displayQty: c.qty, unit: b.unit || 'EA', expiryDate: b.expiryDate,
       containerFrom: c.pallet, containerTo: c.pallet, codeRaw: c.codeRaw || (c.inboundNo + '-' + String(c.pallet).padStart(4, '0')),
       infoMatch: c.inboundNo === b.inboundNo && (!c.itemCode || c.itemCode === b.itemCode) ? '일치' : '불일치', mixed: c.itemCode && c.itemCode !== b.itemCode ? '있음' : '없음',
-      actualQty: (num(c.vQty) && num(c.qty) && (num(c.vQty) * 2 < num(c.qty) || num(c.vQty) > num(c.qty) * 2) ? c.qty : c.vQty || c.qty), qtyResult, finalResult: bad.length ? '확인필요' : '적합',
+      actualQty: vqOk || c.qty, qtyResult, finalResult: bad.length ? '확인필요' : '적합',
       note: [c.note, (c.confirmed || []).join(', '), c.bc ? '바코드' + (c.bcNote ? '(' + c.bcNote + ')' : '') : '', late ? '저장 후 대조' : '', noVendor ? '업체사진 없음: ' + noVendor : '', reasons.length ? '확인: ' + reasons.join(', ') : '', 'R15'].filter(Boolean).join(' / '),
       ocrRaw: c.ocrRaw, labelMatch: vm.result,
-      vendorProduct: c.vProduct, vendorQty: c.vQty, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,
+      vendorProduct: c.vProduct, vendorQty: vqOk, vendorProdDate: c.vDate, vendorProdTime: c.vTime, vendorLotNo: c.vLot, vendorLine: c.vLine,
       vendorOcrRaw: c.vOcrRaw, vendorPalletNo: c.vPallet, dateKey: today().replace(/-/g, '')
     };
   }

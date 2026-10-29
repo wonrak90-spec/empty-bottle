@@ -218,6 +218,7 @@
       ${r.blocked ? `<div class="sub">기준일 이후 기록이 섞인 작업 ${fmt(r.blocked)}건은 옮기지 않습니다.</div>` : ''}
       <div class="savebar"><button type="button" class="btn" id="arRun" ${r.lots ? '' : 'disabled'}>보관 파일로 옮기기</button>${r.archiveUrl ? `<a class="btn ghost sm" href="${esc(r.archiveUrl)}" target="_blank" rel="noopener">보관 파일 열기</a>` : ''}<span class="msg" id="arMsg"></span></div>
       <div class="sub">옮긴 기록은 추적 화면의 "보관 기록도 찾기"로 볼 수 있습니다. 옮기는 동안(몇 분) 다른 저장은 잠시 기다렸다가 자동으로 다시 보냅니다. 검수가 없는 시간에 누르세요.</div></section>`;
+    $('admBody').insertAdjacentHTML('beforeend', '<div id="bkBox"></div>'); backup();
     if (!r.lots) return;
     $('arRun').onclick = async () => {
       if (!confirm(`작업 ${r.lots}건 · 검수 기록 ${r.records}행을 보관 파일로 옮길까요?\n\n보관 파일에 먼저 붙이고 확인한 뒤에 지금 파일에서 뺍니다.`)) return;
@@ -225,6 +226,19 @@
       const x = await R.tryPost('r15ArchiveRun', {}); R.busy($('arRun'), false);
       if (x && x.ok) { R.toast(`옮겼습니다 · 기록 ${fmt(x.moved.Records || 0)}행`, 'ok'); archive(); }
     };
+  }
+  // 주간 자동 백업: 스프레드시트 사본을 "<이름>_백업" 폴더에 최근 8개까지
+  async function backup() {
+    const box = $('bkBox'); if (!box) return; box.innerHTML = '<section><div class="muted">백업 상태를 읽는 중…</div></section>';
+    const b = await R.tryGet('r15BackupInfo'); if (!$('bkBox')) return;
+    if (!b) { box.innerHTML = ''; return; }
+    box.innerHTML = `<section><div class="shead"><h2>백업</h2>${R.pill(b.on ? 'ok' : 'idle', b.on ? '매주 자동 켜짐' : '자동 꺼짐')}</div>
+      <div class="sub">스프레드시트 전체 사본을 같은 폴더의 백업 폴더에 만듭니다. 최근 ${b.keep}개만 남기고 오래된 사본은 휴지통으로 갑니다. 자동은 매주 일요일 새벽 2시입니다.${b.last ? ' 마지막 백업: ' + esc(b.last) : ''}</div>
+      ${b.error ? `<div class="warnbox">${esc(b.error)}</div>` : ''}
+      <div class="list">${(b.list || []).slice(0, 4).map((x) => `<div class="row"><span>${esc(x.name)} <span class="muted">${esc(x.at)}</span></span><a class="btn ghost sm" href="${esc(x.url)}" target="_blank" rel="noopener">열기</a></div>`).join('') || '<div class="muted">아직 백업이 없습니다.</div>'}</div>
+      <div class="savebar"><button type="button" class="btn ghost" id="bkNow">지금 백업</button><button type="button" class="btn ghost" id="bkAuto">${b.on ? '매주 자동 백업 끄기' : '매주 자동 백업 켜기'}</button></div></section>`;
+    $('bkNow').onclick = async () => { R.busy($('bkNow'), true, '백업 중…'); const x = await R.tryPost('r15BackupRun', {}); R.busy($('bkNow'), false); if (x && x.ok) { R.toast('백업했습니다', 'ok'); backup(); } };
+    $('bkAuto').onclick = async () => { R.busy($('bkAuto'), true, '설정 중…'); const x = await R.tryPost('r15BackupSetup', { on: b.on ? '0' : '1' }); R.busy($('bkAuto'), false); if (x && x.ok) { R.toast(x.on ? '매주 자동 백업을 켰습니다' : '자동 백업을 껐습니다', 'ok'); backup(); } };
   }
   function roleOpts(cur) { return Object.keys(R.ROLES).map((k) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(R.roleName(k))}</option>`).join(''); }
 

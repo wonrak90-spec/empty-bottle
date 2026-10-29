@@ -212,7 +212,7 @@ details.aurow summary::-webkit-details-marker{display:none}
 /* Guest: 사진·선택·처리 버튼 숨김 (보기만) */
 body[data-role=guest] [data-ph],body[data-role=guest] [data-dsel],body[data-role=guest] #detAll,body[data-role=guest] #detDelSel,body[data-role=guest] #qChip{display:none!important}
 .shot span{word-break:keep-all;text-align:center}
-.trmodes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:12px}
+.trmodes{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-bottom:12px}
 .trmode{display:flex;flex-direction:column;align-items:flex-start;gap:2px;border:2px solid var(--line);border-radius:14px;background:var(--surface);color:var(--ink);padding:12px 14px;font:inherit;font-size:16px;cursor:pointer;text-align:left}
 .trmode small{font-size:12.5px;color:var(--ink3);word-break:keep-all}.trmode[aria-pressed="true"]{border-color:var(--brand);background:var(--sunken)}
 .trsum{font-size:15px;line-height:1.6;margin:4px 0 8px}.trsum .crit{color:var(--crit);font-weight:700}
@@ -230,3 +230,4 @@ body[data-role=guest] [data-ph],body[data-role=guest] [data-dsel],body[data-role
 .vnrow{display:grid;grid-template-columns:minmax(90px,1fr) 2fr 90px auto;gap:6px;margin-top:6px}.vnrow input{min-width:0}
 @media (max-width:560px){.vnrow{grid-template-columns:1fr 90px;}.vnrow input[data-vk=names]{grid-column:1/-1;order:-1}}
 .vnsug{display:grid;gap:8px;margin-top:6px;padding:10px;border:1px solid var(--line);border-radius:12px;background:var(--sunken)}.vnsug .chk{margin:4px 0}
+td.crit{color:var(--crit);font-weight:700}td.warnt{color:var(--warn);font-weight:600}

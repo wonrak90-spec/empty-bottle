@@ -71,7 +71,7 @@
   }
 
   // 기록 전체를 훑는 읽기는 1년치가 쌓이면 25초를 넘을 수 있다. 서버는 끝까지 계산하므로 앱이 먼저 포기하지 않게 더 기다린다.
-  const SLOW = { r15Report: 60000, r15Stock: 60000, r15Trace: 45000, r15Audit: 45000, r15Lots: 45000, r15LotAdd: 60000, r15ArchiveInfo: 60000, r15ArchiveRun: 340000, r15VendorSuggest: 60000 };
+  const SLOW = { r15Report: 60000, r15Stock: 60000, r15Trace: 45000, r15Audit: 45000, r15Lots: 45000, r15LotAdd: 60000, r15ArchiveInfo: 60000, r15ArchiveRun: 340000, r15BackupRun: 300000, r15BackupInfo: 60000, r15BackupSetup: 60000, r15VendorSuggest: 60000 };
   R.apiGet = async function (action, params, ms) {
     const s = R.session || loadSession(); if (!s && !R.isGuest()) { showLogin(); throw new ApiError('로그인이 필요합니다', 'auth'); }
     // Guest는 세션 없이 보낸다. 서버가 화면 권한에서 Guest에게 연 탭의 읽기만 받아준다.

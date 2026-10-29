@@ -38,11 +38,35 @@
       </div>` : ''}</section>
       ${d ? `<section><div class="shead"><h2>차량별 진행</h2><span class="muted">${d.inbounds.length}대</span></div>
         <div class="list">${d.inbounds.length ? d.inbounds.map(vehicle).join('') : '<div class="muted pad">이 기간에 검수한 차량이 없습니다.</div>'}</div></section>` : ''}
+      ${d ? blanks(d.records || []) + rates(d.records || []) : ''}
       ${open.length ? `<section><div class="shead"><h2>진행 중 생산 작업</h2></div><div class="list">${open.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">${esc(l.at)} · ${esc(l.workers || '')}</span></span><span>투입 <b>${fmt(l.palletCount)}</b> Pallet</span></div>`).join('')}</div></section>` : ''}`;
     root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; D.data = null; D.at = ''; render(); load(); }; });
     $('dashReload').onclick = load;
+    root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });
   }
 
+  // 업체 사진은 있는데 생산일·시간이 빈 Pallet: 사진을 보고 바로 채우게 차량별로 모아 보여 준다
+  function blanks(recs) {
+    const by = {};
+    recs.forEach((r) => { if (!r.vendorPhoto) return; const k = !r.vendorProdDate ? 'd' : !r.vendorProdTime ? 't' : ''; if (!k) return; const g = by[r.inboundNo] = by[r.inboundNo] || { d: [], t: [], product: r.product }; g[k].push(r.pallet); });
+    const ks = Object.keys(by); if (!ks.length) return '';
+    const nd = ks.reduce((s, k) => s + by[k].d.length, 0), nt = ks.reduce((s, k) => s + by[k].t.length, 0);
+    const ps = (a) => a.sort((x, y) => x - y).map((n) => 'P' + n).join(' ');
+    return `<section><div class="shead"><h2>업체 생산일시 빈칸</h2><span class="muted">날짜 ${nd} · 시간 ${nt} Pallet</span></div>
+      <div class="sub" style="margin-bottom:6px">업체 라벨 사진을 보고 채우면 업체 생산일 추적이 정확해집니다. 보고서 → 차량 → 고치기.</div>
+      <div class="list">${ks.map((k) => `<div class="row"><span><b>${esc(k)}</b> ${esc(by[k].product || '')}<br><span class="muted">${by[k].d.length ? '날짜 없음 ' + ps(by[k].d) : ''}${by[k].d.length && by[k].t.length ? ' · ' : ''}${by[k].t.length ? '시간 없음 ' + ps(by[k].t) : ''}</span></span><button type="button" class="btn ghost sm" data-goreport>보고서로</button></div>`).join('')}</div></section>`;
+  }
+  // 업체별로 라벨에서 얼마나 기록됐나 (사진 있는 Pallet 기준). 낮은 업체는 촬영 방법이나 라벨 양식을 바꿀 곳
+  function rates(recs) {
+    const by = {};
+    recs.forEach((r) => { const s = r.supplier || '업체 미상', g = by[s] = by[s] || { n: 0, ph: 0, d: 0, t: 0, p: 0, q: 0 }; g.n++; if (!r.vendorPhoto) return; g.ph++; if (r.vendorProdDate) g.d++; if (r.vendorProdTime) g.t++; if (r.vendorPalletNo) g.p++; if (r.vendorQty) g.q++; });
+    const ks = Object.keys(by).filter((k) => by[k].n); if (!ks.length) return '';
+    const pc = (a, b, l) => { if (!b) return `<td class="num muted" data-l="${l}">-</td>`; const v = Math.round(a / b * 100); return `<td class="num ${v < 50 ? 'crit' : v < 80 ? 'warnt' : ''}" data-l="${l}">${v}% <span class="muted">(${a}/${b})</span></td>`; };
+    return `<section><div class="shead"><h2>업체별 라벨 판독</h2><span class="muted">사진 있는 Pallet 중 기록된 비율</span></div>
+      <div class="scroll"><table class="mt"><thead><tr><th>업체</th><th class="num">Pallet</th><th class="num">업체 사진</th><th class="num">생산일</th><th class="num">생산시간</th><th class="num">P번호</th><th class="num">수량</th></tr></thead><tbody>
+      ${ks.map((k) => { const g = by[k]; return `<tr><td data-l="업체"><b>${esc(k)}</b></td><td class="num" data-l="Pallet">${g.n}</td>${pc(g.ph, g.n, '업체 사진')}${pc(g.d, g.ph, '생산일')}${pc(g.t, g.ph, '생산시간')}${pc(g.p, g.ph, 'P번호')}${pc(g.q, g.ph, '수량')}</tr>`; }).join('')}</tbody></table></div>
+      <div class="sub">동화지앤피 시간은 손글씨라 낮게 나올 수 있고, 동아에코팩 표지에는 날짜만 있습니다.</div></section>`;
+  }
   function vehicle(x) {
     const total = Math.max(x.gaps.max || 0, x.palletCount), pct = total ? Math.round(x.palletCount / total * 100) : 0;
     const lv = x.errorCount ? 'error' : x.warnCount || x.gaps.missing.length ? 'warn' : 'ok';
