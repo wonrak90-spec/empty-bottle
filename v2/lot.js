@@ -152,6 +152,15 @@
     if (scanAuto() && $('lotAdd')) await submit(true);
   }
   R.lot.onScanner = onScanner;
+  // 커서가 스캐너 칸 밖에 있어도 받는다: 다른 입력 칸이 아닌 곳에서 빠르게(글자 사이 80ms 이하) 들어온 숫자 + Enter
+  let kb = '', kbAt = 0;
+  document.addEventListener('keydown', (e) => {
+    const inp = $('lfScan'), a = document.activeElement;
+    if (!inp || !inp.offsetParent || a === inp || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) { kb = ''; return; }
+    const now = Date.now(); if (now - kbAt > 80) kb = ''; kbAt = now;
+    if (e.key === 'Enter') { const v = kb; kb = ''; if (v.length >= 10) { e.preventDefault(); scanBusy = scanBusy.then(() => onScanner(v)).catch(() => {}); } return; }
+    if (e.key.length === 1) kb += e.key;
+  });
   function toggle(k) {
     if (L.sel.has(k)) L.sel.delete(k); else { const [inboundNo, pallet] = k.split('|'); L.sel.set(k, { inboundNo, pallet: Number(pallet) }); }
     const el = document.querySelector(`[data-k="${k}"]`); if (el) el.classList.toggle('sel', L.sel.has(k));
