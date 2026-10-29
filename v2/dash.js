@@ -24,17 +24,25 @@
   /* ---------- 라인 현황 (실시간) ---------- */
   async function live() {
     const r = await R.tryGet('r15Live'); if (!r || !r.ok) return;
-    D.live = r; const el = $('liveBox'); if (el) el.outerHTML = liveHtml();
+    // 새 투입 오류가 생기면 이 화면을 보고 있는 폰·PC가 소리와 진동으로 알린다
+    const seen = D.seenEv || (D.seenEv = new Set(R.lines.open(r.events).map((e) => e.id))), fresh = R.lines.open(r.events).filter((e) => !seen.has(e.id));
+    fresh.forEach((e) => seen.add(e.id));
+    if (fresh.length && D.live) { try { navigator.vibrate && navigator.vibrate([300, 120, 300]); } catch (_) {} alarm(); R.toast(`${fresh[0].line || '?'} 라인 투입 오류 · ${fresh[0].text}`, 'crit'); }
+    D.live = r; const el = $('liveBox'); if (el) { el.outerHTML = liveHtml(); bindLive(); }
   }
+  function alarm() { try { const a = D.ac = D.ac || new (window.AudioContext || window.webkitAudioContext)(); [0, 0.25].forEach((t) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = 520; g.gain.value = 0.2; o.connect(g); g.connect(a.destination); o.start(a.currentTime + t); o.stop(a.currentTime + t + 0.18); }); } catch (_) {} }
+  function bindLive() { const el = $('liveBox'); if (el && D.live) R.lines.bindAck(el, D.live.events || [], () => { const b = $('liveBox'); if (b) { b.outerHTML = liveHtml(); bindLive(); } }); }
   function liveHtml() {
     const r = D.live; if (!r) return '<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">불러오는 중…</span></div></section>';
     const byLine = {}; r.lots.forEach((l) => { if (l.line && !byLine[l.line]) byLine[l.line] = l; });
     const other = r.lots.filter((l) => !l.line || byLine[l.line] !== l), cfg = r.lines || {};
-    const rows = R.lines.KEYS.map((k) => { const l = byLine[k], m = l ? R.lines.ago(l.lastAt, r.now) : null;
-      return { line: k, state: R.lines.state(l && l.lastAt, r.now, !!l), title: l ? `${l.productName} ${l.lotNo}` : ((cfg[k] && cfg[k].products.length) ? cfg[k].products.join(' · ') + ' (작업 없음)' : '작업 없음'),
-        sub: l ? `오늘 ${fmt(l.today)} Pallet · 누적 ${fmt(l.count)} · 마지막 ${l.lastText || '-'}` : '', note: !l ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` }; });
+    const open = R.lines.open(r.events);
+    const rows = R.lines.KEYS.map((k) => { const l = byLine[k], m = l ? R.lines.ago(l.lastAt, r.now) : null, errs = open.filter((e) => e.line === k).length;
+      return { line: k, state: errs ? 'bad' : R.lines.state(l && l.lastAt, r.now, !!l), title: l ? `${l.productName} ${l.lotNo}` : ((cfg[k] && cfg[k].products.length) ? cfg[k].products.join(' · ') + ' (작업 없음)' : '작업 없음'),
+        sub: l ? `오늘 ${fmt(l.today)} Pallet · 누적 ${fmt(l.count)} · 마지막 ${l.lastText || '-'}` : '', note: errs ? `오류 ${errs}건 · 확인 필요` : !l ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` }; });
     const tot = r.lots.reduce((a, l) => a + (l.today || 0), 0);
     return `<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">오늘 투입 ${fmt(tot)} Pallet · ${esc(r.at)} 기준 · 30초마다</span></div>
+      ${R.lines.eventsHtml(r.events, R.rank() >= 1).replace('<section class="lnerr">', '<div class="lnerr">').replace(/<\/section>$/, '</div>')}
       ${R.lines.svg(rows)}
       ${other.length ? `<details class="mt"><summary>라인 없이 진행 중인 작업 ${other.length}건 (폰에서 시작)</summary><div class="list">${other.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">오늘 ${fmt(l.today)} · 누적 ${fmt(l.count)} · 마지막 ${esc(l.lastText || '-')}</span></span></div>`).join('')}</div></details>` : ''}</section>`;
   }
@@ -62,40 +70,17 @@
         <div class="kpi"><div class="l">검수 Pallet</div><div class="v">${fmt(k.pallets)}<small> 개</small></div><div class="d">${fmt(k.qty)} EA</div></div>
         <div class="kpi ${k.errorRecords ? 'crit' : k.warnRecords ? 'warn' : ''}"><div class="l">확인 필요</div><div class="v">${k.errorRecords + k.warnRecords}<small> 건</small></div><div class="d">오류 ${k.errorRecords} · 주의 ${k.warnRecords}</div></div>
         <div class="kpi ${k.gapPallets ? 'warn' : ''}"><div class="l">번호 빠진 Pallet</div><div class="v">${k.gapPallets}<small> 개</small></div></div>
-        ${(() => { const rs = (d.records || []).filter((r) => r.vendorPhoto && !r.vendorProdDate).length; return `<button type="button" class="kpi lnk" id="dashMore"><div class="l">업체 생산일 빈칸</div><div class="v">${rs}<small> Pallet</small></div><div class="d">${D.more ? '접기' : '눌러서 자세히'}</div></button>`; })()}
         <div class="kpi"><div class="l">진행 중 생산 작업</div><div class="v">${open.length}<small> 건</small></div></div>
       </div>` : ''}</section>
       ${d ? `<section><div class="shead"><h2>차량별 진행</h2><span class="muted">${d.inbounds.length}대</span></div>
         <div class="list">${d.inbounds.length ? d.inbounds.map(vehicle).join('') : '<div class="muted pad">이 기간에 검수한 차량이 없습니다.</div>'}</div></section>` : ''}
-      ${d && D.more ? blanks(d.records || []) + rates(d.records || []) : ''}`;
+      `;
     root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; const c = cached(); D.data = c ? c.rep : null; D.at = c ? (c.at || '') + ' 저장본' : ''; render(); load(); }; });
     $('dashReload').onclick = load;
-    if ($('dashMore')) $('dashMore').onclick = () => { D.more = !D.more; render(); };
+    bindLive();
     root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });
   }
 
-  // 업체 사진은 있는데 생산일·시간이 빈 Pallet: 사진을 보고 바로 채우게 차량별로 모아 보여 준다
-  function blanks(recs) {
-    const by = {};
-    recs.forEach((r) => { if (!r.vendorPhoto) return; const k = !r.vendorProdDate ? 'd' : !r.vendorProdTime ? 't' : ''; if (!k) return; const g = by[r.inboundNo] = by[r.inboundNo] || { d: [], t: [], product: r.product }; g[k].push(r.pallet); });
-    const ks = Object.keys(by); if (!ks.length) return '';
-    const nd = ks.reduce((s, k) => s + by[k].d.length, 0), nt = ks.reduce((s, k) => s + by[k].t.length, 0);
-    const ps = (a) => a.sort((x, y) => x - y).map((n) => 'P' + n).join(' ');
-    return `<section><div class="shead"><h2>업체 생산일시 빈칸</h2><span class="muted">날짜 ${nd} · 시간 ${nt} Pallet</span></div>
-      <div class="sub" style="margin-bottom:6px">업체 라벨 사진을 보고 채우면 업체 생산일 추적이 정확해집니다. 보고서 → 차량 → 고치기.</div>
-      <div class="list">${ks.map((k) => `<div class="row"><span><b>${esc(k)}</b> ${esc(by[k].product || '')}<br><span class="muted">${by[k].d.length ? '날짜 없음 ' + ps(by[k].d) : ''}${by[k].d.length && by[k].t.length ? ' · ' : ''}${by[k].t.length ? '시간 없음 ' + ps(by[k].t) : ''}</span></span><button type="button" class="btn ghost sm" data-goreport>보고서로</button></div>`).join('')}</div></section>`;
-  }
-  // 업체별로 라벨에서 얼마나 기록됐나 (사진 있는 Pallet 기준). 낮은 업체는 촬영 방법이나 라벨 양식을 바꿀 곳
-  function rates(recs) {
-    const by = {};
-    recs.forEach((r) => { const s = r.supplier || '업체 미상', g = by[s] = by[s] || { n: 0, ph: 0, d: 0, t: 0, p: 0, q: 0 }; g.n++; if (!r.vendorPhoto) return; g.ph++; if (r.vendorProdDate) g.d++; if (r.vendorProdTime) g.t++; if (r.vendorPalletNo) g.p++; if (r.vendorQty) g.q++; });
-    const ks = Object.keys(by).filter((k) => by[k].n); if (!ks.length) return '';
-    const pc = (a, b, l) => { if (!b) return `<td class="num muted" data-l="${l}">-</td>`; const v = Math.round(a / b * 100); return `<td class="num ${v < 50 ? 'crit' : v < 80 ? 'warnt' : ''}" data-l="${l}">${v}% <span class="muted">(${a}/${b})</span></td>`; };
-    return `<section><div class="shead"><h2>업체별 라벨 판독</h2><span class="muted">사진 있는 Pallet 중 기록된 비율</span></div>
-      <div class="scroll"><table class="mt"><thead><tr><th>업체</th><th class="num">Pallet</th><th class="num">업체 사진</th><th class="num">생산일</th><th class="num">생산시간</th><th class="num">P번호</th><th class="num">수량</th></tr></thead><tbody>
-      ${ks.map((k) => { const g = by[k]; return `<tr><td data-l="업체"><b>${esc(k)}</b></td><td class="num" data-l="Pallet">${g.n}</td>${pc(g.ph, g.n, '업체 사진')}${pc(g.d, g.ph, '생산일')}${pc(g.t, g.ph, '생산시간')}${pc(g.p, g.ph, 'P번호')}${pc(g.q, g.ph, '수량')}</tr>`; }).join('')}</tbody></table></div>
-      <div class="sub">동화지앤피 시간은 손글씨라 낮게 나올 수 있고, 동아에코팩 표지에는 날짜만 있습니다.</div></section>`;
-  }
   function vehicle(x) {
     const total = Math.max(x.gaps.max || 0, x.palletCount), pct = total ? Math.round(x.palletCount / total * 100) : 0;
     const lv = x.errorCount ? 'error' : x.warnCount || x.gaps.missing.length ? 'warn' : 'ok';

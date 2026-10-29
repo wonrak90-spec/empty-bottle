@@ -1999,6 +1999,8 @@ function r15Post_(action, p, auth) {
   if (action === 'r15BackupSetup') return r15BackupSetup_(p, auth);
   if (action === 'r15PlanSave') return r15PlanSave_(p, auth);
   if (action === 'r15LinesSave') return r15LinesSave_(p, auth);
+  if (action === 'r15LineEvent') return r15LineEventAdd_(p, auth);
+  if (action === 'r15LineEventAck') return r15LineEventAck_(p, auth);
   return { ok:false, message:'알 수 없는 action: ' + action };
 }
 
@@ -2831,6 +2833,32 @@ function r15LinesSave_(p, auth) {
   appendAudit_('R15라인설정', '', { actor: actorLabelV24_(auth), before: before, after: out });
   return { ok:true, lines:out };
 }
+// 투입 보드가 넣지 못한 Pallet(라인 오류). 사람이 보드를 안 보고 있어도 현황·다른 폰에서 보고 '확인'할 때까지 남긴다
+// 스크립트 속성에 최근 60건 (확인한 것은 하루 지나면 지움)
+function r15LineEvents_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LINE_EV') || '[]') || []; } catch (e) { return []; } }
+function r15LineEvWrite_(fn) {
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(8000)) return { ok:false, message:'잠시 후 다시 시도하세요.' };
+  try {
+    const now = Date.now(); let ev = r15LineEvents_().filter(function(x) { return !x.ack || now - x.ack.at < 864e5; });
+    const r = fn(ev, now); ev = (r.ev || ev).slice(-60);
+    PropertiesService.getScriptProperties().setProperty('R15_LINE_EV', JSON.stringify(ev)); try { CacheService.getScriptCache().remove('R15LIVE'); } catch (e) {}
+    return r.out;
+  } finally { lock.releaseLock(); }
+}
+function r15LineEventAdd_(p, auth) {
+  const line = r15S_(p.line).toUpperCase().charAt(0), text = r15S_(p.text).slice(0, 160); if (!text) return { ok:false, message:'내용이 없습니다.' };
+  return r15LineEvWrite_(function(ev, now) {
+    const key = line + '|' + r15S_(p.code) + '|' + r15S_(p.inboundNo) + '|' + r15S_(p.pallet);
+    const same = ev.filter(function(x) { return !x.ack && x.key === key; })[0];
+    if (same) { same.n = (same.n || 1) + 1; same.at = now; return { out: { ok:true, id:same.id } }; }
+    const x = { id: 'E' + now.toString(36) + Math.floor(Math.random() * 1e4), key:key, at:now, line:line, code:r15S_(p.code).slice(0, 20), text:text, lotNo:r15S_(p.lotNo).slice(0, 20), by:actorLabelV24_(auth), n:1, ack:null };
+    ev.push(x); return { out: { ok:true, id:x.id } };
+  });
+}
+function r15LineEventAck_(p, auth) {
+  const ids = (p.ids || []).map(r15S_), note = r15S_(p.note).slice(0, 80);
+  return r15LineEvWrite_(function(ev, now) { let n = 0; ev.forEach(function(x) { if (!x.ack && (ids.indexOf(x.id) >= 0 || (p.line && x.line === r15S_(p.line) && ids.length === 0))) { x.ack = { at:now, by:actorLabelV24_(auth), note:note }; n++; } }); return { out: { ok:true, acked:n } }; });
+}
 // 투입 보드가 시작한 작업의 라인(A~D). 시트 열을 늘리지 않으려고 스크립트 속성에 최근 200건만 둔다
 function r15LotLines_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LOT_LINE') || '{}') || {}; } catch (e) { return {}; } }
 function r15LotLineSet_(id, line) {
@@ -2846,7 +2874,7 @@ function r15Live_() {
     let last = 0, today = 0; (ix.byPid[p.id] || []).forEach(function(x) { if (x.at > last) last = x.at; if (x.at >= t0) today++; });
     return { id:p.id, productName:p.productName, lotNo:p.lotNo, line: lines[p.id] || '', workers:p.workers, count:(ix.byPid[p.id] || []).length, today:today, lastAt:last, lastText: last ? Utilities.formatDate(new Date(last), R15_TZ, 'HH:mm') : '' };
   });
-  const out = { ok:true, lots:lots, lines:r15Lines_(), now:Date.now(), at:Utilities.formatDate(new Date(), R15_TZ, 'HH:mm:ss') };
+  const out = { ok:true, lots:lots, lines:r15Lines_(), events:r15LineEvents_(), now:Date.now(), at:Utilities.formatDate(new Date(), R15_TZ, 'HH:mm:ss') };
   try { CacheService.getScriptCache().put('R15LIVE', JSON.stringify(out), 20); } catch (e) {}
   return out;
 }

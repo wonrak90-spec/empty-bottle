@@ -180,10 +180,21 @@
     LINES.forEach((k) => { const x = B.slots[k], d = x && B.detail[x.id]; if (d && d.lot.status !== '진행중') { delete B.slots[k]; boardSave(); } });
     const a = document.activeElement;
     if (!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'bdScan')) render();
-    wakeOn();
+    wakeOn(); evRefresh();
     // 다른 폰에서 검수·투입한 것을 반영하려고 2분마다 다시 받는다 (보드가 열려 있을 때만)
     clearTimeout(B.timer); B.timer = setTimeout(() => { if (L.board && $('bdScan')) boardRefresh(); }, 120000);
   }
+  async function evRefresh() {
+    const r = await R.tryGet('r15Live'); if (!r || !r.ok) return;
+    B.events = r.events || []; if (r.lines && L.lots) L.lots.lines = r.lines;
+    // 서버가 받지 않은 투입(대기열 '확인 필요')도 오류로 남긴다 (한 번만)
+    B.repJobs = B.repJobs || {};
+    LINES.forEach((k) => { const x = B.slots[k]; if (!x) return; R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state === 'blocked').forEach((j) => {
+      if (B.repJobs[j.id]) return; B.repJobs[j.id] = 1; R.tryPost('r15LineEvent', { line: k, code: 'server', text: `${j.payload.items.map((it) => it.inboundNo + ' P' + it.pallet).join(', ')} 서버가 받지 않음 · ${j.lastError || ''}`.slice(0, 150), lotNo: x.lotNo }).catch(() => {}); }); });
+    const el = $('bdErr'); if (el && L.board) { el.innerHTML = R.lines.eventsHtml(B.events, true); R.lines.bindAck(el, B.events, () => render()); }
+  }
+  setInterval(() => { if (!L.board || !$('bdScan') || document.hidden) return; evRefresh();
+    const open = R.lines.open(B.events); if (open.length) { beep(false); const ls = [...new Set(open.map((e) => e.line || ''))].filter(Boolean); say(`${ls.join(', ')} 라인 확인 필요 ${open.length}건`); } }, 60000);
   // 화면이 꺼지면 스캐너 입력을 못 받는다: 보드를 여는 동안 화면 꺼짐을 막는다 (지원하는 브라우저만)
   async function wakeOn() { try { if (L.board && 'wakeLock' in navigator && !B.wake && document.visibilityState === 'visible') { B.wake = await navigator.wakeLock.request('screen'); B.wake.addEventListener('release', () => { B.wake = null; }); } } catch (_) {} }
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakeOn(); });
@@ -202,11 +213,12 @@
     return LINES.map((k) => {
       const x = B.slots[k], d = x && B.detail[x.id], logs = B.log.filter((l) => l.line === k), last = logs[0];
       const lastAt = Math.max(last && last.ok ? last.t : 0, d && d.pallets.length ? Date.parse(String(d.pallets[d.pallets.length - 1].at || '').replace(' ', 'T')) || 0 : 0);
-      const bad = last && !last.ok && now - last.t < 60000, st = bad ? 'bad' : LN().state(lastAt, now, !!x), m = LN().ago(lastAt, now);
+      const errs = R.lines.open(B.events).filter((e) => e.line === k).length;
+      const bad = errs || (last && !last.ok && now - last.t < 60000), st = bad ? 'bad' : LN().state(lastAt, now, !!x), m = LN().ago(lastAt, now);
       const today = logs.filter((l) => l.ok).length;
       return { line: k, state: st, title: x ? `${x.productName} ${x.lotNo}` : '작업 없음', device: B.cam === k ? '이 기기 카메라' : '스캐너·카메라',
         sub: x ? `투입 ${(d ? d.pallets.length : 0) + pendOf(x)} Pallet${today ? ` · 이 화면에서 ${today}` : ''}` : '눌러서 제품 고르기',
-        note: bad ? '확인 필요' : !x ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` };
+        note: errs ? `오류 ${errs}건 · 확인 필요` : bad ? '확인 필요' : !x ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` };
     });
   }
   const LN = () => R.lines;
@@ -227,7 +239,7 @@
       return `<section class="bd" id="bdCard${k}"><div class="shead"><h2>${k} 라인</h2>${x ? '<button type="button" class="btn ghost sm" data-bdcancel="1">취소</button>' : '<span class="sub">작업 없음</span>'}</div>${startForm(k)}</section>`;
     }
     const last = logs[0], hot = last && Date.now() - last.t < 6000 ? (last.ok ? ' bdok' : ' bdno') : '';
-    return `<section class="bd${hot}" id="bdCard${k}"><div class="bdbig">${hot ? (last.ok ? '✓ 투입됨' : '✗ 안 넣음') : '찍으면 바로 투입'}</div><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdchange="${k}">제품 바꾸기</button></div>
+    return `<section class="bd${hot}" id="bdCard${k}">${hot ? `<div class="bdbig">${last.ok ? '✓ 투입됨' : '✗ 안 넣음'}</div>` : ''}<div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdchange="${k}">제품 바꾸기</button></div>
       <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
       <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pendOf(x)}</b> Pallet${pendOf(x) ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pendOf(x)}</span>` : ''} · <span class="muted">${esc(cfg.bottles.length ? cfg.bottles.join(', ') : x.bottle || '공병 품목: 첫 Pallet 기준')}</span></div>
       ${blk.map((j) => `<button type="button" class="btn sm danger" data-bdjob="${esc(j.id)}">서버가 받지 않음 ${j.payload.items.map((it) => it.inboundNo + ' P' + it.pallet).join(', ')} · 눌러서 확인</button>`).join('')}
@@ -245,15 +257,16 @@
   function boardHtml() {
     const last = B.log[0], camOnly = B.cam && LINES.includes(B.cam);
     return `<section><div class="shead"><h2>${camOnly ? `${B.cam} 라인 카메라` : '라인 투입 보드'}</h2><span class="bdtools">
-        <button type="button" class="btn ghost sm" id="bdVoice">${B.voice ? '🔊 음성 켜짐' : '🔇 음성 꺼짐'}</button>
-        <button type="button" class="btn ghost sm" id="bdCam">${camOnly ? '카메라 끄기' : '📷 이 기기 카메라로'}</button>
-        ${R.isManager() && !camOnly ? '<button type="button" class="btn ghost sm" id="bdCfgBtn">⚙ 라인 설정</button>' : ''}
-        <button type="button" class="btn ghost sm" id="bdFull">전체 화면</button> <button type="button" class="btn ghost sm" id="bdClose">닫기</button></span></div>
+        <button type="button" class="btn ghost sm" id="bdVoice">${B.voice ? '🔊 음성' : '🔇 음성 꺼짐'}</button>
+        <button type="button" class="btn ghost sm" id="bdCam">${camOnly ? '카메라 끄기' : '📷 카메라'}</button>
+        ${R.isManager() && !camOnly ? '<button type="button" class="btn ghost sm" id="bdCfgBtn">⚙ 설정</button>' : ''}
+        <button type="button" class="btn ghost sm" id="bdFull" aria-label="전체 화면">⛶</button> <button type="button" class="btn ghost sm" id="bdClose">닫기</button></span></div>
       <div class="bdlast ${last ? (last.ok ? 'ok' : 'bad') : ''}" id="bdLast">${last ? `${esc(last.line || '?')} 라인 · ${esc(last.text)}` : camOnly ? 'WMS 라벨 바코드를 카메라에 비추면 바로 투입됩니다' : '스캐너로 WMS 라벨을 찍으면 여기에 결과가 나옵니다'}</div>
       <input id="bdScan" class="bdscan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="스캐너 입력">
       ${camOnly ? `<div class="bdcam"><video id="bdVideo" playsinline muted autoplay></video><div class="sub" id="bdCamMsg">카메라 켜는 중…</div></div>`
         : B.pickCam ? `<div class="sub">이 기기를 어느 라인 카메라로 쓸까요?</div><div class="chips">${LINES.map((k) => `<button type="button" class="chipbtn" data-cam="${k}"><b>${k} 라인</b></button>`).join('')}</div>`
-        : `<div class="sub">스캐너마다 앞에 라인 글자를 붙이게 설정하세요 (A260047330030). 라인 그림을 누르면 그 라인으로 갑니다.</div>`}</section>
+        : `<details class="sub"><summary>사용 방법</summary>스캐너마다 앞에 라인 글자(A~D)를 붙이게 설정합니다 (예: A260047330030). 라인마다 제품·제조번호를 시작해 두면 찍는 대로 투입됩니다. 넣지 못한 Pallet는 빨간 목록에 남고 '확인'을 누를 때까지 1분마다 다시 알립니다. 라인 그림을 누르면 그 라인 칸으로 갑니다.</details>`}</section>
+      <div id="bdErr">${R.lines.eventsHtml(B.events, true)}</div>
       ${B.cfgOpen && !camOnly ? cfgHtml() : ''}
       ${camOnly ? '' : `<section>${R.lines.svg(lanes())}</section>`}
       <datalist id="lpNames">${((L.lots && L.lots.products) || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
@@ -277,6 +290,7 @@
     if ($('cfClose')) $('cfClose').onclick = () => { B.cfgOpen = false; render(); };
     if ($('cfSave')) $('cfSave').onclick = cfgSave;
     document.querySelectorAll('[data-bdjob]').forEach((b) => { b.onclick = () => { const j = R.queue.jobs.find((x) => x.id === b.dataset.bdjob); if (j) R.showJob(j); }; });
+    R.lines.bindAck($('bdErr'), B.events || [], () => render());
     if ($('bdVideo')) camStart();
   }
   async function cfgSave() {
@@ -328,7 +342,10 @@
   }
   // 라인 앞에 서 있는 사람이 화면을 안 봐도 알 수 있게 짧게 말해 준다 (PC 스피커)
   function say(t) { try { if (!B.voice || !window.speechSynthesis) return; speechSynthesis.cancel(); const u = new SpeechSynthesisUtterance(t); u.lang = 'ko-KR'; u.rate = 1.1; speechSynthesis.speak(u); } catch (_) {} }
-  function boardLog(line, ok, text) {
+  // 넣지 못한 것 중 사람이 손봐야 하는 것(code 있음)은 서버에 남겨 현황·다른 폰에서도 보이고, 확인할 때까지 보드가 1분마다 다시 알린다
+  function boardLog(line, ok, text, code) {
+    if (code) { const lot = B.slots[line]; B.events = (B.events || []).concat({ id: 'local' + Date.now(), at: Date.now(), line, code, text, n: 1, ack: null, local: true });
+      R.tryPost('r15LineEvent', { line, code, text, lotNo: lot ? lot.lotNo : '' }).then(() => evRefresh()).catch(() => {}); }
     const typing = document.activeElement && /^(INPUT|SELECT|TEXTAREA)$/.test(document.activeElement.tagName) && document.activeElement.id !== 'bdScan';
     if (B.cur) { B.recent[B.cur] = { t: Date.now(), ok }; B.cur = ''; }
     Object.keys(B.recent || {}).forEach((c) => { if (Date.now() - B.recent[c].t > 90000) delete B.recent[c]; });
@@ -350,8 +367,8 @@
     const m = s.match(/^([A-Da-d])[\s:\-_]?(.+)$/);
     let k = m ? m[1].toUpperCase() : '';
     const code = m ? m[2] : s;
-    if (!k) { const on = LINES.filter((x) => B.slots[x]); if (on.length === 1) k = on[0]; else return boardLog('', false, `라인 글자 없는 입력 "${s.slice(0, 16)}" · 스캐너 접두어 설정 확인`); }
-    const x = B.slots[k]; if (!x) return boardLog(k, false, '이 라인에 시작한 작업이 없습니다');
+    if (!k) { const on = LINES.filter((x) => B.slots[x]); if (on.length === 1) k = on[0]; else return boardLog('', false, `라인 글자 없는 입력 "${s.slice(0, 16)}" · 스캐너 접두어 설정 확인`, 'noprefix'); }
+    const x = B.slots[k]; if (!x) return boardLog(k, false, `${code.slice(0, 14)} · 이 라인에 시작한 작업이 없습니다`, 'nolot');
     const c = parseLabelCode(code); if (!c || c.partial) return boardLog(k, false, `WMS 라벨 바코드가 아님 "${code.slice(0, 16)}"`);
     const name = `${c.inboundNo} P${c.pallet}`, key = pk(c.inboundNo, c.pallet);
     // 어느 라인이든 이미 넣었거나 보내는 중이면 다시 넣지 않는다
@@ -361,15 +378,15 @@
     let inStock = L.stock.some((g) => g.inboundNo === c.inboundNo && g.pallets.some((p) => p.pallet === Number(c.pallet))), rInfo = null;
     if (!inStock) {
       const r = rInfo = await R.tryGet('r15Pallet', { inboundNo: c.inboundNo, pallet: c.pallet });
-      if (!r) { B.cur = ''; return boardLog(k, false, `${name} 서버 확인 실패 · 다시 찍기`); }
-      if (r.usedIn && r.usedIn.length) return boardLog(k, false, `${name} 이미 ${r.usedIn[0].productName} ${r.usedIn[0].lotNo}에 투입됨`);
-      if (!r.found) return boardLog(k, false, `${name} 검수 기록 없음 · 넣지 않음`);
+      if (!r) { B.cur = ''; return boardLog(k, false, `${name} 서버 확인 실패 · 다시 찍기`, 'net'); }
+      if (r.usedIn && r.usedIn.length) return boardLog(k, false, `${name} 이미 ${r.usedIn[0].productName} ${r.usedIn[0].lotNo}에 투입됨`, 'used');
+      if (!r.found) return boardLog(k, false, `${name} 검수 기록 없음 · 넣지 않음`, 'noinsp');
     }
     // 한 제조번호에는 한 가지 공병만 들어간다: 첫 Pallet의 품목과 다르면 넣지 않는다 (다른 라인 Pallet를 잘못 찍은 경우)
     const g = L.stock.find((y) => y.inboundNo === c.inboundNo), prod = (g && g.product) || (rInfo && rInfo.record && rInfo.record.product) || '';
     const allow = lineCfg(k).bottles;
-    if (allow.length && prod && !allow.includes(prod)) return boardLog(k, false, `${name} 이 라인 공병 아님 (${prod})`);
-    if (!allow.length && x.bottle && prod && prod !== x.bottle) return boardLog(k, false, `${name} 다른 공병 (${prod}) · 이 라인은 ${x.bottle}`);
+    if (allow.length && prod && !allow.includes(prod)) return boardLog(k, false, `${name} 이 라인 공병 아님 (${prod})`, 'bottle');
+    if (!allow.length && x.bottle && prod && prod !== x.bottle) return boardLog(k, false, `${name} 다른 공병 (${prod}) · 이 라인은 ${x.bottle}`, 'bottle');
     if (!x.bottle && prod) { x.bottle = prod; boardSave(); }
     const old = olderLeft([{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }]);
     await R.queue.addLot(x.id, [{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }], { label: `${x.lotNo} 1 Pallet` });
