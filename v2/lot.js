@@ -8,11 +8,12 @@
   const KEY = 'r15.lot';
   const L = R.lot = { lot: null, stock: [], lots: null, detail: null, sel: new Map(), filter: '' };
 
-  function load() { try { L.lot = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { L.lot = null; } }
+  function load() { try { L.lot = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch (_) { L.lot = null; } boardLoad(); }
   function persist() { try { localStorage.setItem(KEY, JSON.stringify(L.lot)); } catch (_) {} }
   const pk = (inb, p) => digits(inb) + '|' + Number(digits(p));
 
   async function refresh() {
+    if (L.board) return boardRefresh();
     if (!L.lot) { L.lots = await R.tryGet('r15Lots'); render(); return; }
     const [d, s] = await Promise.all([R.tryGet('r15Lot', { id: L.lot.id }), R.tryGet('r15Stock')]);
     if (d) { L.detail = d; if (d.lot.status !== '진행중') R.toast('이 작업은 종료되었습니다', 'warn'); }
@@ -23,6 +24,7 @@
   function render() {
     const root = $('lotView'); if (!root) return;
     scanStop(); // 다시 그리면 영상 칸이 사라진다: 카메라를 꺼서 화면 밖에서 계속 찍히지 않게 한다
+    if (L.board) { root.innerHTML = boardHtml(); bindBoard(); return; }
     if (!L.lot) { const keep = ['lpName', 'lpLot'].map((id) => $(id) ? $(id).value : ''); root.innerHTML = pickHtml(); bindPick(); ['lpName', 'lpLot'].forEach((id, i) => { if (keep[i]) $(id).value = keep[i]; }); return; } // 목록이 늦게 와도 입력값 유지
     root.innerHTML = workHtml(); bindWork();
   }
@@ -37,6 +39,8 @@
     </section>
     ${open.length ? `<section><div class="shead"><h2>진행 중인 작업</h2><span class="sub">다른 작업자와 같이 투입할 수 있습니다</span></div>
       <div class="list">${open.map((x, i) => `<div class="row"><button type="button" class="lnk" data-open="${i}"><b>${esc(x.productName)}</b> ${esc(x.lotNo)} <span class="muted">${x.palletCount} Pallet · ${esc(x.workers || '')}</span></button>${!x.palletCount || R.isManager() ? `<button type="button" class="btn ghost sm danger" data-del="${i}">삭제</button>` : ''}</div>`).join('')}</div></section>` : ''}
+    <section><div class="shead"><h2>4개 라인 투입 보드</h2><span class="sub">PC 한 대 + 라인별 스캐너 (A~D 접두어)</span></div>
+      <div><button type="button" class="btn ghost" id="bdOpen">투입 보드 열기</button></div></section>
     <section><div class="shead"><h2>직접 입력</h2></div>
       <div class="grid g2"><label>제품명<input id="lpName" list="lpNames" placeholder="예: 판콜에이"><datalist id="lpNames">${(d.products || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist></label>
       <label>제조번호<input id="lpLot" placeholder="예: 2F205" autocapitalize="characters"></label></div>
@@ -48,6 +52,7 @@
     document.querySelectorAll('[data-plan]').forEach((b) => { b.onclick = () => { const p = d.plan[Number(b.dataset.plan)]; start(p.productName, p.lotNo, b); }; });
     document.querySelectorAll('[data-del]').forEach((b) => { b.onclick = () => { const p = d.lots.filter((x) => x.status === '진행중')[Number(b.dataset.del)]; deleteLot(p); }; });
     document.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => { const p = d.lots.filter((x) => x.status === '진행중')[Number(b.dataset.open)]; start(p.productName, p.lotNo, b); }; });
+    $('bdOpen').onclick = () => { L.board = true; try { localStorage.setItem(BK + '.on', '1'); } catch (_) {} refresh(); };
     $('lpStart').onclick = () => start($('lpName').value.trim(), $('lpLot').value.trim().toUpperCase(), $('lpStart'));
   }
   async function start(productName, lotNo, btn) {
@@ -152,13 +157,112 @@
     if (scanAuto() && $('lotAdd')) await submit(true);
   }
   R.lot.onScanner = onScanner;
+
+  /* ---------- 4개 라인 투입 보드 ----------
+   * PC 한 대에 스캐너 4개(무선 동글 또는 USB). 브라우저는 어느 스캐너인지 모르므로 스캐너마다 앞에 라인 글자를 붙이게 설정한다:
+   * A260047330030 → A 라인 작업에 투입. 사람이 보지 않는 자리라 확인 창 없이 판단하고, 넣지 못한 것은 소리와 빨간 줄로 알린다.
+   */
+  const BK = 'r15.board', LINES = ['A', 'B', 'C', 'D'];
+  const B = L.bd = { slots: {}, log: [], detail: {}, wake: null };
+  function boardLoad() {
+    try { L.board = localStorage.getItem(BK + '.on') === '1'; B.slots = JSON.parse(localStorage.getItem(BK) || '{}') || {}; } catch (_) { L.board = false; B.slots = {}; }
+  }
+  function boardSave() { try { localStorage.setItem(BK, JSON.stringify(B.slots)); } catch (_) {} }
+  async function boardRefresh() {
+    const ids = LINES.map((k) => B.slots[k] && B.slots[k].id).filter(Boolean);
+    const [lots, s, ...ds] = await Promise.all([R.tryGet('r15Lots'), R.tryGet('r15Stock'), ...ids.map((id) => R.tryGet('r15Lot', { id }))]);
+    if (lots) L.lots = lots; if (s) L.stock = s.groups || [];
+    ds.forEach((d, i) => { if (d) B.detail[ids[i]] = d; });
+    LINES.forEach((k) => { const x = B.slots[k], d = x && B.detail[x.id]; if (d && d.lot.status !== '진행중') { delete B.slots[k]; boardSave(); } });
+    const a = document.activeElement;
+    if (!(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName) && a.id !== 'bdScan')) render();
+    wakeOn();
+    // 다른 폰에서 검수·투입한 것을 반영하려고 2분마다 다시 받는다 (보드가 열려 있을 때만)
+    clearTimeout(B.timer); B.timer = setTimeout(() => { if (L.board && $('bdScan')) boardRefresh(); }, 120000);
+  }
+  // 화면이 꺼지면 스캐너 입력을 못 받는다: 보드를 여는 동안 화면 꺼짐을 막는다 (지원하는 브라우저만)
+  async function wakeOn() { try { if (L.board && 'wakeLock' in navigator && !B.wake && document.visibilityState === 'visible') { B.wake = await navigator.wakeLock.request('screen'); B.wake.addEventListener('release', () => { B.wake = null; }); } } catch (_) {} }
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') wakeOn(); });
+  const lineOf = (p) => String(p && p.line || '').trim().charAt(0).toUpperCase();
+  function boardHtml() {
+    const plan = (L.lots && L.lots.plan) || [];
+    const card = (k) => {
+      const x = B.slots[k], d = x && B.detail[x.id], logs = B.log.filter((l) => l.line === k).slice(0, 4);
+      const pend = x ? R.queue.list((j) => j.type === 'lot' && j.payload.productionId === x.id && j.state !== 'done').reduce((a, j) => a + j.payload.items.length, 0) : 0;
+      if (!x) {
+        const mine = plan.filter((p) => lineOf(p) === k);
+        return `<section class="bd"><div class="shead"><h2>${k} 라인</h2><span class="sub">작업 없음</span></div>
+          <div class="chips">${mine.map((p) => `<button type="button" class="chipbtn" data-bdplan="${k}|${plan.indexOf(p)}"><b>${esc(p.productName)}</b> ${esc(p.lotNo)}<small>${esc(p.date.slice(5))}</small></button>`).join('') || '<span class="muted">오늘 계획에 이 라인 제조번호가 없습니다</span>'}</div>
+          <div class="grid g2"><label>제품명<input id="bdN${k}" list="lpNames"></label><label>제조번호<input id="bdL${k}" autocapitalize="characters"></label></div>
+          <div><button type="button" class="btn ghost sm" data-bdstart="${k}">시작</button></div></section>`;
+      }
+      return `<section class="bd"><div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdclear="${k}">작업 바꾸기</button></div>
+        <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
+        <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pend}</b> Pallet${pend ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pend}</span>` : ''}</div>
+        <div class="list">${logs.map((l) => `<div class="row ${l.ok ? '' : 'bdbad'}"><span>${esc(l.at)} ${esc(l.text)}</span></div>`).join('') || '<span class="muted">스캔 대기 중</span>'}</div></section>`;
+    };
+    const last = B.log[0];
+    return `<section><div class="shead"><h2>4개 라인 투입 보드</h2><button type="button" class="btn ghost sm" id="bdClose">보드 닫기</button></div>
+      <div class="bdlast ${last ? (last.ok ? 'ok' : 'bad') : ''}" id="bdLast">${last ? `${esc(last.line || '?')} 라인 · ${esc(last.text)}` : '스캐너로 WMS 라벨을 찍으면 여기에 결과가 나옵니다'}</div>
+      <input id="bdScan" class="bdscan" autocomplete="off" autocapitalize="off" spellcheck="false" aria-label="스캐너 입력">
+      <div class="sub">스캐너마다 앞에 라인 글자를 붙이게 설정하세요 (A260047330030). 글자 없이 들어오면 작업이 하나뿐일 때만 그 라인으로 넣습니다. 이 PC는 절전·화면 꺼짐을 꺼 두세요.</div></section>
+      <datalist id="lpNames">${((L.lots && L.lots.products) || []).map((p) => `<option value="${esc(p)}">`).join('')}</datalist>
+      <div class="bdgrid">${LINES.map(card).join('')}</div>`;
+  }
+  function bindBoard() {
+    const plan = (L.lots && L.lots.plan) || [];
+    $('bdClose').onclick = () => { L.board = false; try { localStorage.setItem(BK + '.on', '0'); } catch (_) {} if (B.wake) B.wake.release().catch(() => {}); refresh(); };
+    document.querySelectorAll('[data-bdplan]').forEach((b) => { b.onclick = () => { const [k, i] = b.dataset.bdplan.split('|'), p = plan[Number(i)]; boardStart(k, p.productName, p.lotNo, b); }; });
+    document.querySelectorAll('[data-bdstart]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdstart; boardStart(k, $('bdN' + k).value.trim(), $('bdL' + k).value.trim().toUpperCase(), b); }; });
+    document.querySelectorAll('[data-bdclear]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdclear; if (!confirm(`${k} 라인 작업을 비울까요? (투입 기록은 그대로 남습니다)`)) return; delete B.slots[k]; boardSave(); render(); }; });
+    const inp = $('bdScan'); let t = 0;
+    const go = () => { clearTimeout(t); const v = inp.value; inp.value = ''; if (v.trim()) scanBusy = scanBusy.then(() => onBoardScan(v)).catch(() => {}); };
+    inp.onkeydown = (e) => { if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); go(); } };
+    inp.oninput = () => { clearTimeout(t); t = setTimeout(go, 300); };
+    const a = document.activeElement; if (!a || a === document.body) inp.focus();
+  }
+  async function boardStart(k, productName, lotNo, btn) {
+    if (!productName || !lotNo) return R.toast('제품명과 제조번호를 넣으세요', 'crit');
+    R.busy(btn, true, '시작 중…'); const r = await R.tryPost('r15LotStart', { productName, lotNo }); R.busy(btn, false);
+    if (!r || !r.ok) return;
+    B.slots[k] = { id: r.id, productName, lotNo }; boardSave(); boardRefresh();
+  }
+  function boardLog(line, ok, text) {
+    B.log.unshift({ line, ok, text, at: new Date().toTimeString().slice(0, 8) }); B.log = B.log.slice(0, 60);
+    beep(ok); render();
+  }
+  async function onBoardScan(raw) {
+    const s = String(raw || '').trim(), m = s.match(/^([A-Da-d])[\s:\-_]?(.+)$/);
+    let k = m ? m[1].toUpperCase() : '';
+    const code = m ? m[2] : s;
+    if (!k) { const on = LINES.filter((x) => B.slots[x]); if (on.length === 1) k = on[0]; else return boardLog('', false, `라인 글자 없는 입력 "${s.slice(0, 16)}" · 스캐너 접두어 설정 확인`); }
+    const x = B.slots[k]; if (!x) return boardLog(k, false, '이 라인에 시작한 작업이 없습니다');
+    const c = parseLabelCode(code); if (!c || c.partial) return boardLog(k, false, `WMS 라벨 바코드가 아님 "${code.slice(0, 16)}"`);
+    const name = `${c.inboundNo} P${c.pallet}`, key = pk(c.inboundNo, c.pallet);
+    // 어느 라인이든 이미 넣었거나 보내는 중이면 다시 넣지 않는다
+    const sent = R.queue.list((j) => j.type === 'lot' && j.state !== 'done').some((j) => j.payload.items.some((it) => pk(it.inboundNo, it.pallet) === key));
+    const doneHere = Object.values(B.detail).some((d) => d && d.pallets.some((p) => pk(p.inboundNo, p.pallet) === key));
+    if (sent || doneHere) return boardLog(k, false, `${name} 이미 투입함`);
+    let inStock = L.stock.some((g) => g.inboundNo === c.inboundNo && g.pallets.some((p) => p.pallet === Number(c.pallet)));
+    if (!inStock) {
+      const r = await R.tryGet('r15Pallet', { inboundNo: c.inboundNo, pallet: c.pallet });
+      if (!r) return boardLog(k, false, `${name} 서버 확인 실패 · 다시 찍기`);
+      if (r.usedIn && r.usedIn.length) return boardLog(k, false, `${name} 이미 ${r.usedIn[0].productName} ${r.usedIn[0].lotNo}에 투입됨`);
+      if (!r.found) return boardLog(k, false, `${name} 검수 기록 없음 · 넣지 않음`);
+    }
+    const old = olderLeft([{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }]);
+    await R.queue.addLot(x.id, [{ inboundNo: c.inboundNo, pallet: Number(c.pallet) }], { label: `${x.lotNo} 1 Pallet` });
+    L.stock.forEach((g) => { if (g.inboundNo === c.inboundNo) g.pallets = g.pallets.filter((p) => p.pallet !== Number(c.pallet)); });
+    boardLog(k, true, `${name} → ${x.productName} ${x.lotNo}${old.length ? ` (더 오래된 ${old[0].inboundNo} 남음)` : ''}`);
+  }
+  R.lot.onBoardScan = onBoardScan;
   // 커서가 스캐너 칸 밖에 있어도 받는다: 다른 입력 칸이 아닌 곳에서 빠르게(글자 사이 80ms 이하) 들어온 숫자 + Enter
   let kb = '', kbAt = 0;
   document.addEventListener('keydown', (e) => {
-    const inp = $('lfScan'), a = document.activeElement;
+    const inp = $('lfScan') || $('bdScan'), a = document.activeElement;
     if (!inp || !inp.offsetParent || a === inp || (a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))) { kb = ''; return; }
     const now = Date.now(); if (now - kbAt > 80) kb = ''; kbAt = now;
-    if (e.key === 'Enter') { const v = kb; kb = ''; if (v.length >= 10) { e.preventDefault(); scanBusy = scanBusy.then(() => onScanner(v)).catch(() => {}); } return; }
+    if (e.key === 'Enter') { const v = kb; kb = ''; if (v.length >= 10) { e.preventDefault(); scanBusy = scanBusy.then(() => (L.board ? onBoardScan(v) : onScanner(v))).catch(() => {}); } return; }
     if (e.key.length === 1) kb += e.key;
   });
   function toggle(k) {
