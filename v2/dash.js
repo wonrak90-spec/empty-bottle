@@ -5,7 +5,12 @@
   const D = R.dash = { range: 'today', data: null, lots: null, timer: 0, at: '' };
   const RANGES = [['today', '오늘', 0], ['week', '최근 7일', 6], ['month', '최근 30일', 29]];
 
+  // 마지막으로 받은 현황을 먼저 보여 주고 새 자료로 바꾼다 (Apps Script가 깨어나는 동안 빈 화면을 줄인다)
+  const CK = 'r15.dash.';
+  function cached() { try { const x = JSON.parse(localStorage.getItem(CK + D.range) || 'null'); return x && Date.now() - x.t < 3 * 864e5 ? x : null; } catch (_) { return null; } }
+  function keep(rep, lots) { try { const s = JSON.stringify({ t: Date.now(), at: D.at, rep, lots }); if (s.length < 1500000) localStorage.setItem(CK + D.range, s); } catch (_) {} }
   D.show = async function () {
+    const c = !D.data && cached(); if (c) { D.data = c.rep; D.lots = c.lots; D.at = (c.at || '') + ' 저장본'; }
     render();
     await load();
     // 사무실 모니터에 띄워 두는 경우를 위해 1분마다 새로 읽는다 (현황 탭을 보고 있을 때만)
@@ -19,6 +24,7 @@
     if (rep && rep.ok) D.data = rep;
     if (lots && lots.ok) D.lots = lots.lots || [];
     D.at = new Date().toTimeString().slice(0, 5);
+    if (rep && rep.ok) keep(rep, D.lots);
     render();
   }
 
@@ -40,7 +46,7 @@
         <div class="list">${d.inbounds.length ? d.inbounds.map(vehicle).join('') : '<div class="muted pad">이 기간에 검수한 차량이 없습니다.</div>'}</div></section>` : ''}
       ${d ? blanks(d.records || []) + rates(d.records || []) : ''}
       ${open.length ? `<section><div class="shead"><h2>진행 중 생산 작업</h2></div><div class="list">${open.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">${esc(l.at)} · ${esc(l.workers || '')}</span></span><span>투입 <b>${fmt(l.palletCount)}</b> Pallet</span></div>`).join('')}</div></section>` : ''}`;
-    root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; D.data = null; D.at = ''; render(); load(); }; });
+    root.querySelectorAll('#dashSeg [data-r]').forEach((b) => { b.onclick = () => { D.range = b.dataset.r; const c = cached(); D.data = c ? c.rep : null; D.at = c ? (c.at || '') + ' 저장본' : ''; render(); load(); }; });
     $('dashReload').onclick = load;
     root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });
   }

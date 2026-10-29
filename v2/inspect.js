@@ -314,6 +314,7 @@
     if (!forOcr || !stored) { if (here() && st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); if (here()) refreshChecks(); return; }
     if (!here()) return; // 그 사이 저장·다시 찍기를 했으면 버린다
     photos[kind] = stored;
+    const tm = cur.tm = cur.tm || {}; tm[kind] = tm[kind] || Date.now();
     readCur(); cur[kind + 'Done'] = true; cur.status = '글자 읽는 중…'; x[kind] = true;
     if (kind === 'vendor') cur.vendorSkipped = false;
     if (kind === 'wms') {
@@ -323,7 +324,8 @@
     if (here()) render();
     const job = (async () => {
       try {
-        const r = await R.ocr.read(forOcr, kind === 'vendor' ? 'vendor' : 'wms', here() ? $('ocrStatus') : null);
+        const t0 = Date.now(), r = await R.ocr.read(forOcr, kind === 'vendor' ? 'vendor' : 'wms', here() ? $('ocrStatus') : null);
+        tm[kind + 'Ocr'] = Date.now() - t0; tm[kind + 'Done'] = Date.now(); tm[kind + 'Pass'] = r && r.method;
         x[kind] = false; applyOcr(kind, r, cur);
       } catch (e) {
         x[kind] = false; cur.status = e.message;
@@ -386,6 +388,15 @@
     if (navigator.vibrate) try { navigator.vibrate(60); } catch (_) {}
   }
 
+  // 단계 시간 기록 (이 폰에만, 최근 80 Pallet): 어디서 시간이 드는지 재기 위한 것. 메뉴 → 검수 단계 시간에서 본다
+  const TK = 'r15.steps';
+  function stepLog(c, prevAt) {
+    const tm = (c && c.tm) || {}, now = Date.now();
+    const row = { at: now, gap: prevAt ? now - prevAt : 0, wv: tm.wms && tm.vendor ? tm.vendor - tm.wms : 0, toSave: tm.wms ? now - tm.wms : 0,
+      wOcr: tm.wmsOcr || 0, vOcr: tm.vendorOcr || 0, vLate: tm.vendor && !tm.vendorDone ? 1 : 0, waitV: tm.vendorDone ? Math.max(0, now - tm.vendorDone) : 0 };
+    try { const a = JSON.parse(localStorage.getItem(TK) || '[]'); a.push(row); localStorage.setItem(TK, JSON.stringify(a.slice(-80))); } catch (_) {}
+  }
+  R.inspect.steps = function () { try { return JSON.parse(localStorage.getItem(TK) || '[]'); } catch (_) { return []; } };
   async function savePallet() {
     readCur();
     if (!canSave()) return;
@@ -426,6 +437,7 @@
         }
       });
     }
+    stepLog(S.cur, b.lastAt);
     b.lastAt = Date.now();
     S.cur = blankCur(); photos.wms = ''; photos.vendor = ''; persist(); render();
     window.scrollTo({ top: 0, behavior: 'smooth' });

@@ -14,7 +14,8 @@
 
   const CRITICAL={
     wms:['inboundNo','itemCode','product','displayQty','containerFrom','containerTo'],
-    vendor:['product','qty','palletNo']
+    // R15: 업체 라벨은 생산일이 핵심이다 (품명은 등록된 이름으로 바꾸고, 수량은 WMS로 대조한다)
+    vendor:['prodDate','palletNo','qty']
   };
 
   function present(v){return v!=null&&String(v).trim()!=='';}
@@ -66,6 +67,8 @@
         const d=digits(v); if(d.length>=1&&d.length<=8)sanity++;
       }else if(k==='product'){
         if(productSane(v))sanity++;
+      }else if(k==='prodDate'){
+        if(/^20\d{2}-\d{2}-\d{2}$/.test(String(v)))sanity++;
       }
     }
     const total=allFields(parsed).length;
@@ -79,7 +82,8 @@
 
   A.needsRetry=function(type,parsed){
     const s=A.scoreParsed(type,parsed,[]);
-    if(type==='vendor')return s.critical<3||s.sanity<3;
+    // 생산일을 읽었으면 더 찍지 않는다: 손글씨 시간·동아 표지의 빈 P번호 때문에 매번 몇 번씩 다시 읽어 다음 Pallet가 밀렸다
+    if(type==='vendor')return !/^20\d{2}-\d{2}-\d{2}$/.test(String(parsed&&parsed.prodDate||''));
     if(s.critical<5)return true;
     if(!wmsInboundSane(parsed))return true;
     if(!wmsRangeSane(parsed))return true;
@@ -319,7 +323,7 @@
   A.suspiciousTarget=function(type,parsed,text){
     if(type==='vendor'){
       const p=digits(parsed&&parsed.palletNo);
-      if(!p)return true;
+      if(!p)return false; // P번호가 없는 라벨(동아 표지)도 있다: 비었다고 다시 읽지 않는다
       const factors=formulaFactors(text);
       return factors.includes(String(Number(p)));
     }

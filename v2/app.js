@@ -81,9 +81,13 @@
       <div class="sub">권한을 바꾸려면 관리자에게 요청하세요.</div>
       <details><summary>PIN 바꾸기</summary><div class="grid g2"><label>지금 PIN<input id="mePin0" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label><label>새 PIN 6자리<input id="mePin1" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label></div>
         <button type="button" class="btn ghost" id="mePinGo">PIN 바꾸기</button></details>
+      <details><summary>검수 단계 시간 (이 폰 최근 Pallet)</summary><div id="meSteps" class="sub"></div></details>
       <details><summary>서버 속도 확인 (이 폰·이 통신망)</summary><div class="sub">읽기만 합니다. 기록은 바뀌지 않습니다.</div><button type="button" class="btn ghost" id="meSpeed">확인 시작</button><div id="meSpeedOut" class="sub"></div></details>
       <div class="savebar"><button type="button" class="btn ghost" id="meOut">로그아웃</button><button type="button" class="btn ghost sm" id="meClose">닫기</button></div>`;
     $('dialog').hidden = false;
+    const st = (R.inspect.steps ? R.inspect.steps() : []).filter((x) => Date.now() - x.at < 14 * 864e5);
+    const avg = (f) => { const a = st.map(f).filter((v) => v > 0 && v < 600000); return a.length ? (a.reduce((s, v) => s + v, 0) / a.length / 1000).toFixed(1) + '초' : '-'; };
+    $('meSteps').innerHTML = st.length ? `최근 ${st.length} Pallet 평균<br>Pallet 사이 간격: ${avg((x) => x.gap)}<br>WMS 촬영 → 업체 촬영: ${avg((x) => x.wv)}<br>첫 촬영 → 저장: ${avg((x) => x.toSave)}<br>글자 인식 WMS ${avg((x) => x.wOcr)} · 업체 ${avg((x) => x.vOcr)}<br>업체 인식 끝나고 저장까지: ${avg((x) => x.waitV)} · 인식 전에 저장 ${st.filter((x) => x.vLate).length}건` : '아직 기록이 없습니다. 검수를 하면 여기에 쌓입니다.';
     $('meClose').onclick = () => { $('dialog').hidden = true; };
     $('meOut').onclick = () => { const s = R.queue.summary(); if (!confirm(((s.pending || 0) + (s.sending || 0)) ? '아직 서버에 안 올라간 저장이 있습니다. 다시 로그인하면 이어서 보냅니다. 로그아웃할까요?' : '로그아웃할까요?')) return; $('dialog').hidden = true; R.logout(); };
     // 실제 서버까지 왕복 시간을 이 폰에서 잰다 (Apps Script 첫 호출은 깨어나는 시간이 더 든다)
@@ -139,7 +143,8 @@
     $('foot').textContent = `새 화면 ${window.R15_CONFIG.RELEASE} · 기존 화면은 상위 주소에서 그대로 사용 가능`;
     R.on('queue', queueChip);
     R.on('role', applyNav);
-    R.on('login', () => { if (!R.isGuest()) { R.queue.kick(); R.ocr.warmup(); } applyNav(); showTab(document.body.dataset.tab); });
+    // 글자 인식 모델(약 18MB)은 첫 화면 자료를 먼저 받은 뒤 내려받는다 (같이 받으면 첫 화면이 늦게 떴다)
+    R.on('login', () => { if (!R.isGuest()) { R.queue.kick(); setTimeout(() => R.ocr.warmup(), 3000); } applyNav(); showTab(document.body.dataset.tab); });
     R.on('config', () => { if (!R.user) return; applyNav(); if (!allowed(document.body.dataset.tab)) showTab(document.body.dataset.tab); });
     await R.queue.init();
     R.inspect.init(); R.lot.init(); R.trace.init(); R.report.init();
