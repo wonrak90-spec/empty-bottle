@@ -224,7 +224,7 @@
   }
   async function boardStart(k, productName, lotNo, btn) {
     if (!productName || !lotNo) return R.toast('제품명과 제조번호를 넣으세요', 'crit');
-    R.busy(btn, true, '시작 중…'); const r = await R.tryPost('r15LotStart', { productName, lotNo }); R.busy(btn, false);
+    R.busy(btn, true, '시작 중…'); const r = await R.tryPost('r15LotStart', { productName, lotNo, line: k }); R.busy(btn, false);
     if (!r || !r.ok) return;
     B.slots[k] = { id: r.id, productName, lotNo }; boardSave(); boardRefresh();
   }

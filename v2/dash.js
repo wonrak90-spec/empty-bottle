@@ -16,7 +16,33 @@
     // 사무실 모니터에 띄워 두는 경우를 위해 1분마다 새로 읽는다 (현황 탭을 보고 있을 때만)
     clearInterval(D.timer);
     D.timer = setInterval(() => { if (document.body.dataset.tab === 'dash' && !document.hidden) load(); else clearInterval(D.timer); }, 60000);
+    // 라인 현황은 30초마다 (가벼운 호출, 서버가 20초 캐시)
+    clearInterval(D.ltimer); live();
+    D.ltimer = setInterval(() => { if (document.body.dataset.tab === 'dash' && !document.hidden) live(); else clearInterval(D.ltimer); }, 30000);
   };
+
+  /* ---------- 라인 현황 (실시간) ---------- */
+  async function live() {
+    const r = await R.tryGet('r15Live'); if (!r || !r.ok) return;
+    D.live = r; const el = $('liveBox'); if (el) el.outerHTML = liveHtml();
+  }
+  function liveHtml() {
+    const r = D.live; if (!r) return '<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">불러오는 중…</span></div></section>';
+    const ago = (t) => (t ? Math.max(0, Math.round((r.now - t) / 60000)) : null);
+    const tile = (k, l) => {
+      if (!l) return `<div class="lt idle"><div class="lk">${k} 라인</div><div class="lp muted">작업 없음</div></div>`;
+      const m = ago(l.lastAt), on = m != null && m <= 10;
+      return `<div class="lt ${on ? 'on' : 'wait'}"><div class="lk">${k || '라인 미지정'} ${on ? R.pill('ok', '투입 중') : R.pill('idle', m == null ? '아직 투입 없음' : m + '분째 대기')}</div>
+        <div class="lp">${esc(l.productName)} <b>${esc(l.lotNo)}</b></div>
+        <div class="ln"><b>${fmt(l.today)}</b> Pallet 오늘 · 누적 ${fmt(l.count)}</div>
+        <div class="muted">마지막 투입 ${esc(l.lastText || '-')}</div></div>`;
+    };
+    const byLine = {}; r.lots.forEach((l) => { if (l.line && !byLine[l.line]) byLine[l.line] = l; });
+    const other = r.lots.filter((l) => !l.line || byLine[l.line] !== l);
+    return `<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">${esc(r.at)} 기준 · 30초마다 새로 고침</span></div>
+      <div class="ltgrid">${['A', 'B', 'C', 'D'].map((k) => tile(k, byLine[k])).join('')}</div>
+      ${other.length ? `<div class="sub" style="margin-top:8px">라인 없이 진행 중 (폰에서 시작한 작업)</div><div class="ltgrid">${other.map((l) => tile(l.line, l)).join('')}</div>` : ''}</section>`;
+  }
 
   async function load() {
     const off = RANGES.find((x) => x[0] === D.range)[2];
@@ -31,7 +57,7 @@
   function render() {
     const root = $('dashView'); if (!root) return;
     const d = D.data, k = d && d.kpi, open = (D.lots || []).filter((l) => l.status === '진행중');
-    root.innerHTML = `<section>
+    root.innerHTML = liveHtml() + `<section>
       <div class="shead"><h2>입고 검수 현황</h2>
         <div class="tabs" id="dashSeg">${RANGES.map(([v, t]) => `<button type="button" data-r="${v}" aria-pressed="${D.range === v}">${t}</button>`).join('')}</div>
         <span class="muted">${D.at ? D.at + ' 기준' : '불러오는 중…'} <button type="button" class="btn ghost sm" id="dashReload">새로고침</button></span></div>

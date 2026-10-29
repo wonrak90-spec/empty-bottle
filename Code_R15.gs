@@ -527,7 +527,7 @@ const ROLE_RANK_V24 = { viewer:0, worker:1, manager:2, admin:3 };
 // -1 = Guest(로그인 없이 보기), 0 조회, 1 작업자, 2 중간관리자, 3 관리자. 검수·투입은 저장이 있어 작업자 이상, 관리는 중간관리자 이상.
 const R15_TABS = { dash:{ label:'현황', def:-1, min:-1 }, inspect:{ label:'입고 검수', def:1, min:1 }, lot:{ label:'생산 투입', def:1, min:1 },
   trace:{ label:'추적', def:0, min:-1 }, report:{ label:'보고서', def:0, min:-1 }, admin:{ label:'관리', def:2, min:2 } };
-const R15_GUEST_READS = { dash:['r15Report','r15Lots'], trace:['r15Trace','r15Inbound','r15Pallet','r15Lot'], report:['r15Report','r15Inbound','r15Lot'] };
+const R15_GUEST_READS = { dash:['r15Report','r15Lots','r15Live'], trace:['r15Trace','r15Inbound','r15Pallet','r15Lot'], report:['r15Report','r15Inbound','r15Lot'] };
 function r15TabMins_() {
   let saved = {}; try { saved = JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_TABS') || '{}'); } catch (e) {}
   const out = {}; Object.keys(R15_TABS).forEach(function(k) { const t = R15_TABS[k], v = Number(saved[k]); out[k] = isFinite(v) && saved[k] !== undefined ? Math.max(t.min, Math.min(3, v)) : t.def; });
@@ -1968,6 +1968,7 @@ function r15Get_(action, q, auth) {
   if (action === 'r15BackupInfo') { if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 볼 수 있습니다.' }; return r15BackupInfo_(); }
   if (action === 'r15ArchiveInfo') { if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 볼 수 있습니다.' }; return r15ArchiveInfo_(); }
   if (action === 'r15Lots') return r15Lots_();
+  if (action === 'r15Live') return r15Live_();
   if (action === 'r15Lot') return r15Lot_(q.id);
   if (action === 'r15Items') return r15Items_();
   if (action === 'r15VendorSuggest') { if (!atLeastV24_(auth, 'manager')) return { ok:false, code:'ROLE_REQUIRED', message:'중간관리자 이상 권한이 필요합니다.' }; return r15VendorSuggest_(q); }
@@ -1978,9 +1979,9 @@ function r15Get_(action, q, auth) {
 
 function r15Post_(action, p, auth) {
   p = p || {};
-  if (action === 'r15LotStart') { p.worker = auth.name || ''; const r = startProduction_(p); if (r && r.ok) appendAudit_(r.joined ? 'R15작업참여' : 'R15작업시작', r.id || '', { actor: actorLabelV24_(auth), after: { productName: r15S_(p.productName), lotNo: r15S_(p.lotNo) } }); return r; }
+  if (action === 'r15LotStart') { p.worker = auth.name || ''; const r = startProduction_(p); if (r && r.ok && p.line) r15LotLineSet_(r.id, p.line); if (r && r.ok) appendAudit_(r.joined ? 'R15작업참여' : 'R15작업시작', r.id || '', { actor: actorLabelV24_(auth), after: { productName: r15S_(p.productName), lotNo: r15S_(p.lotNo) } }); return r; }
   if (action === 'r15TabsSave') return r15TabsSave_(p, auth);
-  if (action === 'r15LotAdd') return r15LotAdd_(p, auth);
+  if (action === 'r15LotAdd') { const r = r15LotAdd_(p, auth); try { CacheService.getScriptCache().remove('R15LIVE'); } catch (e) {} return r; }
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
   if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
   if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
@@ -2814,6 +2815,25 @@ function r15Lots_() {
   const list = r15Productions_().sort(function(a, b) { return (a.status === '진행중' ? 0 : 1) - (b.status === '진행중' ? 0 : 1) || b.at - a.at; }).slice(0, 40)
     .map(function(p) { return { id:p.id, productName:p.productName, lotNo:p.lotNo, status:p.status, at:p.atText, workers:p.workers, palletCount:cnt[p.id] || 0 }; });
   return { ok:true, lots:list, products: recentProducts_().products || [], plan: r15PlanToday_() };
+}
+// 투입 보드가 시작한 작업의 라인(A~D). 시트 열을 늘리지 않으려고 스크립트 속성에 최근 200건만 둔다
+function r15LotLines_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LOT_LINE') || '{}') || {}; } catch (e) { return {}; } }
+function r15LotLineSet_(id, line) {
+  const l = String(line || '').trim().toUpperCase().charAt(0); if (!id || !/^[A-D]$/.test(l)) return;
+  const m = r15LotLines_(); delete m[id]; m[id] = l; const ks = Object.keys(m); ks.slice(0, Math.max(0, ks.length - 200)).forEach(function(k) { delete m[k]; });
+  PropertiesService.getScriptProperties().setProperty('R15_LOT_LINE', JSON.stringify(m)); try { CacheService.getScriptCache().remove('R15LIVE'); } catch (e) {}
+}
+// 현장 현황 화면이 30초마다 부른다: 진행 중 작업별 투입 수·오늘 투입·마지막 투입 시각. 여러 화면이 같이 불러도 20초 캐시로 한 번만 계산
+function r15Live_() {
+  try { const c = CacheService.getScriptCache().get('R15LIVE'); if (c) return JSON.parse(c); } catch (e) {}
+  const ix = r15PPAt_(), lines = r15LotLines_(), t0 = new Date(Utilities.formatDate(new Date(), R15_TZ, 'yyyy-MM-dd') + 'T00:00:00+09:00').getTime();
+  const lots = r15Productions_().filter(function(p) { return p.status === '진행중'; }).map(function(p) {
+    let last = 0, today = 0; (ix.byPid[p.id] || []).forEach(function(x) { if (x.at > last) last = x.at; if (x.at >= t0) today++; });
+    return { id:p.id, productName:p.productName, lotNo:p.lotNo, line: lines[p.id] || '', workers:p.workers, count:(ix.byPid[p.id] || []).length, today:today, lastAt:last, lastText: last ? Utilities.formatDate(new Date(last), R15_TZ, 'HH:mm') : '' };
+  });
+  const out = { ok:true, lots:lots, now:Date.now(), at:Utilities.formatDate(new Date(), R15_TZ, 'HH:mm:ss') };
+  try { CacheService.getScriptCache().put('R15LIVE', JSON.stringify(out), 20); } catch (e) {}
+  return out;
 }
 function r15Lot_(id) {
   const p = r15Productions_().filter(function(x) { return x.id === String(id || ''); })[0]; if (!p) return { ok:false, message:'생산 작업을 찾을 수 없습니다.' };
