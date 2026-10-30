@@ -1984,7 +1984,7 @@ function r15Post_(action, p, auth) {
   if (action === 'r15LotAdd') { const r = r15LotAdd_(p, auth); try { CacheService.getScriptCache().remove('R15LIVE'); } catch (e) {} return r; }
   if (action === 'r15LotRemove') return r15LotRemove_(p, auth);
   if (action === 'r15LotDelete') return r15LotDelete_(p, auth);
-  if (action === 'r15LotFinish') { p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
+  if (action === 'r15LotFinish') { const chk = r15LotFinishCheck_(p, auth); if (chk) return chk; p.registrant = auth.name || ''; p.closeSession = true; const r = finishProduction_(p); if (r && r.ok) appendAudit_('R15작업종료', r15S_(p.productionId), { actor: actorLabelV24_(auth), after: { palletCount: r.palletCount, total: r.total } }); return r; }
   if (action === 'r15AuditNote') return r15AuditNote_(p, auth);
   if (action === 'r15IssueAck') return r15IssueAck_(p, auth);
   if (action === 'r15AttachPhoto') return r15AttachPhoto_(p, auth);
@@ -2851,13 +2851,21 @@ function r15LineEventAdd_(p, auth) {
     const key = line + '|' + r15S_(p.code) + '|' + r15S_(p.inboundNo) + '|' + r15S_(p.pallet);
     const same = ev.filter(function(x) { return !x.ack && x.key === key; })[0];
     if (same) { same.n = (same.n || 1) + 1; same.at = now; return { out: { ok:true, id:same.id } }; }
-    const x = { id: 'E' + now.toString(36) + Math.floor(Math.random() * 1e4), key:key, at:now, line:line, code:r15S_(p.code).slice(0, 20), text:text, lotNo:r15S_(p.lotNo).slice(0, 20), by:actorLabelV24_(auth), n:1, ack:null };
+    const x = { id: 'E' + now.toString(36) + Math.floor(Math.random() * 1e4), key:key, at:now, line:line, code:r15S_(p.code).slice(0, 20), text:text, lotNo:r15S_(p.lotNo).slice(0, 20), inboundNo:r15Digits_(p.inboundNo), pallet:r15Pallet_(p.pallet) || '', by:actorLabelV24_(auth), n:1, ack:null };
     ev.push(x); return { out: { ok:true, id:x.id } };
   });
 }
 function r15LineEventAck_(p, auth) {
   const ids = (p.ids || []).map(r15S_), note = r15S_(p.note).slice(0, 80);
   return r15LineEvWrite_(function(ev, now) { let n = 0; ev.forEach(function(x) { if (!x.ack && (ids.indexOf(x.id) >= 0 || (p.line && x.line === r15S_(p.line) && ids.length === 0))) { x.ack = { at:now, by:actorLabelV24_(auth), note:note }; n++; } }); return { out: { ok:true, acked:n } }; });
+}
+// 작업 종료 전: 그 라인에 처리 안 된 투입 오류(이 제조번호 것이나 작업 없을 때 난 것)가 있으면 막는다. 중간관리자는 force로 종료 가능
+function r15LotFinishCheck_(p, auth) {
+  const id = r15S_(p.productionId), line = r15LotLines_()[id]; if (!line) return null;
+  const lot = r15Productions_().filter(function(x) { return x.id === id; })[0], lotNo = lot ? lot.lotNo : '';
+  const open = r15LineEvents_().filter(function(e) { return !e.ack && e.line === line && (e.lotNo === lotNo || !e.lotNo); });
+  if (!open.length || (p.force && atLeastV24_(auth, 'manager'))) return null;
+  return { ok:false, code:'LINE_ERRORS', message: line + ' 라인에 처리 안 된 투입 오류 ' + open.length + '건이 있습니다. 오류 목록에서 처리한 뒤 종료하세요.', events: open };
 }
 // 투입 보드가 시작한 작업의 라인(A~D). 시트 열을 늘리지 않으려고 스크립트 속성에 최근 200건만 둔다
 function r15LotLines_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_LOT_LINE') || '{}') || {}; } catch (e) { return {}; } }

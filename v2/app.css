@@ -244,3 +244,4 @@ td.crit{color:var(--crit);font-weight:700}td.warnt{color:var(--warn);font-weight
 .bdcfg{border-top:1px solid var(--line);padding-top:10px;margin-top:10px}.bdcfg h3{margin:0 0 6px}.chks{display:flex;flex-wrap:wrap;gap:6px 14px}
 button.kpi{font:inherit;text-align:left;cursor:pointer;color:inherit;width:100%}
 .lnerr{border:3px solid var(--crit);background:var(--crit-bg)}.lnerr h2{color:var(--crit)}.lnerr .row{align-items:center;gap:10px}
+.evbtns{display:flex;gap:6px;flex-wrap:wrap;align-items:center;flex:0 0 auto}

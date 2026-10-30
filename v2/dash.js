@@ -31,7 +31,8 @@
     D.live = r; const el = $('liveBox'); if (el) { el.outerHTML = liveHtml(); bindLive(); }
   }
   function alarm() { try { const a = D.ac = D.ac || new (window.AudioContext || window.webkitAudioContext)(); [0, 0.25].forEach((t) => { const o = a.createOscillator(), g = a.createGain(); o.frequency.value = 520; g.gain.value = 0.2; o.connect(g); g.connect(a.destination); o.start(a.currentTime + t); o.stop(a.currentTime + t + 0.18); }); } catch (_) {} }
-  function bindLive() { const el = $('liveBox'); if (el && D.live) R.lines.bindAck(el, D.live.events || [], () => { const b = $('liveBox'); if (b) { b.outerHTML = liveHtml(); bindLive(); } }); }
+  const liveLot = (k) => ((D.live && D.live.lots) || []).find((l) => l.line === k) || null;
+  function bindLive() { const el = $('liveBox'); if (el && D.live) R.lines.bindAck(el, D.live.events || [], () => { const b = $('liveBox'); if (b) { b.outerHTML = liveHtml(); bindLive(); } }, liveLot); }
   function liveHtml() {
     const r = D.live; if (!r) return '<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">불러오는 중…</span></div></section>';
     const byLine = {}; r.lots.forEach((l) => { if (l.line && !byLine[l.line]) byLine[l.line] = l; });
@@ -42,7 +43,7 @@
         sub: l ? `오늘 ${fmt(l.today)} Pallet · 누적 ${fmt(l.count)} · 마지막 ${l.lastText || '-'}` : '', note: errs ? `오류 ${errs}건 · 확인 필요` : !l ? '작업 없음' : m == null ? '투입 대기' : m <= 10 ? '투입 중' : `${m}분째 대기` }; });
     const tot = r.lots.reduce((a, l) => a + (l.today || 0), 0);
     return `<section id="liveBox"><div class="shead"><h2>라인 현황</h2><span class="muted">오늘 투입 ${fmt(tot)} Pallet · ${esc(r.at)} 기준 · 30초마다</span></div>
-      ${R.lines.eventsHtml(r.events, R.rank() >= 1).replace('<section class="lnerr">', '<div class="lnerr">').replace(/<\/section>$/, '</div>')}
+      ${R.lines.eventsHtml(r.events, R.rank() >= 1, liveLot).replace('<section class="lnerr">', '<div class="lnerr">').replace(/<\/section>$/, '</div>')}
       ${R.lines.svg(rows)}
       ${other.length ? `<details class="mt"><summary>라인 없이 진행 중인 작업 ${other.length}건 (폰에서 시작)</summary><div class="list">${other.map((l) => `<div class="row"><span><b>${esc(l.productName)} ${esc(l.lotNo)}</b> <span class="muted">오늘 ${fmt(l.today)} · 누적 ${fmt(l.count)} · 마지막 ${esc(l.lastText || '-')}</span></span></div>`).join('')}</div></details>` : ''}</section>`;
   }

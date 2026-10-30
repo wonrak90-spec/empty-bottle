@@ -43,14 +43,26 @@
   };
   LN.guide = (code) => GUIDE[code] || '내용을 확인하세요';
   LN.open = (events) => (events || []).filter((e) => !e.ack);
-  // 확인 전 오류 목록 (보드·현황 같이 씀). canAck면 확인 버튼
-  LN.eventsHtml = function (events, canAck) {
+  // 나중에 '이 작업에 넣기'로 기록할 수 있는 오류: 작업 없음·연결 실패·서버 거부는 작업자, 미검수·다른 공병은 중간관리자만
+  const FIX = { nolot: 1, net: 1, server: 1, noinsp: 2, bottle: 2 };
+  const fixable = (e) => FIX[e.code] && e.inboundNo && e.pallet && (FIX[e.code] === 1 || R.isManager());
+  // 확인 전 오류 목록 (보드·현황 같이 씀). canAck면 확인 버튼, lotFor(line)이 지금 그 라인 작업을 주면 '이 작업에 넣기'
+  LN.eventsHtml = function (events, canAck, lotFor) {
     const open = LN.open(events); if (!open.length) return '';
     const t = (ms) => new Date(ms).toTimeString().slice(0, 5);
     return `<section class="lnerr"><div class="shead"><h2>⚠ 투입 오류 ${open.length}건 · 확인 전</h2>${canAck && open.length > 1 ? '<button type="button" class="btn sm" data-evack="all">모두 확인</button>' : ''}</div>
-      <div class="list">${open.slice().reverse().map((e) => `<div class="row"><span><b>${esc(e.line || '?')} 라인</b> ${t(e.at)}${e.n > 1 ? ` (${e.n}번)` : ''} · ${esc(e.text)}<br><span class="muted">→ ${esc(LN.guide(e.code))}</span></span>${canAck ? `<button type="button" class="btn ghost sm" data-evack="${esc(e.id)}">확인</button>` : ''}</div>`).join('')}</div></section>`;
+      <div class="list">${open.slice().reverse().map((e) => `<div class="row"><span><b>${esc(e.line || '?')} 라인</b> ${t(e.at)}${e.n > 1 ? ` (${e.n}번)` : ''} · ${esc(e.text)}<br><span class="muted">→ ${esc(LN.guide(e.code))}</span></span><span class="evbtns">${canAck && fixable(e) ? (lotFor && lotFor(e.line) ? `<button type="button" class="btn sm" data-evfix="${esc(e.id)}">${esc(lotFor(e.line).lotNo)}에 넣기</button>` : '<span class="muted">작업 시작 후 넣기</span>') : ''}${canAck ? `<button type="button" class="btn ghost sm" data-evack="${esc(e.id)}">확인</button>` : ''}</span></div>`).join('')}</div></section>`;
   };
-  LN.bindAck = function (root, events, after) {
+  LN.bindAck = function (root, events, after, lotFor) {
+    if (!root) return;
+    root.querySelectorAll('[data-evfix]').forEach((b) => { b.onclick = async () => {
+      const e = events.find((x) => x.id === b.dataset.evfix), lot = e && lotFor && lotFor(e.line); if (!e || !lot) return;
+      if (!confirm(`${e.inboundNo} P${e.pallet}를 ${lot.productName || ''} ${lot.lotNo}에 투입으로 기록할까요?${e.code === 'noinsp' ? '\n검수 기록이 없어 "미검수 투입"으로 남습니다.' : ''}`)) return;
+      R.busy(b, true, '기록 중…');
+      await R.queue.addLot(lot.id, [{ inboundNo: e.inboundNo, pallet: Number(e.pallet) }], { label: `${lot.lotNo} 오류 처리 1 Pallet` });
+      const r = await R.tryPost('r15LineEventAck', { ids: [e.id], note: `${lot.lotNo}에 넣음` }); R.busy(b, false);
+      if (r && r.ok) { e.ack = { at: Date.now() }; R.toast(`${e.inboundNo} P${e.pallet} → ${lot.lotNo} 기록`, 'ok'); after(); }
+    }; });
     root.querySelectorAll('[data-evack]').forEach((b) => { b.onclick = async () => {
       const ids = b.dataset.evack === 'all' ? LN.open(events).map((e) => e.id) : [b.dataset.evack];
       R.busy(b, true, '…'); const r = await R.tryPost('r15LineEventAck', { ids }); R.busy(b, false);
