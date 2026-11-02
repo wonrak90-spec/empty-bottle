@@ -97,6 +97,12 @@
     bindInboundList();
   }
 
+  // 차량별 검수 시간 (기간이 길어 일부 기록만 받은 경우는 건너뜀)
+  function tripsLine(no) {
+    if (P.data.trimmed) return '';
+    const t = R.util.trips(P.data.records.filter((r) => r.inboundNo === no)); if (!t.length) return '';
+    return `<span class="ibtime">⏱ ${t.map((c) => `${esc(c.text)} <b>${esc(R.util.tripText(c))}</b>${t.length > 1 ? ` (${c.n}P)` : ''}`).join(' · ')}</span>`;
+  }
   function inboundListHtml(list, title) {
     return `<section><div class="shead"><h2>${esc(title)}</h2>
       <div class="right"><button type="button" class="btn ghost sm" id="repSelAll">전체 선택</button><button type="button" class="btn sm" id="repPrint" ${P.sel.size ? '' : 'disabled'}>선택 ${P.sel.size}건 인쇄</button></div></div>
@@ -105,6 +111,7 @@
         <button type="button" class="ibb" data-open="${esc(x.inboundNo)}">
           <span class="ibt"><b>${esc(x.inboundNo || '입고번호 없음')}</b> ${esc(x.product)}</span>
           <span class="muted">${esc(x.days.join(', '))} · ${esc(x.supplier || '')} · ${esc(x.inspectors.join(', '))}</span>
+          ${tripsLine(x.inboundNo)}
           <span class="ibs">${x.palletCount} Pallet (P${x.gaps.min}~P${x.gaps.max}) · ${fmt(x.qtyTotal)} EA
             ${x.errorCount ? R.pill('error', '오류 ' + x.errorCount) : ''}${x.warnCount ? R.pill('warn', '주의 ' + x.warnCount) : ''}${x.gaps.missing.length ? R.pill('warn', '빠진 번호 ' + x.gaps.missing.length) : ''}${!x.errorCount && !x.warnCount && !x.gaps.missing.length ? R.pill('ok', '이상 없음') : ''}${x.usedCount ? R.pill('idle', '투입 ' + x.usedCount) : ''}</span>
         </button></div>`).join('') || '<div class="muted">기간 안에 입고 기록이 없습니다.</div>'}</div>
@@ -169,6 +176,7 @@
       <div class="kpis small">
         <div class="kpi"><div class="l">Pallet</div><div class="v">${s.palletCount}</div><div class="d">P${s.gaps.min}~P${s.gaps.max}</div></div>
         <div class="kpi"><div class="l">총 수량</div><div class="v">${fmt(s.qtyTotal)}</div></div>
+        ${R.util.trips(records).map((c, i, a) => `<div class="kpi"><div class="l">검수 시간${a.length > 1 ? ` ${i + 1}차` : ''}</div><div class="v">${c.min ? `${c.min}<small> 분</small>` : '-'}</div><div class="d">${esc(c.text)} · ${c.n}P${c.per ? ` · P당 ${c.per}초` : ''}</div></div>`).join('')}
         <div class="kpi"><div class="l">이상 없음</div><div class="v">${s.okCount}</div></div>
         <div class="kpi ${s.errorCount ? 'crit' : ''}"><div class="l">오류 / 주의</div><div class="v">${s.errorCount} / ${s.warnCount}</div></div>
         <div class="kpi"><div class="l">생산 투입</div><div class="v">${s.usedCount}</div><div class="d">${esc(s.lots.join(', '))}</div></div>

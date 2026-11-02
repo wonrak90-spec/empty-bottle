@@ -82,11 +82,15 @@
     root.querySelectorAll('[data-goreport]').forEach((b) => { b.onclick = () => { const n = document.querySelector('#nav [data-tab="report"]'); if (n) n.click(); }; });
   }
 
+  function tripHtml(x) {
+    const t = D.data && !D.data.trimmed && D.data.records ? R.util.trips(D.data.records.filter((r) => r.inboundNo === x.inboundNo)) : [];
+    return t.length ? `<span class="ibtime">⏱ ${t.map((c) => `${esc(c.text.split(' ')[1])} <b>${esc(R.util.tripText(c))}</b>`).join(' · ')}</span>` : '';
+  }
   function vehicle(x) {
     const total = Math.max(x.gaps.max || 0, x.palletCount), pct = total ? Math.round(x.palletCount / total * 100) : 0;
     const lv = x.errorCount ? 'error' : x.warnCount || x.gaps.missing.length ? 'warn' : 'ok';
     const say = x.errorCount ? `오류 ${x.errorCount}` : x.gaps.missing.length ? `빠진 번호 ${x.gaps.missing.length}` : x.warnCount ? `주의 ${x.warnCount}` : '정상';
-    return `<div class="row dveh"><span class="dname"><b>${esc(x.inboundNo || '입고번호 없음')}</b> ${esc(x.product || '')} <span class="muted">${esc(x.supplier || '')} · ${esc(x.days.join(', '))} · ${esc(x.inspectors.join(', '))}</span></span>
+    return `<div class="row dveh"><span class="dname"><b>${esc(x.inboundNo || '입고번호 없음')}</b> ${esc(x.product || '')} <span class="muted">${esc(x.supplier || '')} · ${esc(x.days.join(', '))} · ${esc(x.inspectors.join(', '))}</span>${tripHtml(x)}</span>
       <span class="dprog"><span class="dbar"><i class="${lv}" style="width:${pct}%"></i></span><b>${x.palletCount}</b><span class="muted"> / ${total} Pallet</span> ${R.pill(lv, say)}</span></div>`;
   }
 })();
