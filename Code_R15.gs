@@ -2739,6 +2739,12 @@ function r15BackupRun_(auth) {
   try { const b = r15BackupNow_(actorLabelV24_(auth)); appendAudit_('R15백업', 'BACKUP', { actor: actorLabelV24_(auth), after: { name:b.name } }); return { ok:true, backup:b }; }
   catch (e) { return { ok:false, message:'백업 실패: ' + (e.message || e) }; }
 }
+// 편집기에서 직접 실행: 트리거 권한 승인 창을 띄우고 매주 자동 백업을 켠다 (앱 버튼이 권한 오류일 때)
+function r15AutoBackupOn() {
+  if (!r15BackupTrigger_().length) ScriptApp.newTrigger('r15WeeklyBackup').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create();
+  Logger.log('매주 자동 백업 켜짐: ' + r15BackupTrigger_().length + '개');
+}
+
 function r15BackupSetup_(p, auth) {
   if (!atLeastV24_(auth, 'admin')) return { ok:false, code:'ROLE_REQUIRED', message:'관리자만 할 수 있습니다.' };
   try {
@@ -2746,7 +2752,7 @@ function r15BackupSetup_(p, auth) {
     if (String(p && p.on) === '1') { if (!now.length) ScriptApp.newTrigger('r15WeeklyBackup').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create(); }
     else now.forEach(function(tr) { ScriptApp.deleteTrigger(tr); });
     return r15BackupInfo_();
-  } catch (e) { return { ok:false, message:'자동 백업 설정 실패: ' + (e.message || e) + ' · Apps Script 편집기에서 r15WeeklyBackup을 한 번 실행해 권한을 허용하세요.' }; }
+  } catch (e) { return { ok:false, message:'자동 백업 설정 실패: ' + (e.message || e) + ' · Apps Script 편집기에서 r15AutoBackupOn을 한 번 실행해 권한을 허용하세요.' }; }
 }
 
 /* ---------- 보관(아카이브) ----------
