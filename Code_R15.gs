@@ -240,7 +240,7 @@ function doGet(e) {
     if (action === 'r15Config') return jsonOut_(r15Config_());
     const session = (e && e.parameter && (e.parameter.session || e.parameter.token)) || '';
     // 로그인하지 않은 Guest: 관리자가 Guest에게 연 탭에 필요한 읽기만 허용
-    if (!session && r15GuestActions_().indexOf(action) >= 0) return jsonOut_(r15Get_(action, e.parameter || {}, r15GuestAuth_()));
+    if (!session && r15GuestActions_().indexOf(action) >= 0) return r15CachedGet_(action, e.parameter || {}, r15GuestAuth_());
     // 읽기는 조회 권한부터. 삭제 보관함·변경 이력은 중간관리자, DB 상태는 관리자.
     const needRole = action === 'dbStatus' ? 'admin' : (action === 'listDeletedRecords' || action === 'r15Audit') ? 'manager' : 'viewer';
     const auth = authorizeSessionV24_(session, needRole);
@@ -265,7 +265,7 @@ function doGet(e) {
     if (action === 'backendCapabilities') return jsonOut_(v58BackendCapabilities_(auth));
     if (action === 'reportCapabilities') return jsonOut_(v58ReportCapabilities_(auth));
     if (action === 'listDeletedRecords') return jsonOut_(v58ListSoftDeletedRecords_(auth));
-    if (String(action).indexOf('r15') === 0) return jsonOut_(r15Get_(action, e.parameter || {}, auth));
+    if (String(action).indexOf('r15') === 0) return r15CachedGet_(action, e.parameter || {}, auth);
     return jsonOut_({ ok:false, message:'알 수 없는 action: ' + action });
   } catch (err) {
     return jsonOut_({ ok:false, message:String(err.message || err) });
@@ -289,6 +289,7 @@ function doPost(e) {
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
     const auth = authorizeSessionV24_(session, needRole);
     if (!auth.ok) return jsonOut_(auth);
+    if (R15_READ_POSTS.indexOf(action) < 0) r15CacheBump_(); // 쓰기가 오면 읽기 캐시를 모두 무효로
 
     if (action === 'authLogout') { appendAudit_('로그아웃', '', { actor: actorLabelV24_(auth) }); return jsonOut_(authLogoutV24_(session)); }
     if (action === 'changeMyPin') return jsonOut_(changeMyPinV24_(body.payload || {}, auth, session));
@@ -1289,6 +1290,42 @@ function photoDataBatchV23_(urls){
     }catch(e){errors[url]=String(e.message||e);}
   });
   return {ok:true,items:out,errors:errors,loaded:Object.keys(out).length,requested:urls.length};
+}
+
+/* ---------- 읽기 캐시 ----------
+ * 보고서·투입 작업·재고 같은 읽기는 매번 시트 전체를 읽어 1~수 초 걸린다. 같은 결과를 5분간 CacheService에 두고,
+ * doPost로 쓰기가 한 번이라도 오면 버전(R15VER)을 바꿔 예전 결과를 쓰지 않는다. 사용자마다 따로 둔다(고칠 수 있는지 표시가 달라서).
+ * 값 한 개 100KB 제한이 있어 2만 자씩 나눠 넣고, 너무 크면(40만 자 초과) 캐시하지 않는다. */
+const R15_CACHE_READS = ['r15Report','r15Lots','r15Stock','r15Inbound','r15Items','r15Trace','r15Pallet','r15Lot','r15Plan'];
+const R15_READ_POSTS = ['photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords','r15SpeedUpload'];
+function r15CacheVer_() {
+  const c = CacheService.getScriptCache(); let v = c.get('R15VER');
+  if (!v) { v = String(Date.now()); c.put('R15VER', v, 21600); }
+  return v;
+}
+function r15CacheBump_() { try { CacheService.getScriptCache().put('R15VER', String(Date.now()) + Math.random().toString(36).slice(2, 6), 21600); } catch (e) {} }
+function r15CachedGet_(action, q, auth) {
+  if (R15_CACHE_READS.indexOf(action) < 0) return jsonOut_(r15Get_(action, q, auth));
+  let key = '';
+  try {
+    const qq = {}; Object.keys(q).sort().forEach(function(k) { if (['session','token','action','_','cb'].indexOf(k) < 0) qq[k] = q[k]; });
+    const raw = r15CacheVer_() + '|' + action + '|' + (auth.userId || 'guest') + '|' + auth.role + '|' + JSON.stringify(qq);
+    key = 'R15C_' + Utilities.base64EncodeWebSafe(Utilities.computeDigest(Utilities.DigestAlgorithm.MD5, raw, Utilities.Charset.UTF_8));
+    const c = CacheService.getScriptCache(), n = Number(c.get(key) || 0);
+    if (n) {
+      const ks = []; for (let i = 0; i < n; i++) ks.push(key + '_' + i);
+      const got = c.getAll(ks);
+      if (ks.every(function(k) { return got[k] != null; })) return ContentService.createTextOutput(ks.map(function(k) { return got[k]; }).join('')).setMimeType(ContentService.MimeType.JSON);
+    }
+  } catch (e) { key = ''; }
+  const out = r15Get_(action, q, auth), text = JSON.stringify(out);
+  if (key && out && out.ok && text.length <= 400000) {
+    try {
+      const m = {}, CH = 20000; let i = 0; for (let a = 0; a < text.length; a += CH) m[key + '_' + (i++)] = text.slice(a, a + CH);
+      const c = CacheService.getScriptCache(); c.putAll(m, 300); c.put(key, String(i), 300);
+    } catch (e) {}
+  }
+  return ContentService.createTextOutput(text).setMimeType(ContentService.MimeType.JSON);
 }
 
 function jsonOut_(obj) {
