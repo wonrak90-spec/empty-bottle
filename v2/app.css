@@ -249,3 +249,4 @@ button.kpi{font:inherit;text-align:left;cursor:pointer;color:inherit;width:100%}
 /* 글씨를 크게 해도 좁은 폰에서 가로로 넘치지 않게 */
 @media(max-width:480px){.dprog{white-space:normal;flex-wrap:wrap}}
 .ibtime{display:block;font-size:0.8125rem;color:var(--ink2);margin-top:2px}.ibtime b{color:var(--ink)}
+.tchart{display:block;max-width:none}

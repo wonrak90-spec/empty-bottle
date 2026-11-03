@@ -78,10 +78,69 @@
         <div class="kpi ${k.gapPallets ? 'warn' : ''}"><div class="l">번호 빠진 Pallet</div><div class="v">${k.gapPallets}<small> 개</small></div></div>
         <div class="kpi"><div class="l">생산 작업</div><div class="v">${k.lots}<small> 건</small></div></div>
       </div>
-      <div class="tabs sub2" id="repSub">${[['summary', '수불 현황'], ['inbound', '입고번호별'], ['issues', '데이터 점검']].map(([v, t]) => `<button type="button" data-s="${v}" aria-pressed="${P.sub === v}">${t}${v === 'issues' && (k.errorRecords + k.warnRecords) ? ` <span class="cnt2">${k.errorRecords + k.warnRecords}</span>` : ''}</button>`).join('')}</div>
+      <div class="tabs sub2" id="repSub">${[['summary', '수불 현황'], ['inbound', '입고번호별'], ['time', '검수 시간'], ['issues', '데이터 점검']].map(([v, t]) => `<button type="button" data-s="${v}" aria-pressed="${P.sub === v}">${t}${v === 'issues' && (k.errorRecords + k.warnRecords) ? ` <span class="cnt2">${k.errorRecords + k.warnRecords}</span>` : ''}</button>`).join('')}</div>
       <div id="repSubBody"></div>`;
     document.querySelectorAll('#repSub [data-s]').forEach((b) => { b.onclick = () => { P.sub = b.dataset.s; renderBody(); }; });
-    ({ summary: renderSupply, inbound: renderInbounds, issues: renderIssues })[P.sub]();
+    ({ summary: renderSupply, inbound: renderInbounds, time: renderTime, issues: renderIssues })[P.sub]();
+  }
+
+  // 검수 시간: 차량(입고번호를 40분 넘게 빈 곳에서 나눈 단위)마다 걸린 시간과 Pallet당 초를 목표와 비교
+  const TT = 'r15.timeTarget';
+  const target = () => { try { return Number(localStorage.getItem(TT)) || 17; } catch (_) { return 17; } };
+  function vehicleTimes(d) {
+    const out = [];
+    d.inbounds.forEach((x) => R.util.trips(d.records.filter((r) => r.inboundNo === x.inboundNo)).filter((c) => c.n > 1).forEach((c, i, a) => {
+      out.push({ ...c, no: x.inboundNo, product: x.product, inspectors: x.inspectors, ord: a.length > 1 ? i + 1 : 0 }); }));
+    return out.sort((a, b) => a.start - b.start);
+  }
+  function timeChart(v, tg) {
+    const W = Math.max(640, v.length * 34 + 60), H = 230, L = 40, B = 190, maxM = Math.max(...v.map((c) => Math.max(c.min, c.n * tg / 60))) * 1.15 || 1;
+    const y = (m) => B - m / maxM * (B - 20), bw = Math.min(24, (W - L - 10) / v.length - 8);
+    const step = maxM > 30 ? 10 : maxM > 12 ? 5 : maxM > 6 ? 2 : 1, ticks = []; for (let m = 0; m <= maxM; m += step) ticks.push(m);
+    return `<svg class="tchart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="차량별 검수 시간">
+      ${ticks.map((m) => `<line x1="${L}" x2="${W - 6}" y1="${y(m)}" y2="${y(m)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(m) + 4}" text-anchor="end" font-size="11" fill="var(--ink3)">${m}분</text>`).join('')}
+      ${v.map((c, i) => { const x = L + 8 + i * ((W - L - 10) / v.length), ok = c.per <= tg, t = c.n * tg / 60, dt = new Date(c.start);
+        return `<g><title>${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''} ${esc(c.product)} · ${c.n} Pallet · ${c.min}분 (P당 ${c.per}초) · 목표 ${Math.round(t * 10) / 10}분</title>
+        <rect x="${x}" y="${y(c.min)}" width="${bw}" height="${B - y(c.min)}" rx="3" fill="var(--${ok ? 'good' : 'warn'})"/>
+        <line x1="${x - 3}" x2="${x + bw + 3}" y1="${y(t)}" y2="${y(t)}" stroke="var(--ink)" stroke-width="2" stroke-dasharray="3 2"/>
+        <text x="${x + bw / 2}" y="${y(c.min) - 4}" text-anchor="middle" font-size="11" fill="var(--ink2)">${c.min}</text>
+        <text x="${x + bw / 2}" y="${B + 16}" text-anchor="middle" font-size="10" fill="var(--ink3)">${dt.getMonth() + 1}/${dt.getDate()}</text>
+        <text x="${x + bw / 2}" y="${B + 30}" text-anchor="middle" font-size="10" fill="var(--ink3)">${c.n}P</text></g>`; }).join('')}
+    </svg>`;
+  }
+  function dayChart(v, tg) {
+    const days = {}; v.forEach((c) => { const t = new Date(c.start), k = `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`; const d = days[k] = days[k] || { s: 0, n: 0 }; d.s += c.end - c.start + c.per * 1000; d.n += c.n; });
+    const ks = Object.keys(days).sort(); if (ks.length < 2) return '';
+    const pts = ks.map((k) => ({ k, v: Math.round(days[k].s / days[k].n / 1000) })), W = Math.max(640, ks.length * 50), H = 170, L = 40, B = 140;
+    const mx = Math.max(tg, ...pts.map((p) => p.v)) * 1.2, y = (s) => B - s / mx * (B - 16), x = (i) => L + 16 + i * ((W - L - 32) / Math.max(1, ks.length - 1));
+    return `<section><div class="shead"><h2>날짜별 Pallet당 평균 시간</h2><span class="sub">낮을수록 빠름 · 점선 = 목표 ${tg}초</span></div><div class="scroll">
+      <svg class="tchart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="날짜별 Pallet당 평균 검수 시간">
+      <line x1="${L}" x2="${W - 6}" y1="${y(tg)}" y2="${y(tg)}" stroke="var(--ink)" stroke-dasharray="4 3"/><text x="${L - 6}" y="${y(tg) + 4}" text-anchor="end" font-size="11" fill="var(--ink2)">${tg}초</text>
+      <polyline fill="none" stroke="var(--ink2)" stroke-width="2" points="${pts.map((p, i) => `${x(i)},${y(p.v)}`).join(' ')}"/>
+      ${pts.map((p, i) => `<circle cx="${x(i)}" cy="${y(p.v)}" r="5" fill="var(--${p.v <= tg ? 'good' : 'warn'})"><title>${p.k} · Pallet당 ${p.v}초</title></circle><text x="${x(i)}" y="${y(p.v) - 9}" text-anchor="middle" font-size="11" fill="var(--ink2)">${p.v}</text><text x="${x(i)}" y="${B + 18}" text-anchor="middle" font-size="10" fill="var(--ink3)">${p.k.slice(5).replace('-', '/')}</text>`).join('')}
+      </svg></div></section>`;
+  }
+  function renderTime() {
+    const d = P.data, box = $('repSubBody'), tg = target();
+    if (d.trimmed) { box.innerHTML = '<div class="muted pad">기간이 한 달을 넘으면 일부 기록만 받아와서 시간을 계산하지 않습니다. 기간을 한 달 이하로 줄여 주세요.</div>'; return; }
+    const v = vehicleTimes(d);
+    if (!v.length) { box.innerHTML = '<div class="muted pad">이 기간에 시간을 잴 수 있는 차량(2 Pallet 이상)이 없습니다.</div>'; return; }
+    const tot = v.reduce((t, c) => t + c.min, 0), pal = v.reduce((t, c) => t + c.n, 0), perAvg = Math.round(v.reduce((t, c) => t + c.per * c.n, 0) / pal), hit = v.filter((c) => c.per <= tg).length;
+    box.innerHTML = `<div class="kpis small">
+        <div class="kpi"><div class="l">시간 잰 차량</div><div class="v">${v.length}<small> 대</small></div><div class="d">${fmt(pal)} Pallet</div></div>
+        <div class="kpi"><div class="l">차량당 평균</div><div class="v">${Math.round(tot / v.length * 10) / 10}<small> 분</small></div><div class="d">평균 ${Math.round(pal / v.length)} Pallet</div></div>
+        <div class="kpi ${perAvg > tg ? 'warn' : ''}"><div class="l">Pallet당 평균</div><div class="v">${perAvg}<small> 초</small></div><div class="d">목표 ${tg}초</div></div>
+        <div class="kpi"><div class="l">목표 안에 끝난 차량</div><div class="v">${Math.round(hit / v.length * 100)}<small> %</small></div><div class="d">${hit} / ${v.length}대</div></div>
+      </div>
+      <section><div class="shead"><h2>차량별 검수 시간</h2><span class="sub" style="display:flex;align-items:center;gap:6px;white-space:nowrap">목표 Pallet당 <input id="ttIn" type="number" min="3" max="120" value="${tg}" aria-label="목표 Pallet당 초" style="width:4.5em;margin:0;padding:4px 6px"> 초</span></div>
+        <div class="muted small">막대 = 걸린 시간(분), 점선 = 그 차량 Pallet 수 × 목표. <span style="color:var(--good)">■</span> 목표 안 <span style="color:var(--warn)">■</span> 목표 넘음. 막대를 누르거나 올리면 입고번호가 보입니다.</div>
+        <div class="scroll">${timeChart(v, tg)}</div></section>
+      ${dayChart(v, tg)}
+      <section><div class="shead"><h2>차량 목록</h2></div><div class="scroll"><table class="mt"><thead><tr><th>날짜·시각</th><th>입고번호</th><th class="num">Pallet</th><th class="num">걸린 시간</th><th class="num">Pallet당</th><th>검수자</th></tr></thead><tbody>
+        ${v.slice().reverse().map((c) => `<tr><td data-l="날짜·시각">${esc(c.text)}</td><td data-l="입고번호"><button type="button" class="linkbtn" data-open="${esc(c.no)}">${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''}</button><div class="muted">${esc(c.product)}</div></td><td class="num" data-l="Pallet">${c.n}</td><td class="num" data-l="걸린 시간"><b>${c.min}분</b></td><td class="num" data-l="Pallet당">${R.pill(c.per <= tg ? 'ok' : 'warn', c.per + '초')}</td><td data-l="검수자">${esc(c.inspectors.join(', '))}</td></tr>`).join('')}
+      </tbody></table></div><div class="muted small">시간은 Pallet 저장 시각으로 잽니다. 첫 Pallet 준비 시간은 기록이 없어 Pallet당 평균 간격을 한 번 더했습니다. 목표는 이 기기에만 저장됩니다.</div></section>`;
+    $('ttIn').onchange = (e) => { const n = Math.round(Number(e.target.value)); if (n >= 3 && n <= 120) { try { localStorage.setItem(TT, String(n)); } catch (_) {} renderTime(); } };
+    box.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openDetail(b.dataset.open); });
   }
 
   function renderSupply() {
