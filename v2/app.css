@@ -250,3 +250,4 @@ button.kpi{font:inherit;text-align:left;cursor:pointer;color:inherit;width:100%}
 @media(max-width:480px){.dprog{white-space:normal;flex-wrap:wrap}}
 .ibtime{display:block;font-size:0.8125rem;color:var(--ink2);margin-top:2px}.ibtime b{color:var(--ink)}
 .tchart{display:block;max-width:none}
+.tchip{display:inline-block;margin:2px 4px 0 0;padding:1px 8px;border-radius:999px;background:var(--sunken);font-size:0.75rem;white-space:nowrap}.tchip i{font-style:normal;color:var(--warn)}

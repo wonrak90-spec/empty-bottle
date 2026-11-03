@@ -14,24 +14,30 @@
   const digits = (v) => String(v == null ? '' : v).replace(/\.0+$/, '').replace(/\D/g, '');
   const pad = (n, w) => String(n).padStart(w || 2, '0');
   const today = (off) => { const d = new Date(Date.now() + (off || 0) * 86400000); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
-  // 차량별 검수 시간: 한 입고번호의 저장 시각을 차례로 놓고 40분 넘게 비면 다른 차량(다른 날 포함)으로 나눈다.
-  // 한 차량 안에서 5분 넘게 빈 곳은 쉬었다가 나눠서 한 것으로 보고 작업 시간에서 뺀다.
-  // 첫 Pallet 저장 전 준비 시간은 기록이 없어 Pallet당 보통 간격(중앙값)을 구간마다 한 번 더한다.
+  // 차량별 검수 시간: 한 입고번호의 저장 시각을 차례로 놓고 10분 넘게 비면 따로 한 검수(1차·2차, 다른 날 포함)로 나눈다.
+  // 빼는 시간 없이 첫 저장~마지막 저장을 그대로 재고, 첫 Pallet 준비 시간만 보통 간격(중앙값)을 한 번 더한다.
   const trips = (recs) => {
     const ts = recs.map((r) => Number(r.at) || 0).filter(Boolean).sort((a, b) => a - b), out = [];
-    ts.forEach((t) => { const c = out[out.length - 1]; if (c && t - c.end <= 2400000) { c.gaps.push(t - c.end); c.end = t; c.n++; } else out.push({ start: t, end: t, n: 1, gaps: [] }); });
+    ts.forEach((t) => { const c = out[out.length - 1]; if (c && t - c.end <= 600000) { c.gaps.push(t - c.end); c.end = t; c.n++; } else out.push({ start: t, end: t, n: 1, gaps: [] }); });
     const hm = (t) => new Date(t).toTimeString().slice(0, 5);
-    return out.map((c) => {
-      const work = c.gaps.filter((g) => g <= 300000).sort((a, b) => a - b), rest = c.gaps.filter((g) => g > 300000);
-      const per = work.length ? work[work.length >> 1] : 0, parts = rest.length + 1, idle = rest.reduce((t, g) => t + g, 0);
-      const ms = c.end - c.start - idle + per * parts, min = Math.max(1, Math.round(ms / 60000));
-      return { start: c.start, end: c.end, n: c.n, parts, min: c.n > 1 ? min : null, per: c.n > 1 ? Math.round(ms / c.n / 1000) : null,
-        span: Math.round((c.end - c.start) / 60000), idle: Math.round(idle / 60000),
+    return out.map((c, i) => {
+      const g = c.gaps.slice().sort((a, b) => a - b), per = g.length ? g[g.length >> 1] : 0, ms = c.end - c.start + per;
+      return { start: c.start, end: c.end, n: c.n, wait: i ? Math.round((c.start - out[i - 1].end) / 60000) : 0,
+        min: c.n > 1 ? Math.max(1, Math.round(ms / 60000)) : null, per: c.n > 1 ? Math.round(ms / c.n / 1000) : null,
         text: `${new Date(c.start).getMonth() + 1}/${new Date(c.start).getDate()} ${hm(c.start)}~${hm(c.end)}` };
     });
   };
-  const tripText = (t) => (t.min ? `검수 ${t.min}분${t.parts > 1 ? ` (${t.parts}번 나눠 함, 쉰 ${t.idle}분 뺌)` : ''}` : '검수 1 Pallet');
-  R.util = { $, esc, num, fmt, digits, pad, today, trips, tripText };
+  const tripText = (t) => (t.min ? `검수 ${t.min}분` : '검수 1 Pallet');
+  // 목록용 짧은 표시: 합계 한 줄 + 차량마다 작은 칸 (자세한 내용은 칸 위에 올리면 나옴)
+  const tripChips = (t) => {
+    if (!t.length) return '';
+    const m = t.filter((c) => c.min), work = m.reduce((a, c) => a + c.min, 0), n = m.reduce((a, c) => a + c.n, 0);
+    const sum = m.length ? `<b>${t.length > 1 ? `${t.length}번 나눠 검수 · ` : ''}작업 ${work}분</b>${n ? ` · Pallet당 ${Math.round(m.reduce((a, c) => a + c.per * c.n, 0) / n)}초` : ''}` : '';
+    const chip = (c) => `<span class="tchip" title="${esc(c.text)} · ${c.n} Pallet${c.min ? ` · 작업 ${c.min}분 · Pallet당 ${c.per}초` : ''}">${esc(c.text)} · ${c.n}P <b>${c.min ? c.min + '분' : '-'}</b></span>`;
+    return `<span class="ibtime">⏱ ${sum}${t.length > 1 || !m.length ? ` ${t.map(chip).join('')}` : c1(t[0])}</span>`;
+    function c1(c) { return ` <span class="muted">${esc(c.text)}</span>`; }
+  };
+  R.util = { $, esc, num, fmt, digits, pad, today, trips, tripText, tripChips };
 
   R.on = (ev, fn) => { (R.listeners[ev] = R.listeners[ev] || []).push(fn); };
   R.emit = (ev, data) => { (R.listeners[ev] || []).forEach((fn) => { try { fn(data); } catch (e) { console.error(e); } }); };

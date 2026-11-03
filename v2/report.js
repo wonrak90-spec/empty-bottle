@@ -100,10 +100,10 @@
     return `<svg class="tchart" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="차량별 검수 시간">
       ${ticks.map((m) => `<line x1="${L}" x2="${W - 6}" y1="${y(m)}" y2="${y(m)}" stroke="var(--line)"/><text x="${L - 6}" y="${y(m) + 4}" text-anchor="end" font-size="11" fill="var(--ink3)">${m}분</text>`).join('')}
       ${v.map((c, i) => { const x = L + 8 + i * ((W - L - 10) / v.length), ok = c.per <= tg, t = c.n * tg / 60, dt = new Date(c.start);
-        return `<g><title>${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''} ${esc(c.product)} · ${c.n} Pallet · 작업 ${c.min}분 (P당 ${c.per}초)${c.parts > 1 ? ` · ${c.parts}번 나눠 함, 전체 ${c.span}분 중 쉰 ${c.idle}분 뺌` : ''} · 목표 ${Math.round(t * 10) / 10}분</title>
+        return `<g><title>${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''} ${esc(c.product)} · ${c.n} Pallet · ${c.min}분 (P당 ${c.per}초) · 목표 ${Math.round(t * 10) / 10}분</title>
         <rect x="${x}" y="${y(c.min)}" width="${bw}" height="${B - y(c.min)}" rx="3" fill="var(--${ok ? 'good' : 'warn'})"/>
         <line x1="${x - 3}" x2="${x + bw + 3}" y1="${y(t)}" y2="${y(t)}" stroke="var(--ink)" stroke-width="2" stroke-dasharray="3 2"/>
-        <text x="${x + bw / 2}" y="${y(c.min) - 4}" text-anchor="middle" font-size="11" fill="var(--ink2)">${c.min}${c.parts > 1 ? '*' : ''}</text>
+        <text x="${x + bw / 2}" y="${y(c.min) - 4}" text-anchor="middle" font-size="11" fill="var(--ink2)">${c.min}</text>
         <text x="${x + bw / 2}" y="${B + 16}" text-anchor="middle" font-size="10" fill="var(--ink3)">${dt.getMonth() + 1}/${dt.getDate()}</text>
         <text x="${x + bw / 2}" y="${B + 30}" text-anchor="middle" font-size="10" fill="var(--ink3)">${c.n}P</text></g>`; }).join('')}
     </svg>`;
@@ -133,12 +133,12 @@
         <div class="kpi"><div class="l">목표 안에 끝난 차량</div><div class="v">${Math.round(hit / v.length * 100)}<small> %</small></div><div class="d">${hit} / ${v.length}대</div></div>
       </div>
       <section><div class="shead"><h2>차량별 검수 시간</h2><span class="sub" style="display:flex;align-items:center;gap:6px;white-space:nowrap">목표 Pallet당 <input id="ttIn" type="number" min="3" max="120" value="${tg}" aria-label="목표 Pallet당 초" style="width:4.5em;margin:0;padding:4px 6px"> 초</span></div>
-        <div class="muted small">막대 = 실제 작업 시간(분, 5분 넘게 쉰 시간은 뺌, * = 나눠서 함), 점선 = 그 차량 Pallet 수 × 목표. <span style="color:var(--good)">■</span> 목표 안 <span style="color:var(--warn)">■</span> 목표 넘음. 막대를 누르거나 올리면 입고번호가 보입니다.</div>
+        <div class="muted small">막대 = 걸린 시간(분, 10분 넘게 쉬었다 다시 하면 따로 셈), 점선 = 그 차량 Pallet 수 × 목표. <span style="color:var(--good)">■</span> 목표 안 <span style="color:var(--warn)">■</span> 목표 넘음. 막대를 누르거나 올리면 입고번호가 보입니다.</div>
         <div class="scroll">${timeChart(v, tg)}</div></section>
       ${dayChart(v, tg)}
       <section><div class="shead"><h2>차량 목록</h2></div><div class="scroll"><table class="mt"><thead><tr><th>날짜·시각</th><th>입고번호</th><th class="num">Pallet</th><th class="num">작업 시간</th><th class="num">Pallet당</th><th>검수자</th></tr></thead><tbody>
-        ${v.slice().reverse().map((c) => `<tr><td data-l="날짜·시각">${esc(c.text)}</td><td data-l="입고번호"><button type="button" class="linkbtn" data-open="${esc(c.no)}">${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''}</button><div class="muted">${esc(c.product)}</div></td><td class="num" data-l="Pallet">${c.n}</td><td class="num" data-l="작업 시간"><b>${c.min}분</b>${c.parts > 1 ? `<div class="muted">${c.parts}번 나눠 함 · 전체 ${c.span}분 중 쉰 ${c.idle}분 뺌</div>` : ''}</td><td class="num" data-l="Pallet당">${R.pill(c.per <= tg ? 'ok' : 'warn', c.per + '초')}</td><td data-l="검수자">${esc(c.inspectors.join(', '))}</td></tr>`).join('')}
-      </tbody></table></div><div class="muted small">시간은 Pallet 저장 시각으로 잽니다. 5분 넘게 빈 곳은 쉬었다가 나눠서 한 것으로 보고 뺐고, 첫 Pallet 준비 시간은 보통 간격을 한 번 더했습니다. 목표는 이 기기에만 저장됩니다.</div></section>`;
+        ${v.slice().reverse().map((c) => `<tr><td data-l="날짜·시각">${esc(c.text)}</td><td data-l="입고번호"><button type="button" class="linkbtn" data-open="${esc(c.no)}">${esc(c.no)}${c.ord ? ` ${c.ord}차` : ''}</button><div class="muted">${esc(c.product)}</div></td><td class="num" data-l="Pallet">${c.n}</td><td class="num" data-l="작업 시간"><b>${c.min}분</b>${c.wait ? `<div class="muted">앞 검수 뒤 ${c.wait}분 쉬고 시작</div>` : ''}</td><td class="num" data-l="Pallet당">${R.pill(c.per <= tg ? 'ok' : 'warn', c.per + '초')}</td><td data-l="검수자">${esc(c.inspectors.join(', '))}</td></tr>`).join('')}
+      </tbody></table></div><div class="muted small">시간은 Pallet 저장 시각으로 잽니다. 10분 넘게 비면 따로 한 검수(1차·2차)로 나누고, 첫 Pallet 준비 시간은 보통 간격을 한 번 더했습니다. 목표는 이 기기에만 저장됩니다.</div></section>`;
     $('ttIn').onchange = (e) => { const n = Math.round(Number(e.target.value)); if (n >= 3 && n <= 120) { try { localStorage.setItem(TT, String(n)); } catch (_) {} renderTime(); } };
     box.querySelectorAll('[data-open]').forEach((b) => { b.onclick = () => openDetail(b.dataset.open); });
   }
@@ -158,9 +158,7 @@
 
   // 차량별 검수 시간 (기간이 길어 일부 기록만 받은 경우는 건너뜀)
   function tripsLine(no) {
-    if (P.data.trimmed) return '';
-    const t = R.util.trips(P.data.records.filter((r) => r.inboundNo === no)); if (!t.length) return '';
-    return `<span class="ibtime">⏱ ${t.map((c) => `${esc(c.text)} <b>${esc(R.util.tripText(c))}</b>${t.length > 1 ? ` (${c.n}P)` : ''}`).join(' · ')}</span>`;
+    return P.data.trimmed ? '' : R.util.tripChips(R.util.trips(P.data.records.filter((r) => r.inboundNo === no)));
   }
   function inboundListHtml(list, title) {
     return `<section><div class="shead"><h2>${esc(title)}</h2>
@@ -235,7 +233,7 @@
       <div class="kpis small">
         <div class="kpi"><div class="l">Pallet</div><div class="v">${s.palletCount}</div><div class="d">P${s.gaps.min}~P${s.gaps.max}</div></div>
         <div class="kpi"><div class="l">총 수량</div><div class="v">${fmt(s.qtyTotal)}</div></div>
-        ${R.util.trips(records).map((c, i, a) => `<div class="kpi"><div class="l">검수 시간${a.length > 1 ? ` ${i + 1}차` : ''}</div><div class="v">${c.min ? `${c.min}<small> 분</small>` : '-'}</div><div class="d">${esc(c.text)} · ${c.n}P${c.per ? ` · P당 ${c.per}초` : ''}${c.parts > 1 ? ` · ${c.parts}번 나눠 함, 쉰 ${c.idle}분 뺌` : ''}</div></div>`).join('')}
+        ${R.util.trips(records).map((c, i, a) => `<div class="kpi"><div class="l">검수 시간${a.length > 1 ? ` ${i + 1}차` : ''}</div><div class="v">${c.min ? `${c.min}<small> 분</small>` : '-'}</div><div class="d">${esc(c.text)} · ${c.n}P${c.per ? ` · P당 ${c.per}초` : ''}</div></div>`).join('')}
         <div class="kpi"><div class="l">이상 없음</div><div class="v">${s.okCount}</div></div>
         <div class="kpi ${s.errorCount ? 'crit' : ''}"><div class="l">오류 / 주의</div><div class="v">${s.errorCount} / ${s.warnCount}</div></div>
         <div class="kpi"><div class="l">생산 투입</div><div class="v">${s.usedCount}</div><div class="d">${esc(s.lots.join(', '))}</div></div>

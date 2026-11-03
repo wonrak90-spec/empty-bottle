@@ -83,8 +83,7 @@
   }
 
   function tripHtml(x) {
-    const t = D.data && !D.data.trimmed && D.data.records ? R.util.trips(D.data.records.filter((r) => r.inboundNo === x.inboundNo)) : [];
-    return t.length ? `<span class="ibtime">⏱ ${t.map((c) => `${esc(c.text.split(' ')[1])} <b>${esc(R.util.tripText(c))}</b>`).join(' · ')}</span>` : '';
+    return D.data && !D.data.trimmed && D.data.records ? R.util.tripChips(R.util.trips(D.data.records.filter((r) => r.inboundNo === x.inboundNo))) : '';
   }
   function vehicle(x) {
     const total = Math.max(x.gaps.max || 0, x.palletCount), pct = total ? Math.round(x.palletCount / total * 100) : 0;
