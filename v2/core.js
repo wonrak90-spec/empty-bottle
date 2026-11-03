@@ -15,15 +15,22 @@
   const pad = (n, w) => String(n).padStart(w || 2, '0');
   const today = (off) => { const d = new Date(Date.now() + (off || 0) * 86400000); return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); };
   // 차량별 검수 시간: 한 입고번호의 저장 시각을 차례로 놓고 40분 넘게 비면 다른 차량(다른 날 포함)으로 나눈다.
-  // 첫 Pallet 저장 전 준비 시간은 기록이 없어 Pallet당 평균 간격을 한 번 더한다.
+  // 한 차량 안에서 5분 넘게 빈 곳은 쉬었다가 나눠서 한 것으로 보고 작업 시간에서 뺀다.
+  // 첫 Pallet 저장 전 준비 시간은 기록이 없어 Pallet당 보통 간격(중앙값)을 구간마다 한 번 더한다.
   const trips = (recs) => {
     const ts = recs.map((r) => Number(r.at) || 0).filter(Boolean).sort((a, b) => a - b), out = [];
-    ts.forEach((t) => { const c = out[out.length - 1]; if (c && t - c.end <= 2400000) { c.end = t; c.n++; } else out.push({ start: t, end: t, n: 1 }); });
+    ts.forEach((t) => { const c = out[out.length - 1]; if (c && t - c.end <= 2400000) { c.gaps.push(t - c.end); c.end = t; c.n++; } else out.push({ start: t, end: t, n: 1, gaps: [] }); });
     const hm = (t) => new Date(t).toTimeString().slice(0, 5);
-    return out.map((c) => { const per = c.n > 1 ? (c.end - c.start) / (c.n - 1) : 0, min = Math.max(1, Math.round((c.end - c.start + per) / 60000));
-      return { ...c, min: c.n > 1 ? min : null, per: per ? Math.round(per / 1000) : null, text: `${new Date(c.start).getMonth() + 1}/${new Date(c.start).getDate()} ${hm(c.start)}~${hm(c.end)}` }; });
+    return out.map((c) => {
+      const work = c.gaps.filter((g) => g <= 300000).sort((a, b) => a - b), rest = c.gaps.filter((g) => g > 300000);
+      const per = work.length ? work[work.length >> 1] : 0, parts = rest.length + 1, idle = rest.reduce((t, g) => t + g, 0);
+      const ms = c.end - c.start - idle + per * parts, min = Math.max(1, Math.round(ms / 60000));
+      return { start: c.start, end: c.end, n: c.n, parts, min: c.n > 1 ? min : null, per: c.n > 1 ? Math.round(ms / c.n / 1000) : null,
+        span: Math.round((c.end - c.start) / 60000), idle: Math.round(idle / 60000),
+        text: `${new Date(c.start).getMonth() + 1}/${new Date(c.start).getDate()} ${hm(c.start)}~${hm(c.end)}` };
+    });
   };
-  const tripText = (t) => (t.min ? `검수 ${t.min}분` : '검수 1 Pallet');
+  const tripText = (t) => (t.min ? `검수 ${t.min}분${t.parts > 1 ? ` (${t.parts}번 나눠 함, 쉰 ${t.idle}분 뺌)` : ''}` : '검수 1 Pallet');
   R.util = { $, esc, num, fmt, digits, pad, today, trips, tripText };
 
   R.on = (ev, fn) => { (R.listeners[ev] = R.listeners[ev] || []).push(fn); };
