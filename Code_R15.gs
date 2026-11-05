@@ -299,7 +299,7 @@ function doPost(e) {
     if (action === 'listUsers') return jsonOut_(listUsersV24_(auth));
     if (action === 'createUser') return jsonOut_(createUserV24_(body.payload || {}, auth));
     if (action === 'updateUser') return jsonOut_(updateUserV24_(body.payload || {}, auth));
-    if (action === 'resetUserPin') return jsonOut_(resetUserPinV24_(body.payload || {}, auth));
+    if (action === 'resetUserPin') return jsonOut_(r15ResetPinMail_(body.payload || {}, auth));
     if (action === 'r15UserMails') return jsonOut_(r15UserMails_());
     if (action === 'r15UserMailSave') return jsonOut_(r15UserMailSave_(body.payload || {}, auth));
     if (action === 'r15MailDomainSave') return jsonOut_(r15MailDomainSave_(body.payload || {}, auth));
@@ -2776,6 +2776,18 @@ function r15UserMailSave_(p, auth) {
   finally { lock.releaseLock(); }
   appendAudit_('사용자메일', 'USER:' + uid, { actor: actorLabelV24_(auth), after: { email: mail } });
   return r15UserMails_();
+}
+// 관리자 PIN 초기화: 회사 메일이 등록돼 있으면 임시 PIN을 본인 메일로만 보내고 화면에는 보여 주지 않는다
+function r15ResetPinMail_(p, auth) {
+  const uid = String(p.userId || ''), mail = r15MailMap_()[uid], dom = r15MailDomain_();
+  const r = resetUserPinV24_(p, auth); if (!r.ok || !mail || (dom && mail.slice(-(dom.length + 1)) !== '@' + dom)) return r;
+  const u = userRowByIdV24_(getSs_(), uid), name = u ? String(u.values[userIdxV24_()['이름']]) : '';
+  try {
+    MailApp.sendEmail({ to: mail, subject: '[공병 입고 검수] 임시 PIN 안내',
+      body: name + '님,\n\n관리자가 PIN을 초기화했습니다.\n임시 PIN: ' + r.tempPin + '\n\n로그인한 뒤 [PIN 변경]에서 본인 PIN으로 바꿔 주세요.\n직접 요청하지 않았다면 관리자에게 알려 주세요.' });
+  } catch (e) { r.mailError = String(e.message || e); return r; } // 메일이 실패하면 예전처럼 화면에 보여 준다
+  appendAudit_('임시PIN메일', 'USER:' + uid, { actor: actorLabelV24_(auth), meta: { to: mail.replace(/^(.).*(@.*)$/, '$1***$2') } });
+  return { ok:true, mailed: mail.replace(/^(.).*(@.*)$/, '$1***$2') };
 }
 function r15PinResetRequest_(p) {
   const emp = normalizeEmployeeV24_(p.employeeNo), ok = { ok:true, message:'등록된 회사 메일이 있으면 6자리 코드를 보냈습니다. 10분 안에 입력하세요. 메일이 없으면 관리자에게 PIN 초기화를 요청하세요.' };
