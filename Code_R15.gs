@@ -280,10 +280,13 @@ function doPost(e) {
 
     // 로그인만 인증 전 허용
     if (action === 'authLogin') return jsonOut_(authLoginV24_(body.payload || {}));
+    // PIN을 잊었을 때: 회사 메일로 받은 코드로 새 PIN 설정 (로그인 전)
+    if (action === 'r15PinResetRequest') return jsonOut_(r15PinResetRequest_(body.payload || {}));
+    if (action === 'r15PinResetConfirm') return jsonOut_(r15PinResetConfirm_(body.payload || {}));
 
     const session = body.session || body.token || '';
     // 권한 4단계: viewer(조회) < worker(작업자) < manager(중간관리자) < admin(관리자)
-    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15TabsSave','r15ArchiveRun','r15BackupRun','r15BackupSetup'];
+    const adminActions = ['deleteRecord','dbStatus','listUsers','createUser','updateUser','resetUserPin','r15UserMails','r15UserMailSave','r15MailDomainSave','r15TabsSave','r15ArchiveRun','r15BackupRun','r15BackupSetup'];
     const managerActions = ['updateRecord','softDeleteRecords','restoreRecords','importMaster','addItemAlias','r15ItemSave','r15VendorSave','r15PlanSave','r15LinesSave'];
     const viewerActions = ['r15SpeedUpload','r15AuditNote','authLogout','changeMyPin','photoDataBatch','photoDataBatchV23','photoDataBatchV24','batchGetRecords'];
     const needRole = adminActions.indexOf(action) >= 0 ? 'admin' : managerActions.indexOf(action) >= 0 ? 'manager' : viewerActions.indexOf(action) >= 0 ? 'viewer' : 'worker';
@@ -297,6 +300,9 @@ function doPost(e) {
     if (action === 'createUser') return jsonOut_(createUserV24_(body.payload || {}, auth));
     if (action === 'updateUser') return jsonOut_(updateUserV24_(body.payload || {}, auth));
     if (action === 'resetUserPin') return jsonOut_(resetUserPinV24_(body.payload || {}, auth));
+    if (action === 'r15UserMails') return jsonOut_(r15UserMails_());
+    if (action === 'r15UserMailSave') return jsonOut_(r15UserMailSave_(body.payload || {}, auth));
+    if (action === 'r15MailDomainSave') return jsonOut_(r15MailDomainSave_(body.payload || {}, auth));
 
     // 기록자 이름은 항상 로그인 사용자로 덮어쓴다 (브라우저 값 위조 방지)
     if (action === 'saveSingle') {
@@ -2743,6 +2749,69 @@ function r15BackupRun_(auth) {
 function r15AutoBackupOn() {
   if (!r15BackupTrigger_().length) ScriptApp.newTrigger('r15WeeklyBackup').timeBased().everyWeeks(1).onWeekDay(ScriptApp.WeekDay.SUNDAY).atHour(2).create();
   Logger.log('매주 자동 백업 켜짐: ' + r15BackupTrigger_().length + '개');
+}
+
+/* ---------- PIN 재설정 (회사 메일) ----------
+ * 사용자별 회사 메일은 ScriptProperty R15_USER_MAIL {userId: 메일}에 둔다(Users 시트 칸은 그대로).
+ * 회사 메일 도메인(R15_MAIL_DOMAIN, 예: company.co.kr)을 정하면 그 도메인 주소만 등록된다.
+ * 코드: 6자리, 10분 유효, 5번 틀리면 무효. 같은 사번은 1분에 1번·1시간에 3번까지 요청.
+ * 사번이 없거나 메일이 없어도 같은 안내를 돌려줘 사번이 있는지 알 수 없게 한다. */
+function r15MailMap_() { try { return JSON.parse(PropertiesService.getScriptProperties().getProperty('R15_USER_MAIL') || '{}'); } catch (e) { return {}; } }
+function r15MailDomain_() { return String(PropertiesService.getScriptProperties().getProperty('R15_MAIL_DOMAIN') || '').trim().toLowerCase(); }
+function r15UserMails_() { return { ok:true, mails: r15MailMap_(), domain: r15MailDomain_() }; }
+function r15MailDomainSave_(p, auth) {
+  const d = String(p.domain || '').trim().toLowerCase().replace(/^@/, '');
+  if (d && !/^[a-z0-9.-]+\.[a-z]{2,}$/.test(d)) return { ok:false, message:'도메인 형식이 아닙니다. 예: company.co.kr' };
+  PropertiesService.getScriptProperties().setProperty('R15_MAIL_DOMAIN', d);
+  appendAudit_('메일도메인설정', '', { actor: actorLabelV24_(auth), after: { domain: d } });
+  return r15UserMails_();
+}
+function r15UserMailSave_(p, auth) {
+  const uid = String(p.userId || ''), mail = String(p.email || '').trim().toLowerCase(), dom = r15MailDomain_();
+  if (!userRowByIdV24_(getSs_(), uid)) return { ok:false, message:'사용자를 찾을 수 없습니다.' };
+  if (mail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(mail)) return { ok:false, message:'메일 주소 형식이 아닙니다.' };
+  if (mail && dom && mail.slice(-(dom.length + 1)) !== '@' + dom) return { ok:false, message:'회사 메일(@' + dom + ')만 등록할 수 있습니다.' };
+  const lock = LockService.getScriptLock(); lock.waitLock(10000);
+  try { const m = r15MailMap_(); if (mail) m[uid] = mail; else delete m[uid]; PropertiesService.getScriptProperties().setProperty('R15_USER_MAIL', JSON.stringify(m)); }
+  finally { lock.releaseLock(); }
+  appendAudit_('사용자메일', 'USER:' + uid, { actor: actorLabelV24_(auth), after: { email: mail } });
+  return r15UserMails_();
+}
+function r15PinResetRequest_(p) {
+  const emp = normalizeEmployeeV24_(p.employeeNo), ok = { ok:true, message:'등록된 회사 메일이 있으면 6자리 코드를 보냈습니다. 10분 안에 입력하세요. 메일이 없으면 관리자에게 PIN 초기화를 요청하세요.' };
+  if (!emp) return { ok:false, message:'사번을 입력하세요.' };
+  const c = CacheService.getScriptCache(), rk = 'R15PRQ_' + emp, hist = JSON.parse(c.get(rk) || '[]').filter(function(t) { return Date.now() - t < 3600e3; });
+  if (hist.length && Date.now() - hist[hist.length - 1] < 60e3) return { ok:false, message:'1분 뒤에 다시 요청하세요.' };
+  if (hist.length >= 3) return { ok:false, message:'요청이 너무 많습니다. 1시간 뒤에 다시 하거나 관리자에게 요청하세요.' };
+  hist.push(Date.now()); c.put(rk, JSON.stringify(hist), 3600);
+  const u = userRowByEmployeeV24_(getSs_(), emp); if (!u) return ok;
+  const i = userIdxV24_(), uid = String(u.values[i['User ID']]), mail = r15MailMap_()[uid], dom = r15MailDomain_();
+  if (String(u.values[i['상태']]) !== 'ACTIVE' || !mail || (dom && mail.slice(-(dom.length + 1)) !== '@' + dom)) return ok;
+  const digits = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Date.now());
+  const code = String(digits.slice(0, 4).reduce(function(n, b) { return (n * 256 + (b & 255)) % 1000000; }, 0) + 1000000).slice(1), salt = randomHexV24_().slice(0, 16);
+  c.put('R15PRC_' + emp, JSON.stringify({ h: sha256V24_(salt + code), salt: salt, tries: 0, uid: uid }), 600);
+  MailApp.sendEmail({ to: mail, subject: '[공병 입고 검수] PIN 재설정 코드',
+    body: String(u.values[i['이름']]) + '님,\n\nPIN 재설정 코드: ' + code + '\n\n10분 안에 로그인 화면의 "PIN을 잊었어요"에 입력하세요.\n직접 요청하지 않았다면 이 메일은 무시하고 관리자에게 알려 주세요.' });
+  appendAudit_('PIN재설정요청', 'USER:' + uid, { actor: '사번 ' + emp, meta: { to: mail.replace(/^(.).*(@.*)$/, '$1***$2') } });
+  return ok;
+}
+function r15PinResetConfirm_(p) {
+  const emp = normalizeEmployeeV24_(p.employeeNo), code = String(p.code || '').trim(), pin = String(p.newPin || '');
+  if (!validPinV24_(pin)) return { ok:false, message:'새 PIN은 숫자 6자리여야 합니다.' };
+  const c = CacheService.getScriptCache(), k = 'R15PRC_' + emp, raw = c.get(k);
+  if (!raw) return { ok:false, message:'코드가 없거나 시간이 지났습니다. 코드를 다시 받으세요.' };
+  const st = JSON.parse(raw);
+  if (!timingEqualV24_(sha256V24_(st.salt + code), st.h)) {
+    st.tries++; if (st.tries >= 5) c.remove(k); else c.put(k, JSON.stringify(st), 600);
+    appendAudit_('PIN재설정실패', 'USER:' + st.uid, { actor: '사번 ' + emp, meta: { tries: st.tries } });
+    return { ok:false, message: st.tries >= 5 ? '5번 틀려서 코드가 무효가 됐습니다. 다시 받으세요.' : '코드가 맞지 않습니다. (' + st.tries + '/5)' };
+  }
+  const ss = getSs_(), u = userRowByIdV24_(ss, st.uid); if (!u) return { ok:false, message:'사용자를 찾을 수 없습니다.' };
+  const i = userIdxV24_(), r = u.values, salt = randomHexV24_().slice(0, 24);
+  r[i['PIN Salt']] = salt; r[i['PIN Hash']] = pinHashV24_(pin, salt); r[i['실패횟수']] = 0; r[i['잠금해제시각']] = ''; r[i['수정일시']] = new Date();
+  u.sheet.getRange(u.row, 1, 1, USER_HEADERS.length).setValues([r]); revokeUserSessionsV24_(ss, st.uid); c.remove(k);
+  appendAudit_('PIN재설정(메일)', 'USER:' + st.uid, { actor: '사번 ' + emp });
+  return { ok:true, message:'새 PIN으로 바꿨습니다. 로그인하세요.' };
 }
 
 function r15BackupSetup_(p, auth) {

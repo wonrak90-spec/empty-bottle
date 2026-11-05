@@ -140,6 +140,28 @@
     finally { R.busy(btn, false); }
   }
 
+  // PIN을 잊었을 때: 사번 칸의 사번으로 회사 메일에 코드 → 코드 + 새 PIN
+  const post0 = (action, payload) => request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, payload }) }, C.TIMEOUT.post);
+  function bindForgot() {
+    const f = $('forgotBtn'); if (!f) return;
+    f.onclick = () => { $('forgotBox').hidden = !$('forgotBox').hidden; $('loginMsg').textContent = '사번을 입력하고 [코드 받기]를 누르세요.'; };
+    $('frSend').onclick = async () => {
+      const emp = $('loginEmp').value.trim(); if (!emp) { $('loginMsg').textContent = '사번을 먼저 입력하세요.'; return; }
+      R.busy($('frSend'), true, '보내는 중…');
+      try { const r = await post0('r15PinResetRequest', { employeeNo: emp }); $('loginMsg').textContent = r.message || (r.ok ? '보냈습니다' : '실패'); if (r.ok) $('frCode').focus(); }
+      catch (e) { $('loginMsg').textContent = '요청 실패: ' + e.message; } finally { R.busy($('frSend'), false); }
+    };
+    $('frOk').onclick = async () => {
+      const emp = $('loginEmp').value.trim(), code = $('frCode').value.trim(), pin = $('frPin').value.trim();
+      if (!emp || !/^\d{6}$/.test(code) || !/^\d{6}$/.test(pin)) { $('loginMsg').textContent = '사번, 코드 6자리, 새 PIN 6자리를 입력하세요.'; return; }
+      R.busy($('frOk'), true, '바꾸는 중…');
+      try { const r = await post0('r15PinResetConfirm', { employeeNo: emp, code, newPin: pin }); $('loginMsg').textContent = r.message || '';
+        if (r.ok) { $('frCode').value = ''; $('frPin').value = ''; $('forgotBox').hidden = true; $('loginPin').value = ''; $('loginPin').focus(); } }
+      catch (e) { $('loginMsg').textContent = '실패: ' + e.message; } finally { R.busy($('frOk'), false); }
+    };
+  }
+  R.bindForgot = bindForgot;
+
   async function logout() {
     const s = R.session; R.session = null; R.user = null; clearSession();
     try { if (s) await request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action: 'authLogout', payload: {}, session: s.session }) }, 8000); } catch (_) {}
@@ -174,7 +196,7 @@
   R.isManager = () => R.rank() >= 2;
 
   R.boot = async function () {
-    $('loginBtn').onclick = doLogin;
+    $('loginBtn').onclick = doLogin; bindForgot();
     $('loginPin').addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
     if ($('guestBtn')) $('guestBtn').onclick = enterGuest;
     const s = loadSession(), wasGuest = (() => { try { return localStorage.getItem(GUEST) === '1'; } catch (_) { return false; } })();

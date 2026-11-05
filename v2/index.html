@@ -56,6 +56,14 @@
     <label>PIN 6자리<input id="loginPin" type="password" inputmode="numeric" maxlength="6" autocomplete="current-password"></label>
     <button type="button" class="btn" id="loginBtn">로그인</button>
     <div class="msg" id="loginMsg"></div>
+    <button type="button" class="btn ghost sm" id="forgotBtn">PIN을 잊었어요</button>
+    <div id="forgotBox" hidden>
+      <div class="sub">회사 메일로 6자리 코드를 보내 드립니다.</div>
+      <button type="button" class="btn ghost" id="frSend">코드 받기</button>
+      <label>메일로 받은 코드<input id="frCode" inputmode="numeric" maxlength="6" autocomplete="one-time-code"></label>
+      <label>새 PIN 6자리<input id="frPin" type="password" inputmode="numeric" maxlength="6" autocomplete="new-password"></label>
+      <button type="button" class="btn" id="frOk">새 PIN으로 바꾸기</button>
+    </div>
     <button type="button" class="btn ghost" id="guestBtn" hidden>로그인 없이 보기 (Guest)</button>
   </div>
 </div>

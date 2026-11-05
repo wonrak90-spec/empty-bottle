@@ -161,11 +161,14 @@
 
   /* ---------- 사용자 ---------- */
   async function users() {
-    const r = await R.tryPost('listUsers', {}); A.users = r && r.items || [];
+    const [r, mr] = await Promise.all([R.tryPost('listUsers', {}), R.tryPost('r15UserMails', {})]); A.users = r && r.items || [];
+    const mails = (mr && mr.mails) || {}, dom = (mr && mr.domain) || '';
     $('admBody').innerHTML = `<section><div class="shead"><h2>사용자</h2></div>
-      <div class="list">${A.users.map((u, i) => `<div class="row"><span><b>${esc(u.name)}</b> <span class="muted">${esc(u.employeeNo)} · ${esc(u.department || '')} · 최근 ${esc(u.lastLogin || '-')}</span></span>
+      <div class="list">${A.users.map((u, i) => `<div class="row"><span><b>${esc(u.name)}</b> <span class="muted">${esc(u.employeeNo)} · ${esc(u.department || '')} · 최근 ${esc(u.lastLogin || '-')}</span><br><span class="muted">메일</span> <input class="umail" data-umail="${i}" type="email" value="${esc(mails[u.userId] || '')}" placeholder="${esc(dom ? 'name@' + dom : '회사 메일')}" aria-label="${esc(u.name)} 회사 메일" style="width:15em;margin:2px 0;padding:4px 8px"></span>
         <span class="ract"><select data-urole="${i}" aria-label="${esc(u.name)} 권한">${roleOpts(R.roleOf(u.role))}</select>${R.pill(u.status === 'ACTIVE' ? 'ok' : 'idle', u.status === 'ACTIVE' ? '사용' : '중지')} <button type="button" class="btn ghost sm" data-pin="${i}">PIN 초기화</button> <button type="button" class="btn ghost sm" data-st="${i}">${u.status === 'ACTIVE' ? '중지' : '다시 사용'}</button></span></div>`).join('')}</div>
       <details><summary>권한별로 할 수 있는 일</summary><div class="scroll"><table class="mt permt"><tbody>${Object.keys(R.ROLES).map((k) => `<tr><td>${esc(R.roleName(k))}</td><td>${R.CAN[k].map(esc).join('<br>')}</td></tr>`).join('')}</tbody></table></div></details>
+      <h3>PIN 재설정 메일</h3><div class="muted small">PIN을 잊으면 로그인 화면의 "PIN을 잊었어요"에서 위에 적은 회사 메일로 6자리 코드를 받습니다. 메일 칸은 입력하고 칸을 벗어나면 저장됩니다.</div>
+      <div class="grid g2"><label>회사 메일 도메인 (이 주소만 등록)<input id="mailDom" value="${esc(dom)}" placeholder="company.co.kr"></label><div><button type="button" class="btn ghost" id="mailDomSave">도메인 저장</button></div></div>
       <h3>사용자 추가</h3><div class="grid g2"><label>사번<input id="nuEmp"></label><label>이름<input id="nuName"></label><label>부서<input id="nuDept"></label>
       <label>권한<select id="nuRole">${roleOpts('worker')}</select></label></div>
       <div><button type="button" class="btn" id="nuAdd">추가</button></div></section>`;
@@ -174,6 +177,9 @@
       const r = await R.tryPost('updateUser', { userId: u.userId, role: to }); if (r && r.ok) { R.toast('권한을 바꿨습니다', 'ok'); users(); } else sel.value = R.roleOf(u.role); }; });
     document.querySelectorAll('[data-pin]').forEach((b) => { b.onclick = async () => { const u = A.users[Number(b.dataset.pin)]; if (!confirm(`${u.name}의 PIN을 초기화할까요?`)) return; const r = await R.tryPost('resetUserPin', { userId: u.userId }); if (r && r.ok) alert(`${u.name} 임시 PIN: ${r.tempPin}\n본인에게 전달하세요.`); }; });
     document.querySelectorAll('[data-st]').forEach((b) => { b.onclick = async () => { const u = A.users[Number(b.dataset.st)]; const r = await R.tryPost('updateUser', { userId: u.userId, status: u.status === 'ACTIVE' ? 'INACTIVE' : 'ACTIVE' }); if (r && r.ok) users(); }; });
+    document.querySelectorAll('[data-umail]').forEach((inp) => { inp.onchange = async () => { const u = A.users[Number(inp.dataset.umail)];
+      const r = await R.tryPost('r15UserMailSave', { userId: u.userId, email: inp.value.trim() }); if (r && r.ok) R.toast(`${u.name} 메일 저장`, 'ok'); else inp.value = mails[u.userId] || ''; }; });
+    $('mailDomSave').onclick = async () => { const r = await R.tryPost('r15MailDomainSave', { domain: $('mailDom').value.trim() }); if (r && r.ok) { R.toast('도메인을 저장했습니다', 'ok'); users(); } };
     $('nuAdd').onclick = async () => { const r = await R.tryPost('createUser', { employeeNo: $('nuEmp').value, name: $('nuName').value, department: $('nuDept').value, role: $('nuRole').value }); if (r && r.ok) { alert(`추가했습니다. 임시 PIN: ${r.tempPin}`); users(); } };
   }
 
