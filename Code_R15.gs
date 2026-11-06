@@ -2783,7 +2783,7 @@ function r15ResetPinMail_(p, auth) {
   const r = resetUserPinV24_(p, auth); if (!r.ok || !mail || (dom && mail.slice(-(dom.length + 1)) !== '@' + dom)) return r;
   const u = userRowByIdV24_(getSs_(), uid), name = u ? String(u.values[userIdxV24_()['이름']]) : '';
   try {
-    MailApp.sendEmail({ to: mail, subject: '[공병 입고 검수] 임시 PIN 안내',
+    MailApp.sendEmail({ to: mail, name: '공병 입고 검수', subject: '[공병 입고 검수] 임시 PIN 안내',
       body: name + '님,\n\n관리자가 PIN을 초기화했습니다.\n임시 PIN: ' + r.tempPin + '\n\n로그인한 뒤 [PIN 변경]에서 본인 PIN으로 바꿔 주세요.\n직접 요청하지 않았다면 관리자에게 알려 주세요.' });
   } catch (e) { r.mailError = String(e.message || e); return r; } // 메일이 실패하면 예전처럼 화면에 보여 준다
   appendAudit_('임시PIN메일', 'USER:' + uid, { actor: actorLabelV24_(auth), meta: { to: mail.replace(/^(.).*(@.*)$/, '$1***$2') } });
@@ -2802,7 +2802,7 @@ function r15PinResetRequest_(p) {
   const digits = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, Utilities.getUuid() + Date.now());
   const code = String(digits.slice(0, 4).reduce(function(n, b) { return (n * 256 + (b & 255)) % 1000000; }, 0) + 1000000).slice(1), salt = randomHexV24_().slice(0, 16);
   c.put('R15PRC_' + emp, JSON.stringify({ h: sha256V24_(salt + code), salt: salt, tries: 0, uid: uid }), 600);
-  MailApp.sendEmail({ to: mail, subject: '[공병 입고 검수] PIN 재설정 코드',
+  MailApp.sendEmail({ to: mail, name: '공병 입고 검수', subject: '[공병 입고 검수] PIN 재설정 코드 ' + code,
     body: String(u.values[i['이름']]) + '님,\n\nPIN 재설정 코드: ' + code + '\n\n10분 안에 로그인 화면의 "PIN을 잊었어요"에 입력하세요.\n직접 요청하지 않았다면 이 메일은 무시하고 관리자에게 알려 주세요.' });
   appendAudit_('PIN재설정요청', 'USER:' + uid, { actor: '사번 ' + emp, meta: { to: mail.replace(/^(.).*(@.*)$/, '$1***$2') } });
   return ok;
