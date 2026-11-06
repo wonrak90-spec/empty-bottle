@@ -173,9 +173,12 @@
   function boardSave() { try { localStorage.setItem(BK, JSON.stringify(B.slots)); } catch (_) {} }
   async function boardRefresh() {
     const ids = LINES.map((k) => B.slots[k] && B.slots[k].id).filter(Boolean);
-    const [lots, s, ...ds] = await Promise.all([R.tryGet('r15Lots'), R.tryGet('r15Stock'), ...ids.map((id) => R.tryGet('r15Lot', { id }))]);
+    // 라인 작업은 오류 알림 없이 읽는다: 다른 화면에서 지운 작업이면 그 라인을 조용히 비운다
+    const getLot = (id) => R.apiGet('r15Lot', { id }).catch(() => null);
+    const [lots, s, ...ds] = await Promise.all([R.tryGet('r15Lots'), R.tryGet('r15Stock'), ...ids.map(getLot)]);
     if (lots) L.lots = lots; if (s) L.stock = s.groups || [];
-    ds.forEach((d, i) => { if (d) B.detail[ids[i]] = d; });
+    ds.forEach((d, i) => { if (d && d.ok) B.detail[ids[i]] = d;
+      else if (d && /찾을 수 없/.test(d.message || '')) LINES.forEach((k) => { if (B.slots[k] && B.slots[k].id === ids[i]) { R.toast(`${k} 라인 작업(${B.slots[k].lotNo})이 삭제돼 라인을 비웠습니다`, 'warn'); delete B.slots[k]; boardSave(); } }); });
     LINES.forEach((k) => { const x = B.slots[k], d = x && B.detail[x.id], p = d && d.pallets.find((y) => y.product); if (x && !x.bottle && p) { x.bottle = p.product; boardSave(); } });
     LINES.forEach((k) => { const x = B.slots[k], d = x && B.detail[x.id]; if (d && d.lot.status !== '진행중') { delete B.slots[k]; boardSave(); } });
     const a = document.activeElement;
@@ -240,7 +243,7 @@
       return `<section class="bd" id="bdCard${k}"><div class="shead"><h2>${k} 라인</h2>${x ? '<button type="button" class="btn ghost sm" data-bdcancel="1">취소</button>' : '<span class="sub">작업 없음</span>'}</div>${startForm(k)}</section>`;
     }
     const last = logs[0], hot = last && Date.now() - last.t < 6000 ? (last.ok ? ' bdok' : ' bdno') : '';
-    return `<section class="bd${hot}" id="bdCard${k}">${hot ? `<div class="bdbig">${last.ok ? '✓ 투입됨' : '✗ 안 넣음'}</div>` : ''}<div class="shead"><h2>${k} 라인</h2><button type="button" class="btn ghost sm" data-bdchange="${k}">제품 바꾸기</button></div>
+    return `<section class="bd${hot}" id="bdCard${k}">${hot ? `<div class="bdbig">${last.ok ? '✓ 투입됨' : '✗ 안 넣음'}</div>` : ''}<div class="shead"><h2>${k} 라인</h2><span class="right"><button type="button" class="btn ghost sm" data-bdchange="${k}">제품 바꾸기</button> <button type="button" class="btn ghost sm" data-bdclear="${k}">라인 비우기</button> <button type="button" class="btn ghost sm danger" data-bddel="${k}">작업 삭제</button></span></div>
       <div class="big">${esc(x.productName)} ${esc(x.lotNo)}</div>
       <div class="vline">투입 <b>${(d ? d.pallets.length : 0) + pendOf(x)}</b> Pallet${pendOf(x) ? ` · <span class="pill p-warn"><i></i>보내는 중 ${pendOf(x)}</span>` : ''} · <span class="muted">${esc(cfg.bottles.length ? cfg.bottles.join(', ') : x.bottle || '공병 품목: 첫 Pallet 기준')}</span></div>
       ${blk.map((j) => `<button type="button" class="btn sm danger" data-bdjob="${esc(j.id)}">서버가 받지 않음 ${j.payload.items.map((it) => it.inboundNo + ' P' + it.pallet).join(', ')} · 눌러서 확인</button>`).join('')}
@@ -280,6 +283,16 @@
       const name = sv === '__new' || !sv ? nw : sv; boardStart(k, name, $('bdL' + k).value.trim().toUpperCase(), b, sv === '__new' || !sv); }; });
     document.querySelectorAll('[data-bdchange]').forEach((b) => { b.onclick = () => { B.change = b.dataset.bdchange; render(); }; });
     document.querySelectorAll('[data-bdcancel]').forEach((b) => { b.onclick = () => { B.change = ''; render(); }; });
+    // 라인 비우기: 작업은 그대로 두고 이 보드에서만 뗀다 (다른 라인·나중에 다시 고를 수 있음)
+    document.querySelectorAll('[data-bdclear]').forEach((b) => { b.onclick = () => { const k = b.dataset.bdclear, x = B.slots[k];
+      if (!confirm(`${k} 라인에서 ${x.productName} ${x.lotNo}를 뗄까요?\n작업과 투입 기록은 그대로 남습니다.`)) return; delete B.slots[k]; boardSave(); render(); }; });
+    // 작업 삭제: 제품·제조번호를 잘못 시작했을 때. 투입이 있으면 중간관리자만 (투입도 모두 취소됨)
+    document.querySelectorAll('[data-bddel]').forEach((b) => { b.onclick = async () => { const k = b.dataset.bddel, x = B.slots[k], d = B.detail[x.id], n = d ? d.pallets.length : 0;
+      if (pendOf(x)) return R.toast('보내는 중인 투입이 서버에 올라간 뒤 삭제하세요', 'warn');
+      if (n && !R.isManager()) return R.toast(`투입된 ${n} Pallet가 있어 중간관리자 이상만 삭제할 수 있습니다. 잘못 시작한 게 아니면 [라인 비우기]를 쓰세요`, 'warn');
+      const reason = prompt(`${k} 라인 ${x.productName} ${x.lotNo} 작업을 삭제합니다.${n ? `\n투입된 ${n} Pallet도 모두 취소됩니다.` : ''}\n사유를 입력하세요. (예: 제품명 오입력)`); if (!reason) return;
+      R.busy(b, true, '삭제 중…'); const r = await R.tryPost('r15LotDelete', { productionId: x.id, reason }); R.busy(b, false);
+      if (r && r.ok) { delete B.slots[k]; delete B.detail[x.id]; boardSave(); R.toast(`${k} 라인 작업을 삭제했습니다`, 'ok'); boardRefresh(); } }; });
     document.querySelectorAll('.lnsvg .lane').forEach((g) => { const go = () => { const c = $('bdCard' + g.dataset.line); if (c) c.scrollIntoView({ behavior: 'smooth', block: 'start' }); }; g.onclick = go; g.onkeydown = (e) => { if (e.key === 'Enter') go(); }; });
     const inp = $('bdScan'); inp.oninput = () => { inp.value = ''; };
     const a = document.activeElement; if (!a || a === document.body) inp.focus();
