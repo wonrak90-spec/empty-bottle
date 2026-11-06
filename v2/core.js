@@ -144,20 +144,23 @@
   const post0 = (action, payload) => request(C.API_URL, { method: 'POST', headers: { 'Content-Type': 'text/plain;charset=utf-8' }, body: JSON.stringify({ action, payload }) }, C.TIMEOUT.post);
   function bindForgot() {
     const f = $('forgotBtn'); if (!f) return;
-    f.onclick = () => { $('forgotBox').hidden = !$('forgotBox').hidden; $('loginMsg').textContent = '사번을 입력하고 [코드 받기]를 누르세요.'; };
+    const msg = (t) => { $('frMsg').textContent = t || ''; };
+    const mode = (on) => { $('forgotBox').hidden = !on; $('loginMain').hidden = on; const g = $('guestBtn'); if (g) g.hidden = on || !(R.config && R.config.guest); msg(''); };
+    f.onclick = () => { mode(true); if (!$('loginEmp').value.trim()) $('loginEmp').focus(); };
+    $('frBack').onclick = () => { mode(false); $('loginMsg').textContent = '사번과 PIN 6자리로 로그인하세요.'; };
     $('frSend').onclick = async () => {
-      const emp = $('loginEmp').value.trim(); if (!emp) { $('loginMsg').textContent = '사번을 먼저 입력하세요.'; return; }
+      const emp = $('loginEmp').value.trim(); if (!emp) { msg('위 사번 칸에 사번을 먼저 입력하세요.'); $('loginEmp').focus(); return; }
       R.busy($('frSend'), true, '보내는 중…');
-      try { const r = await post0('r15PinResetRequest', { employeeNo: emp }); $('loginMsg').textContent = r.message || (r.ok ? '보냈습니다' : '실패'); if (r.ok) $('frCode').focus(); }
-      catch (e) { $('loginMsg').textContent = '요청 실패: ' + e.message; } finally { R.busy($('frSend'), false); }
+      try { const r = await post0('r15PinResetRequest', { employeeNo: emp }); msg(r.message || (r.ok ? '보냈습니다' : '실패')); if (r.ok) $('frCode').focus(); }
+      catch (e) { msg('요청 실패: ' + e.message); } finally { R.busy($('frSend'), false); }
     };
     $('frOk').onclick = async () => {
       const emp = $('loginEmp').value.trim(), code = $('frCode').value.trim(), pin = $('frPin').value.trim();
-      if (!emp || !/^\d{6}$/.test(code) || !/^\d{6}$/.test(pin)) { $('loginMsg').textContent = '사번, 코드 6자리, 새 PIN 6자리를 입력하세요.'; return; }
+      if (!emp || !/^\d{6}$/.test(code) || !/^\d{6}$/.test(pin)) { msg('사번, 코드 6자리, 새 PIN 6자리를 입력하세요.'); return; }
       R.busy($('frOk'), true, '바꾸는 중…');
-      try { const r = await post0('r15PinResetConfirm', { employeeNo: emp, code, newPin: pin }); $('loginMsg').textContent = r.message || '';
-        if (r.ok) { $('frCode').value = ''; $('frPin').value = ''; $('forgotBox').hidden = true; $('loginPin').value = ''; $('loginPin').focus(); } }
-      catch (e) { $('loginMsg').textContent = '실패: ' + e.message; } finally { R.busy($('frOk'), false); }
+      try { const r = await post0('r15PinResetConfirm', { employeeNo: emp, code, newPin: pin });
+        if (r.ok) { $('frCode').value = ''; $('frPin').value = ''; mode(false); $('loginPin').value = ''; $('loginMsg').textContent = r.message; $('loginPin').focus(); } else msg(r.message || '실패'); }
+      catch (e) { msg('실패: ' + e.message); } finally { R.busy($('frOk'), false); }
     };
   }
   R.bindForgot = bindForgot;
