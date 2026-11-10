@@ -317,6 +317,19 @@
     $('prClose').onclick = () => { $('dialog').hidden = true; };
     $('dialogBody').querySelectorAll('[data-pm]').forEach((el) => { el.onclick = () => { const m = el.dataset.pm; $('dialog').hidden = true; R.rec.note('보고서 인쇄(' + modes.find((x) => x[0] === m)[1] + ')', nos.join(', '), nos.length); printOpen(nos, m); }; });
   }
+  // 날짜 글자 띠가 없던 옛 사진(2026-11-11 이전 기록)은 인쇄할 때만 기록 저장 시각을 같은 모양으로 찍는다. 원본(Drive)은 그대로.
+  const STAMP_SINCE = Date.parse('2026-11-10T23:20:00Z');
+  async function stampOld(packs, ph) {
+    const done = new Set();
+    for (const p of packs) for (const r of p.recs) {
+      if (!(Number(r.at) < STAMP_SINCE)) continue;
+      for (const [u, what] of [[r.wmsPhoto, 'WMS 라벨'], [r.vendorPhoto, '업체 라벨']]) {
+        if (!u || !ph[u] || done.has(u)) continue; done.add(u);
+        const out = await R.shrink(ph[u], 1400, 0.8, [R.photoStamp('', r.at)[0], [what, r.inspector, '기록 저장 시각'].filter(Boolean).join(' · ')]);
+        if (out) ph[u] = out;
+      }
+    }
+  }
   const needsLook = (r) => !/적합/.test(r.finalResult) || r.issues.some((x) => !x.acked && x.level !== 'info');
   async function printOpen(nos, mode) {
     const withPhotos = mode && mode !== 'none';
@@ -325,6 +338,7 @@
     const packs = []; for (const no of nos) { const s = P.data.inbounds.find((x) => x.inboundNo === no); if (s) packs.push({ s, recs: await recsOf(no) }); }
     let ph = null;
     if (withPhotos) { const urls = packs.flatMap((p) => p.recs.filter((r) => mode !== 'issues' || needsLook(r)).flatMap((r) => [r.wmsPhoto, r.vendorPhoto])).filter(Boolean); w.document.body.innerHTML = `<p style="font-family:sans-serif">사진 ${urls.length}장 불러오는 중…</p>`; ph = await R.loadPhotos(urls); }
+    if (ph) await stampOld(packs, ph);
     const html = `<!doctype html><html><head><meta charset="utf-8"><title>공병 입고 검수 보고서 ${esc(label())}</title>${printCss()}</head><body>${packs.map((p) => sheetHtml(p.s, p.recs, ph, mode)).join('')}<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>`;
     w.document.open(); w.document.write(html); w.document.close();
   }
