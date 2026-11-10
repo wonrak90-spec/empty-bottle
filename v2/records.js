@@ -76,7 +76,7 @@
     if (R.zoomcam && R.zoomcam.supported) { src = await R.zoomcam.capture(); if (src === null) return; }
     if (!src || src === 'fallback') src = await new Promise((ok) => { const i = document.createElement('input'); i.type = 'file'; i.accept = 'image/*'; i.capture = 'environment'; i.onchange = () => ok(i.files && i.files[0] || null); i.click(); });
     if (!src) return;
-    const img = await R.shrink(src, 1400, 0.72); if (!img) return R.toast('사진을 열지 못했습니다 · 다시 찍어 주세요', 'crit');
+    const img = await R.shrink(src, 1400, 0.72, R.photoStamp(`업체 라벨 (나중에 추가) · ${r.inboundNo} P${r.pallet}`)); if (!img) return R.toast('사진을 열지 못했습니다 · 다시 찍어 주세요', 'crit');
     R.toast('사진 올리는 중…', 'warn');
     try {
       const up = await R.apiPost('uploadPhoto', { image: img, name: `${r.inboundNo}_P${R.util.pad(r.pallet, 2)}_VENDOR_추가`, inboundNo: r.inboundNo, palletNo: Number(r.pallet) || 0, photoType: 'VENDOR', dateKey: (r.atText || '').slice(0, 10).replace(/-/g, '') }, window.R15_CONFIG.TIMEOUT.upload);

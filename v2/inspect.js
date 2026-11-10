@@ -356,7 +356,7 @@
     const cur = curIn || S.cur, x = busyOf(cur), here = () => S.cur === cur, st = $('ocrStatus');
     if (here() && st) { st.textContent = '사진 준비 중…'; st.dataset.type = 'warn'; } // OCR 파일(전역 setStatus)이 안 읽혀도 촬영은 되게
     x.prep++;
-    const forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72) : '';
+    const shotAt = Date.now(), forOcr = await R.shrink(file, 2000, 0.85), stored = forOcr ? await R.shrink(forOcr, 1400, 0.72, R.photoStamp(kind === 'wms' ? 'WMS 라벨' : '업체 라벨', shotAt)) : '';
     x.prep--;
     if (!forOcr || !stored) { if (here() && st) st.textContent = '사진을 열지 못했습니다 · 다시 찍어 주세요'; R.toast('사진을 열지 못했습니다 (' + (file.type || '형식 알 수 없음') + '). 다시 찍어 주세요. 계속되면 설정 > 카메라 > 포맷 > 높은 호환성', 'crit'); if (here()) refreshChecks(); return; }
     if (!here()) return; // 그 사이 저장·다시 찍기를 했으면 버린다

@@ -227,8 +227,8 @@
   };
 
   /* ---------- 사진 ---------- */
-  // 사진을 긴 변 maxSide로 줄여 JPEG dataURL로 만든다
-  R.shrink = function (src, maxSide, quality) {
+  // 사진을 긴 변 maxSide로 줄여 JPEG dataURL로 만든다. stamp(글줄 배열)가 있으면 아래쪽에 반투명 띠로 찍는다 (보관 사진용, OCR용에는 안 찍음)
+  R.shrink = function (src, maxSide, quality, stamp) {
     return new Promise((resolve) => {
       const img = new Image(), url = typeof src === 'string' ? src : URL.createObjectURL(src);
       const done = (v) => { if (url !== src) URL.revokeObjectURL(url); resolve(v); }; // iOS: 안 풀면 12~48MP 원본이 계속 메모리에 남는다
@@ -239,6 +239,12 @@
           c = document.createElement('canvas'); c.width = Math.max(1, Math.round(img.width * scale)); c.height = Math.max(1, Math.round(img.height * scale));
           const ctx = c.getContext('2d'); if (!ctx) throw new Error('canvas'); // Safari 캔버스 메모리 한도를 넘으면 null
           ctx.imageSmoothingQuality = 'high'; ctx.drawImage(img, 0, 0, c.width, c.height);
+          if (stamp && stamp.length) {
+            const fs = Math.max(16, Math.round(Math.min(c.width, c.height) * 0.042)), pad = Math.round(fs * 0.5), lh = Math.round(fs * 1.3), h = pad * 2 + lh * stamp.length;
+            ctx.fillStyle = 'rgba(0,0,0,0.55)'; ctx.fillRect(0, c.height - h, c.width, h);
+            ctx.fillStyle = '#fff'; ctx.textBaseline = 'top';
+            stamp.forEach((t, i) => { ctx.font = `${i ? '' : 'bold '}${i ? Math.round(fs * 0.8) : fs}px sans-serif`; ctx.fillText(String(t), pad, c.height - h + pad + i * lh, c.width - pad * 2); });
+          }
           const out = c.toDataURL('image/jpeg', quality || 0.8); // 한도 초과 캔버스는 'data:,'
           done(out.length > 100 ? out : (typeof src === 'string' ? src : ''));
         } catch (e) { done(typeof src === 'string' ? src : ''); }
@@ -247,6 +253,12 @@
       img.onerror = () => done(typeof src === 'string' ? src : '');
       img.src = url;
     });
+  };
+
+  // 사진에 찍을 글: 촬영 일시(요일 포함) + 무엇·누가
+  R.photoStamp = function (what, at) {
+    const d = new Date(at || Date.now()), p2 = (n) => String(n).padStart(2, '0'), wd = '일월화수목금토'[d.getDay()];
+    return [`${d.getFullYear()}-${p2(d.getMonth() + 1)}-${p2(d.getDate())} (${wd}) ${p2(d.getHours())}:${p2(d.getMinutes())}:${p2(d.getSeconds())}`, [what, R.user && R.user.name].filter(Boolean).join(' · ')];
   };
 
   // Drive 사진 URL → 화면에 띄울 dataURL (서버가 12장씩 보내준다)
