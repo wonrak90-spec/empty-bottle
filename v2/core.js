@@ -227,6 +227,27 @@
   };
 
   /* ---------- 사진 ---------- */
+  // 보관 사진에 날짜 띠가 이미 찍혔는지 본다. 띠 위·아래 줄의 밝기 비가 0.45 정도로 고르게 꺾이면 찍힌 것. 판단 못 하면 true(겹쳐 찍지 않게)
+  R.hasStamp = function (src) {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        let c = null;
+        try {
+          const W = img.width, H = img.height, fs = Math.max(16, Math.round(Math.min(W, H) * 0.042)), pad = Math.round(fs * 0.5), h = pad * 2 + Math.round(fs * 1.3) * 2;
+          if (H < h + 10) return resolve(true);
+          c = document.createElement('canvas'); c.width = W; c.height = 2; const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, H - h - 4, W, 1, 0, 0, W, 1); ctx.drawImage(img, 0, H - h + 3, W, 1, 0, 1, W, 1);
+          const d = ctx.getImageData(0, 0, W, 2).data, lum = (i) => d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
+          let n = 0, hit = 0;
+          for (let x = 0; x < W; x += 2) { const a = lum(x * 4), b = lum((W + x) * 4); if (a < 60) continue; n++; const r = b / a; if (r > 0.3 && r < 0.65) hit++; }
+          resolve(n < W / 20 ? true : hit / n > 0.6);
+        } catch (e) { resolve(true); } finally { if (c) { c.width = 0; c.height = 0; } }
+      };
+      img.onerror = () => resolve(true);
+      img.src = src;
+    });
+  };
   // 사진을 긴 변 maxSide로 줄여 JPEG dataURL로 만든다. stamp(글줄 배열)가 있으면 아래쪽에 반투명 띠로 찍는다 (보관 사진용, OCR용에는 안 찍음)
   R.shrink = function (src, maxSide, quality, stamp) {
     return new Promise((resolve) => {

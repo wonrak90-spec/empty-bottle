@@ -246,7 +246,7 @@
         <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${r.vendorProdDate && !r.vendorProdTime ? '<span class="muted">시간 ?</span>' : esc(r.vendorProdTime)}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
         <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
-        <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
+        <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-at="${esc(r.at)}" data-who="${esc(r.inspector||'')}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-at="${esc(r.at)}" data-who="${esc(r.inspector||'')}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
         <td data-l="투입" class="${r.usedIn.length ? '' : 'e'}">${r.usedIn.map((u) => esc(u.productName + ' ' + u.lotNo)).join('<br>') || '<span class="muted">-</span>'}</td>
         <td data-l="관리" class="wide2">${R.rec.actionsHtml(r)}${r.can && !r.can.edit && r.can.why && R.user && r.inspector === R.user.name ? `<div class="muted small">${esc(r.can.why)}</div>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
@@ -267,11 +267,12 @@
   }
 
   function bindPhotoButtons(root) {
-    root.querySelectorAll('[data-ph]').forEach((b) => { b.onclick = async () => { R.busy(b, true, '…'); const m = await R.loadPhotos([b.dataset.ph]); R.busy(b, false); if (m[b.dataset.ph]) R.photoViewer(m[b.dataset.ph], b.dataset.cap); else R.toast('사진을 불러오지 못했습니다', 'crit'); }; });
+    root.querySelectorAll('[data-ph]').forEach((b) => { b.onclick = async () => { R.busy(b, true, '…'); const m = await R.loadPhotos([b.dataset.ph]); R.busy(b, false); if (m[b.dataset.ph]) { const at = Number(b.dataset.at), src = at && !(await R.hasStamp(m[b.dataset.ph])) ? (await R.shrink(m[b.dataset.ph], 1400, 0.8, [R.photoStamp('', at)[0], [/WMS$/.test(b.dataset.cap) ? 'WMS 라벨' : '업체 라벨', b.dataset.who, '기록 저장 시각'].filter(Boolean).join(' · ')])) || m[b.dataset.ph] : m[b.dataset.ph]; R.photoViewer(src, b.dataset.cap); } else R.toast('사진을 불러오지 못했습니다', 'crit'); }; });
   }
   async function gallery(records, box, no) {
     box.innerHTML = '<div class="muted pad">사진 불러오는 중…</div>';
     const urls = records.flatMap((r) => [r.wmsPhoto, r.vendorPhoto]).filter(Boolean), m = await R.loadPhotos(urls);
+    await stampOld([{ recs: records }], m);
     box.innerHTML = `<div class="gal">${records.map((r) => `<figure><div class="gp">${[['WMS', r.wmsPhoto], ['업체', r.vendorPhoto]].map(([t, u]) => u && m[u] ? `<img src="${m[u]}" alt="${esc(no)} P${esc(r.pallet)} ${t}" data-big="${esc(u)}">` : `<div class="noimg">${t} 사진 없음</div>`).join('')}</div><figcaption>P${esc(r.pallet)}</figcaption></figure>`).join('')}</div>`;
     box.querySelectorAll('[data-big]').forEach((im) => { im.onclick = () => R.photoViewer(im.src, im.alt); });
   }
@@ -317,14 +318,14 @@
     $('prClose').onclick = () => { $('dialog').hidden = true; };
     $('dialogBody').querySelectorAll('[data-pm]').forEach((el) => { el.onclick = () => { const m = el.dataset.pm; $('dialog').hidden = true; R.rec.note('보고서 인쇄(' + modes.find((x) => x[0] === m)[1] + ')', nos.join(', '), nos.length); printOpen(nos, m); }; });
   }
-  // 날짜 글자 띠가 없던 옛 사진(2026-11-11 이전 기록)은 인쇄할 때만 기록 저장 시각을 같은 모양으로 찍는다. 원본(Drive)은 그대로.
-  const STAMP_SINCE = Date.parse('2026-11-10T23:20:00Z');
+  // 날짜 글자 띠가 없는 사진(옛 사진·옛 화면으로 찍은 사진)은 보기·인쇄할 때 기록 저장 시각을 같은 모양으로 찍는다. 원본(Drive)은 그대로.
   async function stampOld(packs, ph) {
     const done = new Set();
     for (const p of packs) for (const r of p.recs) {
-      if (!(Number(r.at) < STAMP_SINCE)) continue;
+      if (!Number(r.at)) continue;
       for (const [u, what] of [[r.wmsPhoto, 'WMS 라벨'], [r.vendorPhoto, '업체 라벨']]) {
         if (!u || !ph[u] || done.has(u)) continue; done.add(u);
+        if (await R.hasStamp(ph[u])) continue;
         const out = await R.shrink(ph[u], 1400, 0.8, [R.photoStamp('', r.at)[0], [what, r.inspector, '기록 저장 시각'].filter(Boolean).join(' · ')]);
         if (out) ph[u] = out;
       }
@@ -413,7 +414,7 @@
     box.querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => { $('trQ').value = b.dataset.q; go(); }; });
   }
   T.find = function (mode, q) { setMode(mode); $('trQ').value = q; go(); window.scrollTo(0, 0); };
-  const phBtns = (rec, no, pal) => (rec && rec.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.wmsPhoto)}" data-cap="${esc(no)} P${esc(pal)} WMS">WMS 사진</button>` : '') + (rec && rec.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.vendorPhoto)}" data-cap="${esc(no)} P${esc(pal)} 업체">업체 사진</button>` : '');
+  const phBtns = (rec, no, pal) => (rec && rec.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.wmsPhoto)}" data-at="${esc(rec.at)}" data-who="${esc(rec.inspector||'')}" data-cap="${esc(no)} P${esc(pal)} WMS">WMS 사진</button>` : '') + (rec && rec.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(rec.vendorPhoto)}" data-at="${esc(rec.at)}" data-who="${esc(rec.inspector||'')}" data-cap="${esc(no)} P${esc(pal)} 업체">업체 사진</button>` : '');
   async function go() {
     const q = $('trQ').value.trim(); if (!q) return;
     const out = $('trOut'); out.innerHTML = '<div class="muted pad">찾는 중…</div>';
