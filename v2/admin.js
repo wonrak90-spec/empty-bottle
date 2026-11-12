@@ -3,7 +3,7 @@
   'use strict';
   const R = window.R15, { $, esc } = R.util;
   const A = R.admin = { sub: 'audit', items: [], plan: null, users: [], deleted: [], audit: [], q: '' };
-  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3], ['tabs', '화면 권한', 3], ['archive', '보관', 3]];
+  const SUBS = [['audit', '감사 추적', 2], ['deleted', '삭제 보관함', 2], ['items', '품목·별칭', 2], ['plan', '제조계획 링크', 2], ['users', '사용자·권한', 3], ['tabs', '화면 권한', 3], ['archive', '보관', 3], ['vtime', '업체 시간 일괄 입력', 2]];
 
   function render() {
     const root = $('adminView'); if (!root) return;
@@ -11,7 +11,7 @@
     const subs = SUBS.filter((x) => R.rank() >= x[2]); if (!subs.some((x) => x[0] === A.sub)) A.sub = subs[0][0];
     root.innerHTML = `<section style="padding:10px 14px"><div class="tabs" id="admSub">${subs.map(([v, t]) => `<button type="button" data-a="${v}" aria-pressed="${A.sub === v}">${t}</button>`).join('')}</div></section><div id="admBody"><div class="muted pad">불러오는 중…</div></div>`;
     document.querySelectorAll('#admSub [data-a]').forEach((b) => { b.onclick = () => { A.sub = b.dataset.a; render(); }; });
-    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit, tabs: tabs, archive: archive })[A.sub]();
+    ({ items: items, plan: plan, users: users, deleted: deleted, audit: audit, tabs: tabs, archive: archive, vtime: vtime })[A.sub]();
   }
 
   /* ---------- 변경 이력 ---------- */
@@ -217,6 +217,48 @@
     };
   }
   /* ---------- 보관 (1년 지난 기록을 보관 파일로) ---------- */
+  /* ---------- 업체 시간 일괄 입력 ---------- */
+  // 사진을 보고 만든 정답 CSV(기록ID, 정답 시간)를 기록마다 r15RecordEdit로 넣는다. 이력에 사유가 남는다.
+  function csvRows(text) {
+    const rows = []; let row = [], cell = '', q = false;
+    text = String(text).replace(/^﻿/, '');
+    for (let i = 0; i < text.length; i++) {
+      const ch = text[i];
+      if (q) { if (ch === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; }
+      else if (ch === '"') q = true;
+      else if (ch === ',') { row.push(cell); cell = ''; }
+      else if (ch === '\n' || ch === '\r') { if (ch === '\r' && text[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; }
+      else cell += ch;
+    }
+    if (cell || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((c) => c.trim()));
+  }
+  function vtime() {
+    const b = $('admBody');
+    b.innerHTML = `<section><h3>업체 생산시간 일괄 입력</h3>
+      <div class="sub">사진을 보고 만든 정답 파일(CSV)을 올리면 기록마다 업체 생산시간을 넣습니다. 열 이름은 <b>기록ID</b>와 <b>정답 시간</b>(예: 08:35)이어야 합니다. 바뀐 내용과 사유는 변경 이력에 남습니다.</div>
+      <label class="btn ghost">CSV 파일 고르기<input type="file" accept=".csv,text/csv" id="vtFile" hidden></label>
+      <div id="vtOut"></div></section>`;
+    $('vtFile').onchange = async (e) => {
+      const f = e.target.files && e.target.files[0]; if (!f) return;
+      const rows = csvRows(await f.text()), h = rows.shift() || [], ci = h.findIndex((x) => /기록\s*ID/i.test(x)), ti = h.findIndex((x) => /정답/.test(x));
+      if (ci < 0 || ti < 0) { $('vtOut').innerHTML = '<div class="warnbox">기록ID·정답 시간 열을 찾지 못했습니다.</div>'; return; }
+      const list = rows.map((r) => ({ id: String(r[ci] || '').trim(), tm: String(r[ti] || '').trim() })).filter((x) => x.id && /^\d{2}:\d{2}$/.test(x.tm));
+      const uniq = [...new Map(list.map((x) => [x.id, x])).values()];
+      $('vtOut').innerHTML = `<p>넣을 기록 <b>${uniq.length}</b>건 (같은 기록 중복 ${list.length - uniq.length}건 제외)</p><button type="button" class="btn" id="vtGo">넣기 시작</button><div id="vtProg" class="muted"></div>`;
+      $('vtGo').onclick = async () => {
+        $('vtGo').disabled = true; let ok = 0, bad = []; const reason = '업체 라벨 사진 판독 정답 일괄 입력';
+        for (let i = 0; i < uniq.length; i++) {
+          const x = uniq[i]; $('vtProg').textContent = `${i + 1} / ${uniq.length} 넣는 중… (끝날 때까지 이 화면을 닫지 마세요)`;
+          let r = null; try { r = await R.apiPost('r15RecordEdit', { id: x.id, reason, changes: { vendorProdTime: x.tm } }); } catch (err) { r = { ok: false, message: err.message }; }
+          if (r && r.ok) ok++; else bad.push(x.id.slice(0, 8) + ': ' + ((r && r.message) || '실패'));
+        }
+        $('vtProg').innerHTML = `<b>끝났습니다.</b> 넣음 ${ok}건${bad.length ? ` · 안 됨 ${bad.length}건<details><summary>안 된 기록</summary><pre>${esc(bad.join('\n'))}</pre></details>` : ''}`;
+        R.toast('업체 생산시간 ' + ok + '건을 넣었습니다', 'ok');
+      };
+    };
+  }
+
   async function archive() {
     $('admBody').innerHTML = '<div class="muted pad">옮길 기록을 세는 중…</div>';
     const r = await R.tryGet('r15ArchiveInfo'); if (!r) { $('admBody').innerHTML = '<div class="muted pad">읽지 못했습니다. 서버 코드(Code_R15.gs)를 새 버전으로 배포했는지 확인하세요.</div>'; return; }
