@@ -239,7 +239,7 @@
         <div class="kpi"><div class="l">생산 투입</div><div class="v">${s.usedCount}</div><div class="d">${esc(s.lots.join(', '))}</div></div>
       </div>
       ${records.some((r) => r.can && r.can.del) ? `<div class="bulk"><label class="chk"><input type="checkbox" id="detAll"> 지울 수 있는 기록 모두 선택</label><button type="button" class="btn ghost sm danger" id="detDelSel" disabled>선택 0건 삭제</button></div>` : ''}
-      ${s.gaps.missing.length ? `<div class="warnbox">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
+      ${s.gaps.missing.length ? `<div class="warnbox">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}${s.gaps.min > 1 ? `<div class="warnbox">P1~P${s.gaps.min - 1} 기록 없음 (P${s.gaps.min}부터 시작). 다른 차량·다른 날 입고분이면 그대로 두세요.</div>` : ''}
       <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th>업체 P번호</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
       ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td>
@@ -301,7 +301,7 @@
       <table class="info"><colgroup><col style="width:14%"><col style="width:36%"><col style="width:14%"><col style="width:36%"></colgroup><tr><th>품명</th><td>${esc(s.product)}</td><th>품목코드</th><td>${esc(s.itemCode)}</td></tr><tr><th>공급업체</th><td>${esc(s.supplier)}</td><th>제조원</th><td>${esc(s.manufacturer)}</td></tr>
       <tr><th>입고일자</th><td>${esc(s.inboundDate)}</td><th>사용기한</th><td>${esc(s.expiryDate)}</td></tr><tr><th>검수일</th><td>${esc(s.days.join(', '))}</td><th>검수자</th><td>${esc(s.inspectors.join(', '))}</td></tr></table>
       <div class="kp"><div>Pallet<b>${s.palletCount}</b></div><div>총 수량<b>${fmt(s.qtyTotal)}</b></div><div>이상 없음<b>${s.okCount}</b></div><div class="${s.errorCount ? 'kbad' : ''}">오류 / 주의<b>${s.errorCount} / ${s.warnCount}</b></div><div>생산 투입<b>${s.usedCount}</b></div></div>
-      ${s.gaps.missing.length ? `<div class="box">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}
+      ${s.gaps.missing.length ? `<div class="box">기록 없는 Pallet 번호: ${s.gaps.missing.map((n) => 'P' + n).join(', ')}</div>` : ''}${s.gaps.min > 1 ? `<div class="box">P1~P${s.gaps.min - 1} 기록 없음 (P${s.gaps.min}부터 시작). 다른 차량·다른 날 입고분이면 그대로 두세요.</div>` : ''}
       <table class="rec"><colgroup><col style="width:5%"><col style="width:9%"><col style="width:8%"><col style="width:8%"><col style="width:12%"><col style="width:7%"><col style="width:6%"><col style="width:27%"><col style="width:18%"></colgroup>
       <thead><tr><th class="c">P</th><th>검수 시각</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th class="c">업체 P번호</th><th class="c">판정</th><th>데이터 점검</th><th>투입 제품 · Lot</th></tr></thead><tbody>${rows}</tbody></table>
       <div class="sign"><div><b>검수</b><span></span></div><div><b>확인</b><span></span></div><div><b>승인</b><span></span></div></div></section>${photoPages}`;
