@@ -236,12 +236,18 @@
         try {
           const W = img.width, H = img.height, fs = Math.max(16, Math.round(Math.min(W, H) * 0.042)), pad = Math.round(fs * 0.5), h = pad * 2 + Math.round(fs * 1.3) * 2;
           if (H < h + 10) return resolve(true);
-          c = document.createElement('canvas'); c.width = W; c.height = 2; const ctx = c.getContext('2d');
-          ctx.drawImage(img, 0, H - h - 4, W, 1, 0, 0, W, 1); ctx.drawImage(img, 0, H - h + 3, W, 1, 0, 1, W, 1);
-          const d = ctx.getImageData(0, 0, W, 2).data, lum = (i) => d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11;
-          let n = 0, hit = 0;
-          for (let x = 0; x < W; x += 2) { const a = lum(x * 4), b = lum((W + x) * 4); if (a < 60) continue; n++; const r = b / a; if (r > 0.3 && r < 0.65) hit++; }
-          resolve(n < W / 20 ? true : hit / n > 0.6);
+          // 띠 경계 위 5줄·아래 5줄을 16px 칸별 평균으로 비교 (어두운 사진에서도 낱 화소 잡음에 안 흔들리게)
+          c = document.createElement('canvas'); c.width = W; c.height = 10; const ctx = c.getContext('2d');
+          ctx.drawImage(img, 0, H - h - 7, W, 5, 0, 0, W, 5); ctx.drawImage(img, 0, H - h + 2, W, 5, 0, 5, W, 5);
+          const d = ctx.getImageData(0, 0, W, 10).data, B = 16;
+          let n = 0, hit = 0, ta = 0, tb = 0;
+          for (let x0 = 0; x0 + B <= W; x0 += B) {
+            let a = 0, b = 0;
+            for (let y = 0; y < 10; y++) for (let x = x0; x < x0 + B; x++) { const i = (y * W + x) * 4, v = d[i] * 0.3 + d[i + 1] * 0.59 + d[i + 2] * 0.11; if (y < 5) a += v; else b += v; }
+            a /= B * 5; b /= B * 5; ta += a; tb += b;
+            if (a < 20) continue; n++; const r = b / a; if (r > 0.3 && r < 0.68) hit++;
+          }
+          if (n < 3) resolve(ta > 0 ? tb / ta < 0.68 : true); else resolve(hit / n > 0.6);
         } catch (e) { resolve(true); } finally { if (c) { c.width = 0; c.height = 0; } }
       };
       img.onerror = () => resolve(true);
