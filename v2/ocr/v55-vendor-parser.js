@@ -590,6 +590,12 @@
       if(!p){const v=(String(out.product).match(/\d{1,4}\s*m[l1i]/i)||[''])[0],g=src.match(/유리병\s*[（(]?\s*[각강갹긱]\s*병/);if(g)p='유리병(각병)'+(/100/.test(v)||/\b100\s*m[l1i]/i.test(src)?' 100ml':'');}
       if(p)out.product=p;else delete out.product;
     }
+    // 동화 라벨 시간은 손글씨 "08시35분"처럼 시·분 두 자리씩, 분은 5분 단위로 적힌다 (정답 211건 전부).
+    // 숫자 하나가 빠진 판독("21시30분"→"2시30분"→02:30)이 맞는 것보다 많았으므로, 두 자리·5분 단위로 읽힌 것만 쓴다.
+    if(out.prodTime&&detectDonghwa(raw,rowsOf(raw,items),{})&&!/동아\s*에코|P\s*\/\s*L/i.test(src)){
+      const ok=[...src.matchAll(/(\d{2})\s*[시사지]\s*(\d{2})\s*[분푼본]/g)].some(m=>m[1]+':'+m[2]===out.prodTime&&Number(m[2])%5===0);
+      if(!ok)delete out.prodTime;
+    }
     // 한 Pallet 공병이 100개 미만일 수는 없다: 글자 오독으로 본다
     if(out.qty&&Number(String(out.qty).replace(/\D/g,''))<100)delete out.qty;
     return out;

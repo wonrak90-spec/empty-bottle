@@ -53,7 +53,8 @@
     const t = String(text || '').replace(/[Oo]/g, '0').replace(/[lI|]/g, '1').replace(/S/g, '5').replace(/B/g, '8')
       .replace(/\d{2,4}\s*[년넌닌]|\d{1,2}\s*[월윌원]\s*\d{1,2}\s*[일잉얼]/g, ' ');
     const ok = (h, m) => (+h < 24 && +m < 60 ? String(+h).padStart(2, '0') + ':' + String(+m).padStart(2, '0') : '');
-    let m = t.match(/(\d{1,2})\s*[시사지]\s*(\d{1,2})\s*[분푼본]?/) || t.match(/(\d{1,2})\s*[:;]\s*(\d{2})(?!\d)/);
+    // 손글씨 시간: 시·분 두 자리, 분 5분 단위만 (숫자 하나 빠진 판독이 맞는 것보다 많았다, 정답 211건 확인)
+    let m = t.match(/(\d{2})\s*[시사지]\s*(\d{2})\s*[분푼본]?/); if (m && +m[2] % 5) m = null; m = m || t.match(/(\d{1,2})\s*[:;]\s*(\d{2})(?!\d)/);
     if (m) return ok(m[1], m[2]);
     const d = t.match(/\d+/g) || [];
     if (d.length === 1 && d[0].length === 4) return ok(d[0].slice(0, 2), d[0].slice(2));
