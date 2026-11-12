@@ -216,6 +216,21 @@
     }
     return '';
   }
+  // 동화 라벨은 칸 순서가 고정: 생산일자 줄 → P-번호 줄 → 수량 줄. 글자 '번호'는 자주 깨지므로(번흐·변호·법호·0·3 …)
+  // 생산일자 줄과 수량 줄 사이 줄의 마지막 1~3자리 숫자를 P번호로 본다. 사이 줄이 없으면 수량 끝(=9,072 뒤)이나 생산일 줄 '분' 뒤를 본다.
+  function donghwaRowPallet(rows){
+    const R=rows.map(r=>String(r||''));
+    const isDate=r=>/\d{2}\s*년|\d{1,2}\s*[월원]\s*\d{1,2}\s*일|일\s*[자지재]\s*2\s*6/.test(r);
+    const isQty=r=>/[=:]\s*-?\s*\d[\d,.]{3,}|\d[,.]\d{3}|\d{1,4}\s*[*x×·]\s*\d{1,4}|\d\s*단|본\s*$/.test(r);
+    const di=R.findIndex(isDate);
+    if(di<0){const r=R.find(x=>/^[^\d]{0,6}[번변법반][^\d]{0,3}\d{1,3}\s*$/.test(x));return r?String(Number(r.match(/(\d{1,3})\s*$/)[1])):'';}
+    let qi=-1;for(let i=di+1;i<R.length;i++)if(isQty(R[i])){qi=i;break;}
+    const lastNum=t=>{const m=(String(t).replace(/[0-9OoDQlIi|SsBbZzgqT]*\d[0-9OoDQlIi|SsBbZzgqT]*/g,x=>fixDigits(x)).match(/(?:^|[^\d])(\d{1,3})(?!\d)/g)||[]).map(x=>x.replace(/\D/g,''));if(!m.length)return '';let b=m[m.length-1];for(const x of m)if(x.length>b.length)b=x;const v=Number(b);return v>0?String(v):'';};
+    if(qi>di+1){for(let i=di+1;i<qi;i++){const t=R[i].replace(/\d{1,4}\s*m[l1iI!|]?\b/ig,' ');if(/\d{4,}/.test(t))continue;if(!/[번변법반호흐후희]/.test(t)&&t.replace(/[\d\s.,\-]/g,'').length>3)continue;const v=lastNum(t);if(v)return v;}return '';}
+    if(qi>di){const t=R[qi].match(/[=:]\s*-?\s*\d{1,3}[,.]\d{3}\s*본?\s+(\d{1,3})\s*$/);if(t)return String(Number(t[1]));}
+    const dt=R[di].match(/분\D{0,6}(\d{1,3})\s*$/)||R[di].match(/번\D{0,3}(\d{1,3})\s*$/);
+    return dt&&Number(dt[1])>0?String(Number(dt[1])):'';
+  }
   function recoverDonghwaPallet(rows,source){
     const src=String(source||''),factors=sourceFactorSet(src);
     const valid=v=>{const p=num(v);return p&&!factors.has(String(Number(p)))?p:'';};
@@ -317,7 +332,8 @@
   function detectDonghwa(raw,rows,base){
     const s=(flat(raw)+' '+rows.join(' ')+' '+flat(base&&base.product)).toLowerCase();
     let score=0;
-    if(/동화\s*지앤피/.test(s))score+=4;
+    if(/동\s*[화회확]\s*지\s*[앤엔인]\s*피/.test(s))score+=4;
+    if(/일\s*[자지재]\s*2\s*6\s*년/.test(s)&&/[번변법]\s*[호흐후희]/.test(s))score+=3;
     if(/p\s*[-/]?\s*(?:번\s*호|no)/i.test(s))score+=3;
     if(/\d{1,4}\s*[x×*]\s*\d{1,4}\s*(?:[x×*]\s*\d{1,3}|\s+\d{1,3})\s*단/.test(s))score+=3;
     if(/유리\s*제품.*충격.*파손/.test(s))score+=2;
@@ -359,7 +375,7 @@
 
     // P-번호 is the pallet identifier on Donghwa labels.
     const palletSource=joined+'\n'+String(raw||'');
-    let pv=recoverDonghwaPallet(rows,palletSource);
+    let pv=donghwaRowPallet(rows)||recoverDonghwaPallet(rows,palletSource);
     if(!pv){
       const rowPv=labelValueByRow(items,palletLabelDonghwaRe(),/([0-9OQDIl|]{1,4})\b/i);
       pv=safePalletValue(rowPv,palletSource);
