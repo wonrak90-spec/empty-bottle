@@ -228,7 +228,7 @@
   function renderDetail() {
     const { summary: s, records } = P.detail, root = $('repBody');
     root.innerHTML = `<section>
-      <div class="shead"><button type="button" class="btn ghost sm" id="detBack">‹ 목록</button><div class="right"><button type="button" class="btn ghost sm" id="detPhotos">사진 보기</button><button type="button" class="btn sm" id="detPrint">인쇄</button></div></div>
+      <div class="shead"><button type="button" class="btn ghost sm" id="detBack">‹ 목록</button><div class="right">${fixable(records).length ? `<button type="button" class="btn ghost sm" id="detFix">업체 라벨 보완 ${fixable(records).length}</button>` : ''}<button type="button" class="btn ghost sm" id="detPhotos">사진 보기</button><button type="button" class="btn sm" id="detPrint">인쇄</button></div></div>
       <div><div class="sub">입고번호</div><div class="big">${esc(s.inboundNo || '번호 없음')}</div><div class="vline"><b>${esc(s.product)}</b> · ${esc(s.supplier)} · 입고일 ${esc(s.inboundDate)} · 사용기한 ${esc(s.expiryDate)}</div></div>
       <div class="kpis small">
         <div class="kpi"><div class="l">Pallet</div><div class="v">${s.palletCount}</div><div class="d">P${s.gaps.min}~P${s.gaps.max}</div></div>
@@ -243,18 +243,20 @@
       <div class="scroll"><table class="mt det"><thead><tr><th>P</th><th class="num">WMS 수량</th><th class="num">업체 수량</th><th>업체 생산일시</th><th>업체 P번호</th><th>판정</th><th>점검</th><th>사진</th><th>투입</th><th>관리</th></tr></thead><tbody>
       ${records.map((r) => `<tr class="lv-${r.level}"><td data-l="Pallet">${r.can && r.can.del ? `<input type="checkbox" class="dsel" data-dsel="${esc(r.id)}" aria-label="P${esc(r.pallet)} 선택"> ` : ''}<b>P${esc(r.pallet || '?')}</b><div class="muted">${esc(r.atText.slice(5))} ${esc(r.inspector)}</div></td>
         <td class="num" data-l="WMS 수량">${fmt(r.qty)}</td><td class="num" data-l="업체 수량">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td>
-        <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${r.vendorProdDate && !r.vendorProdTime ? '<span class="muted">시간 ?</span>' : esc(r.vendorProdTime)}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
+        <td data-l="업체 생산일시" class="${r.vendorProdDate ? '' : 'e'}">${esc(r.vendorProdDate)} ${esc(r.vendorProdTime || '')}</td><td data-l="업체 P번호" class="${r.vendorPalletNo ? '' : 'e'}">${esc(r.vendorPalletNo || '-')}</td>
         <td data-l="판정">${R.pill(/적합/.test(r.finalResult) ? 'ok' : 'warn', r.finalResult || '-')}</td>
         <td data-l="점검" class="${r.issues.some((x) => x.level !== 'info') ? 'wide2' : 'e'}">${r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<div class="muted"><s>${esc(x.label)}</s> 확인됨 · ${esc(x.acked.by)} · ${esc(x.acked.reason)}</div>` : `<div class="iss-${x.level}">${esc(x.label)}</div>`).join('') || '<span class="muted">-</span>'}${R.isManager() && r.issues.some((x) => x.level !== 'info' && !x.acked) ? `<button type="button" class="btn ghost sm" data-dack="${esc(r.id)}">확인 처리</button>` : ''}</td>
         <td data-l="사진">${r.wmsPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.wmsPhoto)}" data-at="${esc(r.at)}" data-who="${esc(r.inspector||'')}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} WMS">WMS</button>` : ''}${r.vendorPhoto ? `<button type="button" class="btn ghost sm" data-ph="${esc(r.vendorPhoto)}" data-at="${esc(r.at)}" data-who="${esc(r.inspector||'')}" data-cap="${esc(s.inboundNo)} P${esc(r.pallet)} 업체">업체</button>` : ''}</td>
         <td data-l="투입" class="${r.usedIn.length ? '' : 'e'}">${r.usedIn.map((u) => esc(u.productName + ' ' + u.lotNo)).join('<br>') || '<span class="muted">-</span>'}</td>
         <td data-l="관리" class="wide2">${R.rec.actionsHtml(r)}${r.can && !r.can.edit && r.can.why && R.user && r.inspector === R.user.name ? `<div class="muted small">${esc(r.can.why)}</div>` : ''}</td></tr>`).join('')}
       </tbody></table></div>
+      <div id="detFixBox"></div>
       <div id="detGallery"></div>
     </section>`;
     $('detBack').onclick = () => { P.detail = null; renderBody(); };
     $('detPrint').onclick = () => printInbounds([s.inboundNo]);
     $('detPhotos').onclick = () => gallery(records, $('detGallery'), s.inboundNo);
+    if ($('detFix')) $('detFix').onclick = () => fixPanel(fixable(records), $('detFixBox'));
     bindPhotoButtons(root);
     R.rec.bind(root, records, afterChange);
     root.querySelectorAll('[data-dack]').forEach((b) => { b.onclick = () => { const r = records.find((x) => x.id === b.dataset.dack); R.rec.ack([r], [], r.issues.filter((x) => x.level !== 'info' && !x.acked).map((x) => x.label).join(', '), afterChange); }; });
@@ -266,6 +268,35 @@
     if (delBtn) delBtn.onclick = () => R.rec.delMany(records.filter((r) => boxes.some((b) => b.checked && b.dataset.dsel === r.id)), afterChange);
   }
 
+  // 업체 라벨 보완: 시간(손글씨)·P번호를 못 읽은 Pallet를 사진 보고 한 번에 채운다. 고친 값은 이력에 남고, 사진·OCR 원문과 짝지어 나중에 인식 개선(학습) 정답으로 쓴다.
+  const canF = (r, k) => r.can && r.can.edit && (r.can.fields || []).indexOf(k) >= 0;
+  function fixable(records) { return records.filter((r) => r.vendorPhoto && ((!r.vendorProdTime && canF(r, 'vendorProdTime')) || (!r.vendorPalletNo && canF(r, 'vendorPalletNo')))); }
+  const normTime = (v) => { const d = String(v || '').replace(/[^0-9]/g, ''); if (!d) return ''; const hh = d.length <= 2 ? d : d.slice(0, d.length - 2), mm = d.length <= 2 ? '00' : d.slice(-2); return +hh < 24 && +mm < 60 ? ('0' + +hh).slice(-2) + ':' + mm : null; };
+  async function fixPanel(list, box) {
+    box.innerHTML = '<div class="muted pad">사진 불러오는 중…</div>';
+    const m = await R.loadPhotos(list.map((r) => r.vendorPhoto));
+    box.innerHTML = `<div class="fixp"><div class="sub">사진을 보고 빈칸만 채우세요. 시간은 0630처럼 숫자만 넣어도 됩니다. 사진을 누르면 크게 보입니다.</div>
+      ${list.map((r) => `<div class="fixc" data-fx="${esc(r.id)}">${m[r.vendorPhoto] ? `<img src="${m[r.vendorPhoto]}" alt="P${esc(r.pallet)} 업체">` : '<div class="noimg">사진 없음</div>'}
+        <div class="fixf"><b>P${esc(r.pallet)}</b> <span class="muted">${esc(r.vendorProdDate || '')}</span>
+          ${!r.vendorProdTime && canF(r, 'vendorProdTime') ? `<label>생산 시간<input class="inp" data-k="vendorProdTime" inputmode="numeric" placeholder="06:30"></label>` : ''}
+          ${!r.vendorPalletNo && canF(r, 'vendorPalletNo') ? `<label>업체 P번호<input class="inp" data-k="vendorPalletNo" inputmode="numeric" placeholder="예: 382"></label>` : ''}
+          <button type="button" class="btn sm" data-fxsave>저장</button></div></div>`).join('')}
+      <div class="right"><button type="button" class="btn ghost sm" id="fixDone">다 했어요 (목록 새로고침)</button></div></div>`;
+    box.querySelectorAll('.fixc img').forEach((im) => { im.onclick = () => R.photoViewer(im.src, im.alt); });
+    box.querySelectorAll('[data-fxsave]').forEach((b) => { b.onclick = async () => {
+      const card = b.closest('[data-fx]'), changes = {};
+      for (const i of card.querySelectorAll('[data-k]')) {
+        const v = i.dataset.k === 'vendorProdTime' ? normTime(i.value) : i.value.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+        if (v === null) return R.toast('시간을 다시 확인하세요 (예: 0630)', 'warn');
+        if (v) changes[i.dataset.k] = v;
+      }
+      if (!Object.keys(changes).length) return R.toast('채운 값이 없습니다', 'warn');
+      R.busy(b, true, '…'); const res = await R.tryPost('r15RecordEdit', { id: card.dataset.fx, reason: '업체 라벨 보완(사진 보고 입력)', changes }); R.busy(b, false);
+      if (res && res.ok) { card.classList.add('done'); b.textContent = '✓ 저장됨'; b.disabled = true; }
+    }; });
+    $('fixDone').onclick = () => afterChange();
+    box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
   function bindPhotoButtons(root) {
     root.querySelectorAll('[data-ph]').forEach((b) => { b.onclick = async () => { R.busy(b, true, '…'); const m = await R.loadPhotos([b.dataset.ph]); R.busy(b, false); if (m[b.dataset.ph]) { const at = Number(b.dataset.at), src = at && !(await R.hasStamp(m[b.dataset.ph])) ? (await R.shrink(m[b.dataset.ph], 1400, 0.8, [R.photoStamp('', at)[0], [/WMS$/.test(b.dataset.cap) ? 'WMS 라벨' : '업체 라벨', b.dataset.who, '기록 저장 시각'].filter(Boolean).join(' · ')])) || m[b.dataset.ph] : m[b.dataset.ph]; R.photoViewer(src, b.dataset.cap); } else R.toast('사진을 불러오지 못했습니다', 'crit'); }; });
   }
@@ -291,7 +322,7 @@
   const shortAt = (t) => String(t || '').replace(/^\d{4}-/, '');
   function sheetHtml(s, recs, ph, mode) {
     const issueHtml = (r) => r.issues.filter((x) => x.level !== 'info').map((x) => x.acked ? `<span class="ack">${esc(x.label)} → 확인: ${esc(x.acked.reason || '')}</span>` : `<span class="${x.level === 'error' ? 'bad' : 'warn'}">${esc(x.label)}</span>`).join('<br>');
-    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))} ${r.vendorProdDate && !r.vendorProdTime ? '<span class="ack">시간 ?</span>' : esc(r.vendorProdTime || '')}</td><td class="c">${esc(r.vendorPalletNo || '-')}</td>
+    const rows = recs.map((r) => `<tr class="${needsLook(r) ? 'look' : ''}"><td class="c">P${esc(r.pallet || '?')}</td><td class="nw">${esc(shortAt(r.atText))}</td><td class="num">${fmt(r.qty)}</td><td class="num">${r.vendorQty ? fmt(r.vendorQty) : '-'}</td><td class="nw">${esc(shortAt(r.vendorProdDate))} ${esc(r.vendorProdTime || '')}</td><td class="c">${esc(r.vendorPalletNo || '-')}</td>
       <td class="nw c ${/적합/.test(r.finalResult) ? '' : 'bad'}">${esc(r.finalResult)}</td><td>${issueHtml(r)}</td><td>${r.usedIn.map((u) => `${esc(u.productName)} <b>${esc(u.lotNo)}</b>`).join('<br>')}</td></tr>`).join('');
     const pick = mode === 'issues' ? recs.filter(needsLook) : recs, per = mode === 'large' ? 3 : 8, big = mode === 'large';
     const fig = (r, t, u) => `<figure>${u && ph && ph[u] ? `<img src="${ph[u]}">` : '<div class="noimg">사진 없음</div>'}<figcaption>P${esc(r.pallet)} ${t}</figcaption></figure>`;
