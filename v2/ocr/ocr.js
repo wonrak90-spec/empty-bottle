@@ -95,7 +95,9 @@
       catch (e) { console.warn('[R15 OCR] adaptive', e); }
     }
     // 업체 생산일은 읽었는데 손글씨 시간만 못 읽었으면: 날짜 글자 오른쪽만 잘라 크게 키워 한 번 더 읽는다
-    if (mode === 'vendor' && parsed && parsed.prodDate && !parsed.prodTime) {
+    // 동화 손글씨 시간은 확대해 다시 읽어도 거의 못 읽는다(정답 211건 중 2건): 한 번 더 읽느라 저장이 늦어지므로 건너뛴다
+    const handTime = mode === 'vendor' && window.V55VendorParser && V55VendorParser.detect && V55VendorParser.detect(base.text, base.items || []) === '동화지앤피' && !/동아\s*에코|P\s*\/\s*L/i.test(String(base.text || ''));
+    if (mode === 'vendor' && parsed && parsed.prodDate && !parsed.prodTime && !handTime) {
       try { const tm = await timeRoi(dataUrl, base.items || [], KO); if (tm) { parsed = Object.assign({}, parsed, { prodTime: tm }); method += '+time'; } } catch (e) { console.warn('[R15 OCR] time', e); }
     }
     O.lastEngine = '기기 OCR';

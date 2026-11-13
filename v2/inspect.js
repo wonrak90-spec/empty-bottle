@@ -16,6 +16,8 @@
   // Pallet 입력(cur)마다 '글자 읽는 중'과 그 작업(Promise)을 따로 둔다: 저장 뒤에도 앞 Pallet 인식이 이어질 수 있다
   const BZ = new WeakMap();
   const busyOf = (c) => { let x = c && BZ.get(c); if (!x) { x = { wms: false, vendor: false, prep: 0, jobs: [] }; if (c) BZ.set(c, x); } return x; };
+  // 동화 손글씨 시간: 못 읽어도 검수 중에 입력을 재촉하지 않는다 (나중에 보고서 '업체 라벨 보완'에서 사진 보고 입력)
+  const handTimeOf = (c) => /동화/.test(String((c && c.supplier) || (S.base && S.base.supplier) || '')) && !/동아\s*에코|P\s*\/\s*L/i.test(String((c && c.vOcrRaw) || ''));
   const reading = (c) => { const x = busyOf(c); return x.wms || x.vendor; };
   const AUTO = 'r15.autocam'; const autoCam = () => { try { return localStorage.getItem(AUTO) !== '0'; } catch (_) { return true; } };
 
@@ -85,7 +87,7 @@
     else if (c.vendorDone && !busyOf(c).vendor) {
       // 화면 안내만 하고 기록의 '확인' 사유에는 넣지 않는다 (서버가 따로 점검한다)
       if (!c.vDate) out.push({ ok: false, label: '업체 생산일 못 읽음 · 숫자 4자리로 입력 (예: 1015)', hard: false, soft: true });
-      else if (!c.vTime) out.push({ ok: false, label: '업체 생산시간(손글씨) 못 읽음 · 숫자로 입력 (예: 1710)', hard: false, soft: true });
+      else if (!c.vTime && !handTimeOf(c)) out.push({ ok: false, label: '업체 생산시간(손글씨) 못 읽음 · 숫자로 입력 (예: 1710)', hard: false, soft: true });
     }
     const ss = c.pallet ? savedState(Number(c.pallet), selfJob) : '';
     // 대기열에 아직 있는 번호(전송 중·확인 필요)도 같은 번호를 두 번 넣는 실수다
@@ -159,7 +161,7 @@
           ${field('cItem', '품목코드', c.itemCode, { num: true })}
           ${field('cQty', 'WMS 수량', c.qty, { num: true })}
           ${field('cVDate', '업체 생산일자', c.vDate, { ph: '1015 처럼 숫자만', num: true, cls: 'key' + (c.vendorDone && !c.vDate ? ' need' : '') })}
-          ${field('cVTime', '업체 생산시간', c.vTime, { ph: '1710 처럼 숫자만', num: true, cls: 'key' + (c.vendorDone && !c.vTime ? ' need' : '') })}
+          ${field('cVTime', '업체 생산시간', c.vTime, { ph: '1710 처럼 숫자만', num: true, cls: 'key' + (c.vendorDone && !c.vTime && !handTimeOf(c) ? ' need' : '') })}
           ${field('cVPallet', '업체 P-번호', c.vPallet, { num: true, cls: 'key' + (c.vendorDone && !c.vPallet ? ' need' : '') })}
           ${field('cVQty', '업체 수량', c.vQty, { num: true })}
           ${field('cVProduct', '업체 품명', c.vProduct, { ph: '등록된 품명과 맞을 때만 채워짐' })}
